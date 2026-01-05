@@ -13,8 +13,7 @@ use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\Title\TitleValue;
 use MediaWiki\User\User;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
+use MediaWiki\Watchlist\WatchedItemQueryService;
 
 /**
  * @group API
@@ -310,7 +309,7 @@ class ApiQueryRecentChangesIntegrationTest extends ApiTestCase {
 		$this->disableAutoCreateTempUser();
 		$result = $this->doListRecentChangesRequest( [
 			'rcprop' => 'user',
-			'rcshow' => '!anon',
+			'rcshow' => WatchedItemQueryService::FILTER_NOT_ANON,
 		] );
 		$this->assertEquals(
 			[
@@ -579,11 +578,11 @@ class ApiQueryRecentChangesIntegrationTest extends ApiTestCase {
 
 		$resultAnon = $this->doListRecentChangesRequest( [
 			'rcprop' => 'user',
-			'rcshow' => 'anon'
+			'rcshow' => WatchedItemQueryService::FILTER_ANON
 		] );
 		$resultNotAnon = $this->doListRecentChangesRequest( [
 			'rcprop' => 'user',
-			'rcshow' => '!anon'
+			'rcshow' => WatchedItemQueryService::FILTER_NOT_ANON
 		] );
 
 		$items = $this->getItemsFromRecentChangesResult( $resultAnon );
@@ -682,9 +681,10 @@ class ApiQueryRecentChangesIntegrationTest extends ApiTestCase {
 
 		$rc = new RecentChange;
 		$rc->mAttribs = [
-			'rc_timestamp' => ConvertibleTimestamp::now( TS::MW ),
+			'rc_timestamp' => wfTimestamp( TS_MW ),
 			'rc_namespace' => $title->getNamespace(),
 			'rc_title' => $title->getDBkey(),
+			'rc_type' => RC_EXTERNAL,
 			'rc_source' => 'external',
 			'rc_minor' => 0,
 			'rc_cur_id' => $title->getArticleID(),

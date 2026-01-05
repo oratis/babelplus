@@ -21,7 +21,7 @@ class PageEditStashContents implements JsonCodecable {
 	public function __construct(
 		public readonly Content $pstContent,
 		public readonly ParserOutput $output,
-		/** TS::MW */
+		/** TS_MW */
 		public readonly string $timestamp,
 		public readonly ?int $edits,
 	) {

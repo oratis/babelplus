@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Export\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Revision\RevisionRecord;
 use stdClass;
@@ -28,6 +28,3 @@ interface XmlDumpWriterWriteRevisionHook {
 	 */
 	public function onXmlDumpWriterWriteRevision( $obj, &$out, $row, $text, $rev );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( XmlDumpWriterWriteRevisionHook::class, 'MediaWiki\\Hook\\XmlDumpWriterWriteRevisionHook' );

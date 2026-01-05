@@ -12,7 +12,6 @@ use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\RevisionStoreRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Storage\BlobStore;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
@@ -60,7 +59,7 @@ class FindBadBlobs extends Maintenance {
 				. ', please provide time and date down to the second.' );
 		}
 
-		$ts = wfTimestamp( TS::MW, $tsOpt );
+		$ts = wfTimestamp( TS_MW, $tsOpt );
 		if ( !$ts ) {
 			$this->fatalError( 'Bad timestamp: ' . $tsOpt );
 		}
@@ -75,7 +74,7 @@ class FindBadBlobs extends Maintenance {
 				. ', please provide time and date down to the second.' );
 		}
 
-		$ts = wfTimestamp( TS::MW, $tsOpt );
+		$ts = wfTimestamp( TS_MW, $tsOpt );
 		if ( !$ts ) {
 			$this->fatalError( 'Bad timestamp: ' . $tsOpt );
 		}

@@ -10,7 +10,6 @@ use MediaWiki\Http\Telemetry;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\PageReferenceValue;
 use UnexpectedValueException;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Job queue task description base code.
@@ -103,7 +102,7 @@ class JobSpecification implements IJobSpecification {
 	/** @inheritDoc */
 	public function getReleaseTimestamp() {
 		return isset( $this->params['jobReleaseTimestamp'] )
-			? wfTimestampOrNull( TS::UNIX, $this->params['jobReleaseTimestamp'] )
+			? wfTimestampOrNull( TS_UNIX, $this->params['jobReleaseTimestamp'] )
 			: null;
 	}
 

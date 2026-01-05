@@ -4,9 +4,6 @@
  * @copyright Copyright © 2012, Santhosh Thottingal
  * @file
  */
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
 
 /**
  * Tests for Armenian (Հայերեն)

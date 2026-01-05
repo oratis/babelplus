@@ -1,8 +1,6 @@
 <?php
-namespace MediaWiki\Tests\Language;
 
 use MediaWiki\MainConfigNames;
-use MediaWikiLangTestCase;
 
 /**
  * @group Language

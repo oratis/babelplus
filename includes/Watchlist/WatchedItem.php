@@ -8,7 +8,7 @@
 namespace MediaWiki\Watchlist;
 
 use MediaWiki\Linker\LinkTarget;
-use MediaWiki\Page\PageReference;
+use MediaWiki\Page\PageIdentity;
 use MediaWiki\RecentChanges\RecentChange;
 use MediaWiki\Title\TitleValue;
 use MediaWiki\User\UserIdentity;
@@ -16,7 +16,6 @@ use MediaWiki\Utils\MWTimestamp;
 use MessageLocalizer;
 use Wikimedia\ParamValidator\TypeDef\ExpiryDef;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Representation of a pair of user and title for watchlist entries.
@@ -28,7 +27,7 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  */
 class WatchedItem {
 	/**
-	 * @var PageReference
+	 * @var LinkTarget|PageIdentity deprecated LinkTarget since 1.36
 	 */
 	private $target;
 
@@ -49,11 +48,6 @@ class WatchedItem {
 	private $expiry;
 
 	/**
-	 * @var WatchlistLabel[]
-	 */
-	private $labels;
-
-	/**
 	 * Used to calculate how many days are remaining until a watched item will expire.
 	 * Uses a different algorithm from Language::getDurationIntervals for calculating
 	 * days remaining in an interval of time
@@ -64,17 +58,15 @@ class WatchedItem {
 
 	/**
 	 * @param UserIdentity $user
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 * @param bool|null|string $notificationTimestamp the value of the wl_notificationtimestamp field
 	 * @param null|string $expiry Optional expiry timestamp in any format acceptable to wfTimestamp()
-	 * @param WatchlistLabel[] $labels
 	 */
 	public function __construct(
 		UserIdentity $user,
-		PageReference $target,
+		$target,
 		$notificationTimestamp,
-		?string $expiry = null,
-		array $labels = []
+		?string $expiry = null
 	) {
 		$this->user = $user;
 		$this->target = $target;
@@ -87,8 +79,6 @@ class WatchedItem {
 		if ( $this->expiry === 'infinity' ) {
 			$this->expiry = null;
 		}
-
-		$this->labels = $labels;
 	}
 
 	/**
@@ -118,12 +108,14 @@ class WatchedItem {
 	 * @deprecated since 1.36, use getTarget() instead
 	 */
 	public function getLinkTarget() {
-		wfDeprecated( __METHOD__, '1.36' );
-		return TitleValue::newFromPage( $this->getTarget() );
+		if ( !$this->target instanceof LinkTarget ) {
+			return TitleValue::newFromPage( $this->target );
+		}
+		return $this->getTarget();
 	}
 
 	/**
-	 * @return PageReference
+	 * @return LinkTarget|PageIdentity deprecated returning LinkTarget since 1.36
 	 * @since 1.36
 	 */
 	public function getTarget() {
@@ -143,11 +135,11 @@ class WatchedItem {
 	 * When the watched item will expire.
 	 *
 	 * @since 1.35
-	 * @param int|TS|null $style Given timestamp format to style the ConvertibleTimestamp
-	 * @return string|null null or in a format acceptable to ConvertibleTimestamp (TS::* constants).
-	 *  Default is TS::MW format.
+	 * @param int|null $style Given timestamp format to style the ConvertibleTimestamp
+	 * @return string|null null or in a format acceptable to ConvertibleTimestamp (TS_* constants).
+	 *  Default is TS_MW format.
 	 */
-	public function getExpiry( int|TS|null $style = TS::MW ) {
+	public function getExpiry( ?int $style = TS_MW ) {
 		return $this->expiry instanceof ConvertibleTimestamp
 			? $this->expiry->getTimestamp( $style )
 			: $this->expiry;
@@ -194,8 +186,8 @@ class WatchedItem {
 			return null;
 		}
 
-		$unixTimeExpiry = (int)MWTimestamp::convert( TS::UNIX, $expiry );
-		$diffInSeconds = $unixTimeExpiry - (int)ConvertibleTimestamp::now( TS::UNIX );
+		$unixTimeExpiry = (int)MWTimestamp::convert( TS_UNIX, $expiry );
+		$diffInSeconds = $unixTimeExpiry - (int)wfTimestamp( TS_UNIX );
 		$diffInDays = $diffInSeconds / self::SECONDS_IN_A_DAY;
 
 		if ( $diffInDays < 1 ) {
@@ -233,16 +225,6 @@ class WatchedItem {
 		}
 
 		return $msgLocalizer->msg( 'watchlist-expiring-days-full-text' )->numParams( $expiryInDays )->text();
-	}
-
-	/**
-	 * Get labels associated with a watched item
-	 *
-	 * @since 1.46
-	 * @return WatchlistLabel[]
-	 */
-	public function getLabels(): array {
-		return $this->labels;
 	}
 }
 /** @deprecated class alias since 1.43 */

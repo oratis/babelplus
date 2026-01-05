@@ -1,8 +1,6 @@
 <?php
-namespace MediaWiki\Tests\Integration\Specials;
 
 use MediaWiki\Specials\SpecialRandomPage;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\TestingAccessWrapper;
 
 /**

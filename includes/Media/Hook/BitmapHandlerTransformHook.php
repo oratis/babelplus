@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Media\Hook;
+namespace MediaWiki\Hook;
 
 use MediaTransformOutput;
 use MediaWiki\FileRepo\File\File;
@@ -30,6 +30,3 @@ interface BitmapHandlerTransformHook {
 		&$mto
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( BitmapHandlerTransformHook::class, 'MediaWiki\\Hook\\BitmapHandlerTransformHook' );

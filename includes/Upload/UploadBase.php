@@ -7,10 +7,6 @@
  * @ingroup Upload
  */
 
-namespace MediaWiki\Upload;
-
-use InvalidArgumentException;
-use LogicException;
 use MediaWiki\Api\ApiMessage;
 use MediaWiki\Api\ApiResult;
 use MediaWiki\Api\ApiUpload;
@@ -30,10 +26,9 @@ use MediaWiki\Permissions\PermissionStatus;
 use MediaWiki\Request\WebRequest;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\Title;
-use MediaWiki\Upload\Exception\UploadStashException;
+use MediaWiki\Upload\UploadVerification;
 use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
-use MWFileProps;
 use Wikimedia\FileBackend\FileBackend;
 use Wikimedia\FileBackend\FSFile\FSFile;
 use Wikimedia\FileBackend\FSFile\TempFSFile;
@@ -119,12 +114,6 @@ abstract class UploadBase {
 		self::FILENAME_TOO_LONG => 'filename-toolong',
 	];
 
-	private const CORE_UPLOAD_HANDLERS = [
-		'Stash' => UploadFromStash::class,
-		'File' => UploadFromFile::class,
-		'Url' => UploadFromUrl::class,
-	];
-
 	/**
 	 * @param int $error
 	 * @return string
@@ -167,7 +156,7 @@ abstract class UploadBase {
 	 * Returns true if the user has surpassed the upload rate limit, false otherwise.
 	 *
 	 * @deprecated since 1.41, use authorizeUpload() instead.
-	 *  Rate limit checks are now implicit in permission checks.
+	 * Rate limit checks are now implicit in permission checks.
 	 *
 	 * @param User $user
 	 * @return bool
@@ -176,6 +165,9 @@ abstract class UploadBase {
 		wfDeprecated( __METHOD__, '1.41' );
 		return $user->pingLimiter( 'upload' );
 	}
+
+	/** @var string[] Upload handlers. Should probably just be a configuration variable. */
+	private static $uploadHandlers = [ 'Stash', 'File', 'Url' ];
 
 	/**
 	 * Create a form of UploadBase depending on wpSourceType and initializes it.
@@ -195,18 +187,17 @@ abstract class UploadBase {
 		$type = ucfirst( $type );
 
 		// Give hooks the chance to handle this request
-		/** @var class-string<self>|null $className */
+		/** @var self|null $className */
 		$className = null;
 		( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )
 			// @phan-suppress-next-line PhanTypeMismatchArgument Type mismatch on pass-by-ref args
 			->onUploadCreateFromRequest( $type, $className );
 		if ( $className === null ) {
-			if ( !isset( self::CORE_UPLOAD_HANDLERS[$type] ) ) {
-				wfDebug( __METHOD__ . ": no class name for $type" );
+			$className = 'UploadFrom' . $type;
+			wfDebug( __METHOD__ . ": class name: $className" );
+			if ( !in_array( $type, self::$uploadHandlers ) ) {
 				return null;
 			}
-			$className = self::CORE_UPLOAD_HANDLERS[$type];
-			wfDebug( __METHOD__ . ": class name: $className" );
 		}
 
 		if ( !$className::isEnabled() || !$className::isValidRequest( $request ) ) {
@@ -341,7 +332,7 @@ abstract class UploadBase {
 		if ( $this->mFileProps && is_string( $this->mFileProps['sha1'] ) ) {
 			return $this->mFileProps['sha1'];
 		}
-		return $this->mTempPath !== '' ? FSFile::getSha1Base36FromPath( $this->mTempPath ) : false;
+		return FSFile::getSha1Base36FromPath( $this->mTempPath );
 	}
 
 	/**
@@ -733,7 +724,7 @@ abstract class UploadBase {
 	}
 
 	/**
-	 * @param int|null $fileSize
+	 * @param int $fileSize
 	 *
 	 * @return array warnings
 	 */
@@ -743,14 +734,14 @@ abstract class UploadBase {
 
 		$warnings = [];
 
-		if ( $uploadSizeWarning && $fileSize !== null && $fileSize > $uploadSizeWarning ) {
+		if ( $uploadSizeWarning && ( $fileSize > $uploadSizeWarning ) ) {
 			$warnings['large-file'] = [
 				Message::sizeParam( $uploadSizeWarning ),
 				Message::sizeParam( $fileSize ),
 			];
 		}
 
-		if ( $fileSize === 0 ) {
+		if ( $fileSize == 0 ) {
 			$warnings['empty-file'] = true;
 		}
 
@@ -1101,17 +1092,6 @@ abstract class UploadBase {
 	}
 
 	/**
-	 * Check, if stash file attempt should be skipped,
-	 * for example when the file is already known to stash.
-	 *
-	 * @since 1.46
-	 * @stable to override
-	 */
-	public function skipStashFileAttempt(): bool {
-		return $this->getStashFile() !== null;
-	}
-
-	/**
 	 * @param User $user
 	 * @return array|null Error message and parameters, null if there's no error
 	 */
@@ -1415,9 +1395,9 @@ abstract class UploadBase {
 		$partname = $n ? substr( $filename, 0, $n ) : $filename;
 
 		return (
-				substr( $partname, 3, 3 ) === 'px-' ||
-				substr( $partname, 2, 3 ) === 'px-'
-			) && preg_match( "/[0-9]{2}/", substr( $partname, 0, 2 ) );
+			substr( $partname, 3, 3 ) === 'px-' ||
+			substr( $partname, 2, 3 ) === 'px-'
+		) && preg_match( "/[0-9]{2}/", substr( $partname, 0, 2 ) );
 	}
 
 	/**
@@ -1515,15 +1495,15 @@ abstract class UploadBase {
 				}
 				'@phan-var string[] $bannedTypes';
 				return UploadVerificationStatus::newFatal(
-					'filetype-banned-type',
-					Message::listParam( $bannedTypes, ListType::COMMA ),
-					Message::listParam( $extensions, ListType::COMMA ),
-					count( $extensions ),
-					// Add PLURAL support for the first parameter. This results
-					// in a bit unlogical parameter sequence, but does not break
-					// old translations
-					count( $bannedTypes )
-				)
+						'filetype-banned-type',
+						Message::listParam( $bannedTypes, ListType::COMMA ),
+						Message::listParam( $extensions, ListType::COMMA ),
+						count( $extensions ),
+						// Add PLURAL support for the first parameter. This results
+						// in a bit unlogical parameter sequence, but does not break
+						// old translations
+						count( $bannedTypes )
+					)
 					->setApiCode( 'filetype-banned' )
 					->setApiData( $extradata );
 
@@ -1677,6 +1657,3 @@ abstract class UploadBase {
 		return MediaWikiServices::getInstance()->getMainObjectStash();
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UploadBase::class, 'UploadBase' );

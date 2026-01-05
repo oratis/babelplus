@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Export\Hook;
+namespace MediaWiki\Hook;
 
 use Wikimedia\Rdbms\IReadableDatabase;
 
@@ -33,6 +33,3 @@ interface ModifyExportQueryHook {
 		&$join_conds, &$conds
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ModifyExportQueryHook::class, 'MediaWiki\\Hook\\ModifyExportQueryHook' );

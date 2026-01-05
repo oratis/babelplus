@@ -65,7 +65,6 @@ use Wikimedia\Parsoid\Core\LinkTarget as ParsoidLinkTarget;
 use Wikimedia\Parsoid\Core\TOCData;
 use Wikimedia\Rdbms\IResultWrapper;
 use Wikimedia\RelPath;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 use Wikimedia\WrappedString;
 use Wikimedia\WrappedStringList;
 
@@ -878,7 +877,7 @@ class OutputPage extends ContextSource {
 			return false;
 		}
 
-		$timestamp = wfTimestamp( TS::MW, $timestamp );
+		$timestamp = wfTimestamp( TS_MW, $timestamp );
 		$modifiedTimes = [
 			'page' => $timestamp,
 			'user' => $this->getUser()->getTouched(),
@@ -890,14 +889,14 @@ class OutputPage extends ContextSource {
 			// change (site configuration, default preferences, skin HTML, interface messages,
 			// URLs to other files and services) and must roll-over in a timely manner (T46570)
 			$modifiedTimes['sepoch'] = wfTimestamp(
-				TS::MW,
+				TS_MW,
 				time() - $config->get( MainConfigNames::CdnMaxAge )
 			);
 		}
 		$this->getHookRunner()->onOutputPageCheckLastModified( $modifiedTimes, $this );
 
 		$maxModified = max( $modifiedTimes );
-		$this->mLastModified = wfTimestamp( TS::RFC2822, $maxModified );
+		$this->mLastModified = wfTimestamp( TS_RFC2822, $maxModified );
 
 		$clientHeader = $this->getRequest()->getHeader( 'If-Modified-Since' );
 		if ( $clientHeader === false ) {
@@ -918,7 +917,7 @@ class OutputPage extends ContextSource {
 				. ": unable to parse the client's If-Modified-Since header: $clientHeader" );
 			return false;
 		}
-		$clientHeaderTime = wfTimestamp( TS::MW, $clientHeaderTime );
+		$clientHeaderTime = wfTimestamp( TS_MW, $clientHeaderTime );
 
 		# Make debug info
 		$info = '';
@@ -926,13 +925,13 @@ class OutputPage extends ContextSource {
 			if ( $info !== '' ) {
 				$info .= ', ';
 			}
-			$info .= "$name=" . wfTimestamp( TS::ISO_8601, $value );
+			$info .= "$name=" . wfTimestamp( TS_ISO_8601, $value );
 		}
 
 		wfDebug( __METHOD__ . ': client sent If-Modified-Since: ' .
-			wfTimestamp( TS::ISO_8601, $clientHeaderTime ), 'private' );
+			wfTimestamp( TS_ISO_8601, $clientHeaderTime ), 'private' );
 		wfDebug( __METHOD__ . ': effective Last-Modified: ' .
-			wfTimestamp( TS::ISO_8601, $maxModified ), 'private' );
+			wfTimestamp( TS_ISO_8601, $maxModified ), 'private' );
 		if ( $clientHeaderTime < $maxModified ) {
 			wfDebug( __METHOD__ . ": STALE, $info", 'private' );
 			return false;
@@ -961,7 +960,7 @@ class OutputPage extends ContextSource {
 	 *        wfTimestamp()
 	 */
 	public function setLastModified( $timestamp ) {
-		$this->mLastModified = wfTimestamp( TS::RFC2822, $timestamp );
+		$this->mLastModified = wfTimestamp( TS_RFC2822, $timestamp );
 	}
 
 	/**
@@ -1781,7 +1780,7 @@ class OutputPage extends ContextSource {
 	/**
 	 * Ensure that the category lists are sorted, so that we don't
 	 * inadvertently depend on the exact evaluation order of various
-	 * ParserOutput fragments. Also, remove duplicates.
+	 * ParserOutput fragments.
 	 */
 	private function maybeSortCategories(): void {
 		if ( $this->mCategoriesSorted ) {
@@ -1801,9 +1800,6 @@ class OutputPage extends ContextSource {
 					$a['link'] <=> $b['link'];
 			} );
 		}
-		// Remove duplicate entries
-		$this->mCategoryData = array_values( array_unique( $this->mCategoryData, SORT_REGULAR ) );
-
 		// Rebuild mCategories and mCategoryLinks
 		$this->mCategories = [
 			'hidden' => [],
@@ -2661,16 +2657,9 @@ class OutputPage extends ContextSource {
 			$parserOptions = $this->internalParserOptions( false );
 		}
 		$poOptions ??= [];
-
-		/** @deprecated please postprocess then use ::addPostProcessedParserOutput() */
 		$text = $this->getParserOutputText( $parserOutput, $parserOptions, $poOptions );
 		$this->addParserOutputMetadata( $parserOutput );
 		$this->addParserOutputText( $text, $poOptions );
-	}
-
-	public function addPostProcessedParserOutput( ParserOutput $parserOutput ) {
-		$this->addParserOutputMetadata( $parserOutput );
-		$this->addParserOutputText( $parserOutput->getContentHolderText() );
 	}
 
 	/**
@@ -2839,7 +2828,7 @@ class OutputPage extends ContextSource {
 			return;
 		}
 
-		$age = MWTimestamp::time() - (int)wfTimestamp( TS::UNIX, $mtime );
+		$age = MWTimestamp::time() - (int)wfTimestamp( TS_UNIX, $mtime );
 		$adaptiveTTL = max( 0.9 * $age, $minTTL );
 		$adaptiveTTL = min( $adaptiveTTL, $maxTTL );
 
@@ -3206,7 +3195,7 @@ class OutputPage extends ContextSource {
 					if ( !$config->get( MainConfigNames::DebugRedirects ) ) {
 						$response->statusHeader( (int)$code );
 					}
-					$this->mLastModified = wfTimestamp( TS::RFC2822 );
+					$this->mLastModified = wfTimestamp( TS_RFC2822 );
 				}
 				if ( $config->get( MainConfigNames::VaryOnXFP ) ) {
 					$this->addVaryHeader( 'X-Forwarded-Proto' );
@@ -3287,7 +3276,7 @@ class OutputPage extends ContextSource {
 			if ( $skinOptions['format'] === 'json' ) {
 				$response->header( 'Content-type: application/json; charset=UTF-8' );
 				return json_encode( [
-					'@WARNING' => $this->msg( 'skin-json-warning-message' )->escaped()
+					$this->msg( 'skin-json-warning' )->escaped() => $this->msg( 'skin-json-warning-message' )->escaped()
 				] + $sk->getTemplateData() );
 			}
 			$response->header( 'Content-type: ' . $config->get( MainConfigNames::MimeType ) . '; charset=UTF-8' );
@@ -3380,8 +3369,6 @@ class OutputPage extends ContextSource {
 		} else {
 			$this->addWikiMsgArray( $msg, $params );
 		}
-
-		$this->addJsConfigVars( 'wgErrorPageMessageKey', is_string( $msg ) ? $msg : $msg->getKey() );
 
 		$this->returnToMain( null, $returnto, $returntoquery );
 	}
@@ -3921,15 +3908,6 @@ class OutputPage extends ContextSource {
 
 		$pieces[] = Html::openElement( 'body', $bodyAttrs );
 
-		// Add dedicated ARIA live region container for notifications to assistive technology users.
-		// Note that `aria-atomic="false"` and `aria-relevant="additions text"` are the default
-		// values and therefore not duplicated below.
-		$pieces[] = Html::rawElement( 'div', [
-			'id' => 'mw-aria-live-region',
-			'class' => 'mw-aria-live-region',
-			'aria-live' => 'polite',
-		], '' );
-
 		return self::combineWrappedStrings( $pieces );
 	}
 
@@ -4166,10 +4144,9 @@ class OutputPage extends ContextSource {
 			$vars['wgUserIsTemp'] = $user->isTemp();
 			$vars['wgUserEditCount'] = $user->getEditCount();
 			$userReg = $user->getRegistration();
-			$vars['wgUserRegistration'] = $userReg ? (int)wfTimestamp( TS::UNIX, $userReg ) * 1000 : null;
+			$vars['wgUserRegistration'] = $userReg ? (int)wfTimestamp( TS_UNIX, $userReg ) * 1000 : null;
 			$userFirstReg = $services->getUserRegistrationLookup()->getFirstRegistration( $user );
-			$vars['wgUserFirstRegistration'] = $userFirstReg ?
-				(int)wfTimestamp( TS::UNIX, $userFirstReg ) * 1000 : null;
+			$vars['wgUserFirstRegistration'] = $userFirstReg ? (int)wfTimestamp( TS_UNIX, $userFirstReg ) * 1000 : null;
 			// Get the revision ID of the oldest new message on the user's talk
 			// page. This can be used for constructing new message alerts on
 			// the client side.

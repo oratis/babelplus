@@ -15,7 +15,6 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Message\Message;
 use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @note Extensions should not subclass this, as MediaWiki currently does not
@@ -103,7 +102,7 @@ abstract class AbstractBlock implements Block {
 		if ( isset( $options['decodedTimestamp'] ) ) {
 			$this->setTimestamp( $options['decodedTimestamp'] );
 		} else {
-			$this->setTimestamp( wfTimestamp( TS::MW, $options['timestamp'] ) );
+			$this->setTimestamp( wfTimestamp( TS_MW, $options['timestamp'] ) );
 		}
 		$this->setHideName( (bool)$options['hideName'] );
 		$this->isHardblock( !$options['anonOnly'] );
@@ -207,7 +206,7 @@ abstract class AbstractBlock implements Block {
 	 * @param null|bool $x Value to set (if null, just get the property value)
 	 * @return bool Value of the property
 	 */
-	public function isEmailBlocked( $x = null ): bool {
+	public function isEmailBlocked( $x = null ) {
 		return wfSetVar( $this->blockEmail, $x );
 	}
 
@@ -454,7 +453,7 @@ abstract class AbstractBlock implements Block {
 	 *  and if the target is a User, the target's userpage is used
 	 * @return bool The user can edit their talk page
 	 */
-	public function appliesToUsertalk( ?Title $usertalk = null ): bool {
+	public function appliesToUsertalk( ?Title $usertalk = null ) {
 		if ( !$usertalk ) {
 			if ( $this->target instanceof BlockTargetWithUserPage ) {
 				$usertalk = Title::makeTitle(

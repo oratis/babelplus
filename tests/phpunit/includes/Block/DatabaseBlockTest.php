@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Block;
-
 use MediaWiki\Block\BlockRestrictionStore;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Block\Restriction\NamespaceRestriction;
@@ -13,12 +11,10 @@ use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWiki\User\UserNameUtils;
-use MediaWikiLangTestCase;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Rdbms\LBFactory;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -82,7 +78,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 	 * per T28425
 	 */
 	public function testT28425BlockTimestampDefaultsToTime() {
-		$madeAt = ConvertibleTimestamp::now( TS::MW );
+		$madeAt = wfTimestamp( TS_MW );
 		ConvertibleTimestamp::setFakeTime( $madeAt );
 
 		$user = $this->getUserForBlocking();
@@ -239,7 +235,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
-			'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 			'allowUsertalk' => true,
 			'sitewide' => true,
 		] );
@@ -264,7 +260,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
-			'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 			'allowUsertalk' => true,
 			'sitewide' => false,
 		] );
@@ -292,7 +288,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
-			'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 			'allowUsertalk' => true,
 			'sitewide' => true,
 		] );
@@ -314,7 +310,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
-			'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 			'allowUsertalk' => true,
 			'sitewide' => false,
 		] );
@@ -340,7 +336,7 @@ class DatabaseBlockTest extends MediaWikiLangTestCase {
 		$this->overrideConfigValue( MainConfigNames::BlockDisablesLogin, false );
 		$user = $this->getTestUser()->getUser();
 		$block = new DatabaseBlock( [
-			'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 			'allowUsertalk' => true,
 			'sitewide' => false,
 		] );

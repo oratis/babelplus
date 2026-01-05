@@ -10,6 +10,7 @@
 namespace Wikimedia\FileBackend;
 
 use InvalidArgumentException;
+use LockManager;
 use Shellbox\Command\BoxedCommand;
 use StatusValue;
 use Traversable;
@@ -26,13 +27,11 @@ use Wikimedia\FileBackend\FileOps\MoveFileOp;
 use Wikimedia\FileBackend\FileOps\NullFileOp;
 use Wikimedia\FileBackend\FileOps\StoreFileOp;
 use Wikimedia\FileBackend\FSFile\FSFile;
-use Wikimedia\LockManager\LockManager;
 use Wikimedia\MapCacheLRU\MapCacheLRU;
 use Wikimedia\ObjectCache\BagOStuff;
 use Wikimedia\ObjectCache\EmptyBagOStuff;
 use Wikimedia\ObjectCache\WANObjectCache;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @brief Base class for all backends using particular storage medium.
@@ -1518,7 +1517,7 @@ abstract class FileBackendStore extends FileBackend {
 
 	final public function clearCache( ?array $paths = null ) {
 		if ( is_array( $paths ) ) {
-			$paths = array_map( FileBackend::normalizeStoragePath( ... ), $paths );
+			$paths = array_map( [ FileBackend::class, 'normalizeStoragePath' ], $paths );
 			$paths = array_filter( $paths, 'strlen' ); // remove nulls
 		}
 		if ( $paths === null ) {
@@ -1935,7 +1934,7 @@ abstract class FileBackendStore extends FileBackend {
 		if ( $path === null ) {
 			return; // invalid storage path
 		}
-		$mtime = (int)ConvertibleTimestamp::convert( TS::UNIX, $val['mtime'] );
+		$mtime = (int)ConvertibleTimestamp::convert( TS_UNIX, $val['mtime'] );
 		$ttl = $this->wanStatCache->adaptiveTTL( $mtime, 7 * 86400, 300, 0.1 );
 		// Set the cache unless it is currently salted.
 		if ( !$this->wanStatCache->set( $this->fileCacheKey( $path ), $val, $ttl ) ) {

@@ -66,8 +66,6 @@ abstract class EditHandler extends ActionModuleBasedHandler {
 
 	/**
 	 * @inheritDoc
-	 * @phpcs:ignore Generic.Files.LineLength.TooLong
-	 * @param array{error?:string,edit?:array{result:string,title:string,newrevid:int,pageid:int,newtimestamp:string,contentmodel:string}} $data
 	 */
 	protected function mapActionModuleResult( array $data ) {
 		if ( isset( $data['error'] ) ) {
@@ -164,7 +162,7 @@ abstract class EditHandler extends ActionModuleBasedHandler {
 	protected function generateResponseSpec( string $method ): array {
 		$spec = parent::generateResponseSpec( $method );
 
-		$spec['201'][parent::OPENAPI_DESCRIPTION_KEY] = 'Created';
+		$spec['201'][parent::OPENAPI_DESCRIPTION_KEY] = 'OK';
 		$spec['201']['content']['application/json']['schema'] =
 			$spec['200']['content']['application/json']['schema'];
 

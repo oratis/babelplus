@@ -39,7 +39,6 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Wikimedia\DependencyStore\DependencyStore;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\TestingAccessWrapper;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @author Matthew Flaschen
@@ -657,7 +656,7 @@ class OutputPageTest extends MediaWikiIntegrationTestCase {
 				[ $lastModified, $lastModified, false, [ MainConfigNames::CachePages => false ] ],
 			'$wgCacheEpoch' =>
 				[ $lastModified, $lastModified, false,
-					[ MainConfigNames::CacheEpoch => wfTimestamp( TS::MW, $lastModified + 1 ) ] ],
+					[ MainConfigNames::CacheEpoch => wfTimestamp( TS_MW, $lastModified + 1 ) ] ],
 			'Recently-touched user' =>
 				[ $lastModified, $lastModified, false, [],
 				static function ( OutputPage $op, $testCase ) {
@@ -1349,43 +1348,6 @@ class OutputPageTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @dataProvider provideGetCategories
 	 */
-	public function testCategoryLinkDeduplication(
-		array $args, array $fakeResults, ?callable $variantLinkCallback,
-		array $expectedNormal, array $expectedHidden
-	) {
-		$expectedNormal = $this->extractExpectedCategories( $expectedNormal, 'dedup' );
-		$expectedHidden = $this->extractExpectedCategories( $expectedHidden, 'dedup' );
-
-		$op = $this->setupCategoryTests( $fakeResults, $variantLinkCallback );
-
-		$stubPO = $this->createParserOutputStub( [
-			'getCategoryMap' => $args,
-			'getLinkList' => static function ( $type ) use ( $args ) {
-				if ( $type !== ParserOutputLinkTypes::CATEGORY ) {
-					return [];
-				}
-				$result = [];
-				foreach ( $args as $cat => $sort ) {
-					$result[] = [
-						'link' => TitleValue::tryNew( NS_CATEGORY, $cat ),
-						'sort' => $sort,
-					];
-				}
-				return $result;
-			},
-		] );
-
-		// Add category links, then add parser output metadata which also adds the same category links
-		$op->addCategoryLinks( $args );
-		$op->addParserOutputMetadata( $stubPO );
-
-		$this->doCategoryAsserts( $op, $expectedNormal, $expectedHidden );
-		$this->doCategoryLinkAsserts( $op, $expectedNormal, $expectedHidden );
-	}
-
-	/**
-	 * @dataProvider provideGetCategories
-	 */
 	public function testOutputPageRenderCategoryLinkHook(
 		array $args, array $fakeResults, ?callable $variantLinkCallback,
 		array $expectedNormal, array $expectedHidden, array $expectedText
@@ -1535,7 +1497,9 @@ class OutputPageTest extends MediaWikiIntegrationTestCase {
 						$title = Title::makeTitleSafe( NS_CATEGORY, $link );
 					}
 				},
-				[ 'Test' ],
+				// For adding one by one, the variant gets added as well as the original category,
+				// but if you add them all together the second time gets skipped.
+				[ 'onebyone' => [ 'Test', 'Test' ], 'default' => [ 'Test' ] ],
 				[],
 				[ 'tseT' ],
 			],

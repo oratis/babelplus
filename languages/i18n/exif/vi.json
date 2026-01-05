@@ -1,9 +1,7 @@
 {
 	"@metadata": {
 		"authors": [
-			"Duongvu",
 			"Minh Nguyen",
-			"Nvdtn19",
 			"Prenn",
 			"Quenhitran",
 			"Vinhtantran"
@@ -381,6 +379,5 @@
 	"exif-exposurelockused-false": "Không",
 	"exif-poseheadingdegrees": "Hướng tư thế (độ)",
 	"exif-posepitchdegrees": "Độ dốc (độ)",
-	"exif-poserolldegrees": "Độ xoay (độ)",
-	"exif-digitalsourcetype-trainedalgorithmicmedia": "Được tạo bằng AI"
+	"exif-poserolldegrees": "Độ xoay (độ)"
 }

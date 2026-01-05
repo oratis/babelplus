@@ -18,7 +18,6 @@ use MediaWiki\Watchlist\WatchedItemStoreInterface;
 use MediaWiki\Watchlist\WatchlistManager;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\Rdbms\IDBAccessObject;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @ingroup API
@@ -79,7 +78,7 @@ class ApiUndelete extends ApiBase {
 			$params['timestamps'] = [ $params['timestamps'] ];
 		}
 		foreach ( $params['timestamps'] as $i => $ts ) {
-			$params['timestamps'][$i] = wfTimestamp( TS::MW, $ts );
+			$params['timestamps'][$i] = wfTimestamp( TS_MW, $ts );
 		}
 
 		$undeletePage = $this->undeletePageFactory->newUndeletePage(

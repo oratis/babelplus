@@ -4,8 +4,6 @@
  * @file
  */
 
-namespace MediaWiki\Gallery;
-
 use MediaWiki\Context\IContextSource;
 
 /**
@@ -32,6 +30,3 @@ class SlideshowImageGallery extends TraditionalImageGallery {
 		$this->mAttribs['data-showthumbnails'] = isset( $params['showthumbnails'] );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SlideshowImageGallery::class, 'SlideshowImageGallery' );

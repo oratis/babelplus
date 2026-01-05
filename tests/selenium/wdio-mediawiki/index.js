@@ -1,6 +1,4 @@
 import { mkdir } from 'fs/promises';
-import os from 'node:os';
-import process from 'node:process';
 
 /**
  * @since 1.1.0
@@ -59,16 +57,10 @@ async function startVideo( ffmpeg, title ) {
 		const { spawn } = await import( 'child_process' );
 		ffmpeg = spawn( 'ffmpeg', [
 			'-f', 'x11grab', //  grab the X11 display
-			'-video_size', `${ browser.options.capabilities[ 'mw:width' ] }x${ browser.options.capabilities[ 'mw:height' ] }`, // video size need to match our XVFB setup
-			'-framerate', '10', // Capture framerate is 10 fps
-			'-i', process.env.DISPLAY, // display used for input
-			'-draw_mouse', '0', // skip the mouse (do we need it?)
+			'-video_size', '1280x1024', // video size
+			'-i', process.env.DISPLAY, // input file url
 			'-loglevel', 'error', // log only errors
 			'-y', // overwrite output files without asking
-			'-an', // skip sound
-			'-c:v', 'libx264', // specify encoder
-			'-preset', 'ultrafast', // fastest preset, reduse CPU overhead, creates larger files
-			'-crf', '42', // 23 is default, higher number makes files smaller but lower quality
 			'-pix_fmt', 'yuv420p', // QuickTime Player support, "Use -pix_fmt yuv420p for compatibility with outdated media players"
 			videoPath // output file
 		] );
@@ -101,70 +93,9 @@ function stopVideo( ffmpeg ) {
 	}
 }
 
-async function logBrowserInformation( browser ) {
-	// Make sure we only log this once, maybe we can this smarter in the future
-	if ( process.env.WDIO_WORKER_ID !== '0-0' ) {
-		return;
-	}
-	const { browserName, browserVersion } = browser.capabilities;
-	const viewport = await browser.execute( () => ( {
-		// eslint-disable-next-line no-undef
-		width: window.innerWidth,
-		// eslint-disable-next-line no-undef
-		height: window.innerHeight
-	} ) );
-	console.log( `[Browser information] ${ browserName } ${ browserVersion } viewPort ${ viewport.width }x${ viewport.height }` );
-}
-
-function logSystemInformation() {
-	const bytesPerMegabyte = 1_000_000;
-	const bytesPerGigabyte = 1_000_000_000;
-
-	const formatMegabytesAndGigabytes = ( bytes ) => {
-		const megabytes = bytes / bytesPerMegabyte;
-		const gigabytes = bytes / bytesPerGigabyte;
-
-		if ( gigabytes >= 1 ) {
-			return `${ megabytes.toFixed( 1 ) } MB (${ gigabytes.toFixed( 2 ) } GB)`;
-		}
-
-		return `${ megabytes.toFixed( 1 ) } MB`;
-	};
-
-	const cores =
-		// eslint-disable-next-line n/no-unsupported-features/node-builtins
-		typeof os.availableParallelism === 'function' ?
-			// eslint-disable-next-line n/no-unsupported-features/node-builtins
-			os.availableParallelism() :
-			os.cpus().length;
-
-	const freeBytes = os.freemem();
-	const { rss } = process.memoryUsage();
-
-	// eslint-disable-next-line n/no-unsupported-features/node-builtins
-	const limit = typeof process.constrainedMemory === 'function' ?
-		// eslint-disable-next-line n/no-unsupported-features/node-builtins
-		process.constrainedMemory() :
-		0;
-
-	// If there's no limit set in the container, we got
-	// 18446744073709.6 MB that seems wrong
-	if ( limit > 0 && limit < 9000000000000000000 ) {
-		console.log(
-			`[System information] Memory limit (container): ${ formatMegabytesAndGigabytes( limit ) }`
-		);
-	}
-
-	console.log( `[System information] Memory (host): ${ formatMegabytesAndGigabytes( freeBytes ) } free` );
-	console.log( `[System information] RAM used by NodeJS ${ formatMegabytesAndGigabytes( rss ) }` );
-	console.log( `[System information] CPU: ${ cores } cores` );
-}
-
 export {
 	makeFilenameDate,
 	saveScreenshot,
 	startVideo,
-	stopVideo,
-	logSystemInformation,
-	logBrowserInformation
+	stopVideo
 };

@@ -1,10 +1,8 @@
 <?php
-namespace MediaWiki\Tests\Unit\Installer;
 
 use MediaWiki\Installer\DatabaseInstaller;
 use MediaWiki\Installer\Installer;
 use MediaWiki\Installer\LocalSettingsGenerator;
-use MediaWikiUnitTestCase;
 
 /**
  * @covers \MediaWiki\Installer\LocalSettingsGenerator

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Gallery\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -21,6 +21,3 @@ interface GalleryGetModesHook {
 	 */
 	public function onGalleryGetModes( &$modeArray );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( GalleryGetModesHook::class, 'MediaWiki\\Hook\\GalleryGetModesHook' );

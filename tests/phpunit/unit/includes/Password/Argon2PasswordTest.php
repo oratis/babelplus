@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Password;
-
 use MediaWiki\Password\Argon2Password;
 
 /**

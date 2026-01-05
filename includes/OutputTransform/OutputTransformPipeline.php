@@ -26,8 +26,9 @@ class OutputTransformPipeline {
 	 * 	applied. It is typically copied before applying transformations and is
 	 * hence not mutated by this method, but if $options['allowClone'] is
 	 * set it to false WILL be mutated!
-	 * @param ParserOptions $popts - will eventually replace options as container
-	 *    for transformation options.
+	 * @param ?ParserOptions $popts - will eventually replace options as container
+	 *    for transformation options.  Passing `null` has been deprecated since
+	 *    MW 1.46.
 	 * @param array $options Transformations to apply to the HTML
 	 *  - allowClone: (bool) Whether to clone the ParserOutput before
 	 *     applying transformations. Default is true.
@@ -60,34 +61,27 @@ class OutputTransformPipeline {
 	 *  - absoluteURLs: (bool) use absolute URLs in all links. Default: false
 	 *  - includeDebugInfo: (bool) render PP limit report in HTML. Default: false
 	 */
-	public function run( ParserOutput $in, ParserOptions $popts, array $options ): ParserOutput {
+	public function run( ParserOutput $in, ?ParserOptions $popts, array $options ): ParserOutput {
+		if ( $popts === null ) {
+			wfDeprecated( __METHOD__ . ' without ParserOptions', '1.45' );
+		}
 		// Initialize some $options from the ParserOutput
 		$options += [
 			'enableSectionEditLinks' => !$in->getOutputFlag( ParserOutputFlags::NO_SECTION_EDIT_LINKS ),
 			'wrapperDivClass' => $in->getWrapperDivClass(),
 		];
-		$oldWatcher = false;
 		if ( $options['allowClone'] ?? true ) {
 			$out = clone $in;
-			$oldWatcher = $popts->registerWatcher( $out->recordOption( ... ) );
 		} else {
 			// T353257: This should be a clone, but we've need to suppress it
 			// for some legacy codepaths.
 			$out = $in;
 		}
-
-		// T413227: skin doesn't mark user interface language as used, but
-		// it is.
-		$popts->getUserLangObj();
-
 		foreach ( $this->stages as $stage ) {
 			if ( $stage->shouldRun( $out, $popts, $options ) ) {
 				// Some stages may (for now) modify $options. See OutputTransformStage documentation for more info.
 				$out = $stage->transform( $out, $popts, $options );
 			}
-		}
-		if ( $oldWatcher !== false ) {
-			$popts->registerWatcher( $oldWatcher );
 		}
 		return $out;
 	}

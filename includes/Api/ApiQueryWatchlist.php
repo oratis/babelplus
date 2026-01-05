@@ -13,7 +13,6 @@ use MediaWiki\CommentStore\CommentStore;
 use MediaWiki\Logging\LogEventsList;
 use MediaWiki\Logging\LogFormatterFactory;
 use MediaWiki\Logging\LogPage;
-use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\RecentChanges\ChangesList;
 use MediaWiki\RecentChanges\ChangesListQuery\ChangesListQuery;
@@ -22,13 +21,13 @@ use MediaWiki\RecentChanges\RecentChange;
 use MediaWiki\RecentChanges\RecentChangeLookup;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Title\TitleFormatter;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\TempUser\TempUserConfig;
 use MediaWiki\User\User;
 use MediaWiki\Watchlist\WatchedItem;
 use stdClass;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This query action allows clients to retrieve a list of recently modified pages
@@ -144,6 +143,7 @@ class ApiQueryWatchlist extends ApiQueryGeneratorBase {
 			'rc_namespace',
 			'rc_title',
 			'rc_timestamp',
+			'rc_type',
 			'rc_source',
 			'rc_deleted',
 			'wl_notificationtimestamp'
@@ -365,7 +365,7 @@ class ApiQueryWatchlist extends ApiQueryGeneratorBase {
 
 	private function extractOutputData( stdClass $row, User $wlowner ): array {
 		$user = $this->getUser();
-		$title = PageReferenceValue::localReference( (int)$row->rc_namespace, $row->rc_title );
+		$title = new TitleValue( (int)$row->rc_namespace, $row->rc_title );
 
 		/* Our output data. */
 		$vals = [];
@@ -445,13 +445,13 @@ class ApiQueryWatchlist extends ApiQueryGeneratorBase {
 
 		/* Add the timestamp. */
 		if ( $this->fld_timestamp ) {
-			$vals['timestamp'] = wfTimestamp( TS::ISO_8601, $row->rc_timestamp );
+			$vals['timestamp'] = wfTimestamp( TS_ISO_8601, $row->rc_timestamp );
 		}
 
 		if ( $this->fld_notificationtimestamp ) {
 			$vals['notificationtimestamp'] = ( $row->wl_notificationtimestamp == null )
 				? ''
-				: wfTimestamp( TS::ISO_8601, $row->wl_notificationtimestamp );
+				: wfTimestamp( TS_ISO_8601, $row->wl_notificationtimestamp );
 		}
 
 		/* Add edit summary / log summary. */
@@ -517,7 +517,7 @@ class ApiQueryWatchlist extends ApiQueryGeneratorBase {
 			// Add expiration, T263796
 			$expiryString = $row->we_expiry ?? null;
 			if ( $expiryString ) {
-				$vals['expiry'] = wfTimestamp( TS::ISO_8601, $expiryString );
+				$vals['expiry'] = wfTimestamp( TS_ISO_8601, $expiryString );
 			} else {
 				$vals['expiry'] = false;
 			}

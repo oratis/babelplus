@@ -5,6 +5,7 @@ namespace MediaWiki\Tests\Specials;
 use MediaWiki\Exception\ErrorPageError;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Title\Title;
+use SpecialPageTestBase;
 
 /**
  * @covers \MediaWiki\Specials\SpecialMovePage

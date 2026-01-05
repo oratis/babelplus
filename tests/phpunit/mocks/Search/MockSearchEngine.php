@@ -1,8 +1,5 @@
 <?php
 
-use MediaWiki\Search\ISearchResultSet;
-use MediaWiki\Search\SearchResult;
-
 class MockSearchEngine extends SearchEngine {
 	use LinkCacheTestTrait;
 

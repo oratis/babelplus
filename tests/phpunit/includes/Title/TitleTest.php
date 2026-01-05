@@ -16,7 +16,6 @@ use MediaWiki\Title\TitleValue;
 use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\Assert\PreconditionException;
 use Wikimedia\Rdbms\IDBAccessObject;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -528,7 +527,7 @@ class TitleTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $title->getWikiId(), $record->getWikiId() );
 
 		$this->assertSame( $title->getLatestRevID(), $record->getLatest() );
-		$this->assertSame( MWTimestamp::convert( TS::MW, $title->getTouched() ), $record->getTouched() );
+		$this->assertSame( MWTimestamp::convert( TS_MW, $title->getTouched() ), $record->getTouched() );
 		$this->assertSame( $title->isNewPage(), $record->isNew() );
 		$this->assertSame( $title->isRedirect(), $record->isRedirect() );
 		$this->assertSame( $title->getTouched(), $record->getTouched() );
@@ -1005,32 +1004,6 @@ class TitleTest extends MediaWikiIntegrationTestCase {
 		// NOTE: convert to string for comparison
 		$this->assertSame( $expected->getPrefixedText(), $actual->getPrefixedText(), 'text form' );
 		$this->assertTrue( $expected->equals( $actual ), 'Title equality' );
-	}
-
-	public static function provideTestGetFullSubpageText() {
-		return [
-			[
-				'title' => 'Contributions',
-				'expected' => '',
-			],
-			[
-				'title' => 'Contributions/1.2.3.4',
-				'expected' => '1.2.3.4',
-			],
-			[
-				'title' => 'Contributions/1.2.3.4/16',
-				'expected' => '1.2.3.4/16',
-			],
-		];
-	}
-
-	/**
-	 * @dataProvider provideTestGetFullSubpageText
-	 * @covers \MediaWiki\Title\Title::getFullSubpageText
-	 */
-	public function testGetFullSubpageText( string $title, string $expected ) {
-		$title = Title::newFromText( $title );
-		$this->assertSame( $expected, $title->getFullSubpageText() );
 	}
 
 	public static function provideIsAlwaysKnown() {

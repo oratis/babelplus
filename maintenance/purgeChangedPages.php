@@ -165,10 +165,11 @@ class PurgeChangedPages extends Maintenance {
 			return [ $rows, $lastValue ];
 		}
 
-		for ( $i = count( $rows ); $i--; ) {
+		for ( $i = count( $rows ) - 1; $i >= 0; --$i ) {
 			if ( $rows[$i]->$column !== $lastValue ) {
 				break;
 			}
+
 			unset( $rows[$i] );
 		}
 

@@ -4,11 +4,9 @@
  *
  * @license GPL-2.0-or-later
  */
-namespace MediaWiki\Tests\Unit\Registration;
 
 use MediaWiki\Registration\ExtensionJsonValidationError;
 use MediaWiki\Registration\ExtensionJsonValidator;
-use MediaWikiUnitTestCase;
 
 /**
  * @covers \MediaWiki\Registration\ExtensionJsonValidator

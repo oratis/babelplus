@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Specials\SpecialBlock;
 
@@ -23,6 +23,3 @@ interface SpecialBlockModifyFormFieldsHook {
 	 */
 	public function onSpecialBlockModifyFormFields( $sp, &$fields );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialBlockModifyFormFieldsHook::class, 'MediaWiki\\Hook\\SpecialBlockModifyFormFieldsHook' );

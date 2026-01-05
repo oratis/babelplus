@@ -53,7 +53,7 @@ class ApiOptions extends ApiOptionsBase {
 	 * @return bool
 	 */
 	protected function shouldIgnoreKey( $key ) {
-		$user = $this->getUser();
+		$user = $this->getUserFromPrimary();
 		$manager = $this->getUserOptionsManager();
 		if ( $this->getGlobalParam() === 'ignore' && $manager->isOptionGlobal( $user, $key ) ) {
 			$this->addWarning( $this->msg( 'apiwarn-global-option-ignored', $key ) );
@@ -64,8 +64,8 @@ class ApiOptions extends ApiOptionsBase {
 
 	protected function resetPreferences( array $kinds ) {
 		$optionNames = $this->getPreferencesFactory()->getOptionNamesForReset(
-			$this->getUser(), $this->getContext(), $kinds );
-		$this->getUserOptionsManager()->resetOptionsByName( $this->getUser(), $optionNames );
+			$this->getUserFromPrimary(), $this->getContext(), $kinds );
+		$this->getUserOptionsManager()->resetOptionsByName( $this->getUserFromPrimary(), $optionNames );
 	}
 
 	/**
@@ -73,15 +73,15 @@ class ApiOptions extends ApiOptionsBase {
 	 * @param mixed $value
 	 */
 	protected function setPreference( $preference, $value ) {
-		$globalUpdateType = match ( $this->getGlobalParam() ) {
+		$globalUpdateType = [
 			'ignore' => UserOptionsManager::GLOBAL_IGNORE,
 			'update' => UserOptionsManager::GLOBAL_UPDATE,
 			'override' => UserOptionsManager::GLOBAL_OVERRIDE,
 			'create' => UserOptionsManager::GLOBAL_CREATE,
-		};
+		][ $this->getGlobalParam() ];
 
 		$this->getUserOptionsManager()->setOption(
-			$this->getUser(),
+			$this->getUserFromPrimary(),
 			$preference,
 			$value,
 			$globalUpdateType
@@ -93,7 +93,7 @@ class ApiOptions extends ApiOptionsBase {
 	}
 
 	protected function commitChanges() {
-		$this->getUserOptionsManager()->saveOptions( $this->getUser() );
+		$this->getUserOptionsManager()->saveOptions( $this->getUserFromPrimary() );
 	}
 
 	/** @codeCoverageIgnore Merely declarative */

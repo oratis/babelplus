@@ -2,12 +2,11 @@
 
 namespace MediaWiki\Tests\User\Registration;
 
-use InvalidArgumentException;
+use Exception;
 use MediaWiki\User\Registration\LocalUserRegistrationProvider;
-use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
-use MediaWiki\WikiMap\WikiMap;
 use MediaWikiUnitTestCase;
+use Wikimedia\Assert\PreconditionException;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
@@ -29,8 +28,7 @@ class LocalUserRegistrationProviderTest extends MediaWikiUnitTestCase {
 		$this->provider = new LocalUserRegistrationProvider( $this->connectionProvider );
 	}
 
-	/** @dataProvider provideWikiIds */
-	public function testFetchRegistration( $wikiId ) {
+	public function testFetchRegistration() {
 		$qbMock = $this->createMock( SelectQueryBuilder::class );
 		$qbMock->method( $this->anythingBut(
 			'fetchResultSet', 'fetchField', 'fetchFieldValues', 'fetchRow',
@@ -46,21 +44,38 @@ class LocalUserRegistrationProviderTest extends MediaWikiUnitTestCase {
 
 		$this->connectionProvider->expects( $this->once() )
 			->method( 'getReplicaDatabase' )
-			->willReturnCallback( function ( $dbName ) use ( $dbMock, $wikiId ) {
-				$this->assertEquals( $wikiId, $dbName );
-				return $dbMock;
-			} );
+			->willReturn( $dbMock );
 
-		$userIdentity = new UserIdentityValue( 123, 'Admin', $wikiId );
+		$userIdentity = new UserIdentityValue( 123, 'Admin' );
 		$this->assertSame( '20200102000000', $this->provider->fetchRegistration( $userIdentity ) );
 	}
 
-	/** @dataProvider provideWikiIds */
-	public function testFetchRegistrationBatchShouldBatchQueries( $wikiId ): void {
+	/**
+	 * @dataProvider provideInvalidInput
+	 */
+	public function testFetchRegistrationBatchInvalidInput(
+		array $users,
+		Exception $expectedException
+	): void {
+		$this->expectExceptionObject( $expectedException );
+
+		$this->provider->fetchRegistrationBatch( $users );
+	}
+
+	public static function provideInvalidInput(): iterable {
+		yield 'foreign UserIdentity instance' => [
+			[ new UserIdentityValue( 123, 'Admin', 'otherwiki' ) ],
+			new PreconditionException(
+				'Expected ' . UserIdentityValue::class . ' to belong to the local wiki, but it belongs to \'otherwiki\''
+			)
+		];
+	}
+
+	public function testFetchRegistrationBatchShouldBatchQueries(): void {
 		$users = [];
 
 		for ( $i = 1; $i <= 2_000; $i++ ) {
-			$users[] = new UserIdentityValue( $i, 'TestUser' . $i, $wikiId );
+			$users[] = new UserIdentityValue( $i, 'TestUser' . $i );
 		}
 
 		$firstIdBatch = range( 1, 1_000 );
@@ -102,22 +117,13 @@ class LocalUserRegistrationProviderTest extends MediaWikiUnitTestCase {
 			->willReturn( $selectQueryBuilder );
 
 		$this->connectionProvider->method( 'getReplicaDatabase' )
-			->willReturnCallback( function ( $dbName ) use ( $dbr, $wikiId ) {
-				$this->assertEquals( $wikiId, $dbName );
-				return $dbr;
-			} );
+			->willReturn( $dbr );
 
 		$timestampsById = $this->provider->fetchRegistrationBatch( $users );
 
 		$this->assertCount( 2_000, $timestampsById );
 		$this->assertSame( '20250101000000', $timestampsById[1] );
 		$this->assertSame( '20260101000000', $timestampsById[2_000] );
-	}
-
-	public static function provideWikiIds(): iterable {
-		yield 'local wiki (implicit)' => [ UserIdentity::LOCAL ];
-		yield 'local wiki (explicit)' => [ WikiMap::getCurrentWikiId() ];
-		yield 'other wiki' => [ 'otherwiki' ];
 	}
 
 	public function testFetchRegistrationBatchShouldHandleDuplicateUsersAndMissingTimestamps(): void {
@@ -161,15 +167,5 @@ class LocalUserRegistrationProviderTest extends MediaWikiUnitTestCase {
 		$timestampsById = $this->provider->fetchRegistrationBatch( [] );
 
 		$this->assertSame( [], $timestampsById );
-	}
-
-	public function testFetchRegistrationBatchShouldThrowExceptionForDifferentWikis(): void {
-		$user1 = new UserIdentityValue( 1, 'User1', 'wiki1' );
-		$user2 = new UserIdentityValue( 2, 'User2', 'wiki2' );
-
-		$this->expectException( InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'All queried users must belong to the same wiki.' );
-
-		$this->provider->fetchRegistrationBatch( [ $user1, $user2 ] );
 	}
 }

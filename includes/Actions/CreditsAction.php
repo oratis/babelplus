@@ -27,13 +27,24 @@ use MediaWiki\User\UserRigorOptions;
  */
 class CreditsAction extends FormlessAction {
 
+	private LinkRenderer $linkRenderer;
+	private UserFactory $userFactory;
+
+	/**
+	 * @param Article $article
+	 * @param IContextSource $context
+	 * @param LinkRenderer $linkRenderer
+	 * @param UserFactory $userFactory
+	 */
 	public function __construct(
 		Article $article,
 		IContextSource $context,
-		private readonly LinkRenderer $linkRenderer,
-		private readonly UserFactory $userFactory,
+		LinkRenderer $linkRenderer,
+		UserFactory $userFactory
 	) {
 		parent::__construct( $article, $context );
+		$this->linkRenderer = $linkRenderer;
+		$this->userFactory = $userFactory;
 	}
 
 	/** @inheritDoc */

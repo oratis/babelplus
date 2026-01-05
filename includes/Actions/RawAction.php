@@ -29,7 +29,6 @@ use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserRigorOptions;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A simple method to retrieve the plain source of an article,
@@ -39,16 +38,36 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  */
 class RawAction extends FormlessAction {
 
+	private Parser $parser;
+	private PermissionManager $permissionManager;
+	private RevisionLookup $revisionLookup;
+	private RestrictionStore $restrictionStore;
+	private UserFactory $userFactory;
+
+	/**
+	 * @param Article $article
+	 * @param IContextSource $context
+	 * @param Parser $parser
+	 * @param PermissionManager $permissionManager
+	 * @param RevisionLookup $revisionLookup
+	 * @param RestrictionStore $restrictionStore
+	 * @param UserFactory $userFactory
+	 */
 	public function __construct(
 		Article $article,
 		IContextSource $context,
-		private readonly Parser $parser,
-		private readonly PermissionManager $permissionManager,
-		private readonly RevisionLookup $revisionLookup,
-		private readonly RestrictionStore $restrictionStore,
-		private readonly UserFactory $userFactory,
+		Parser $parser,
+		PermissionManager $permissionManager,
+		RevisionLookup $revisionLookup,
+		RestrictionStore $restrictionStore,
+		UserFactory $userFactory
 	) {
 		parent::__construct( $article, $context );
+		$this->parser = $parser;
+		$this->permissionManager = $permissionManager;
+		$this->revisionLookup = $revisionLookup;
+		$this->restrictionStore = $restrictionStore;
+		$this->userFactory = $userFactory;
 	}
 
 	/** @inheritDoc */
@@ -205,7 +224,7 @@ class RawAction extends FormlessAction {
 		// Get it from the DB
 		$rev = $this->revisionLookup->getRevisionByTitle( $title, $this->getOldId() );
 		if ( $rev ) {
-			$lastMod = wfTimestamp( TS::RFC2822, $rev->getTimestamp() );
+			$lastMod = wfTimestamp( TS_RFC2822, $rev->getTimestamp() );
 			$request->response()->header( "Last-modified: $lastMod" );
 
 			// Public-only due to cache headers

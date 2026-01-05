@@ -7,8 +7,6 @@
  * @ingroup Search
  */
 
-namespace MediaWiki\Search;
-
 use MediaWiki\MediaWikiServices;
 use Wikimedia\AtEase\AtEase;
 use Wikimedia\Rdbms\SelectQueryBuilder;
@@ -78,7 +76,8 @@ class SearchSqlite extends SearchDatabase {
 				// fulltext engine.
 				// For Chinese this also inserts spaces between adjacent Han characters.
 				$strippedVariants = array_map(
-					MediaWikiServices::getInstance()->getContentLanguage()->normalizeForSearch( ... ),
+					[ MediaWikiServices::getInstance()->getContentLanguage(),
+						'normalizeForSearch' ],
 					$variants );
 
 				// Some languages such as Chinese force all variants to a canonical
@@ -270,6 +269,3 @@ class SearchSqlite extends SearchDatabase {
 			->caller( __METHOD__ )->execute();
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchSqlite::class, 'SearchSqlite' );

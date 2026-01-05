@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\RecentChanges\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\User\User;
 
@@ -27,6 +27,3 @@ interface MarkPatrolledCompleteHook {
 		$auto
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( MarkPatrolledCompleteHook::class, 'MediaWiki\\Hook\\MarkPatrolledCompleteHook' );

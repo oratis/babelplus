@@ -1,8 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Actions;
-
-use Generator;
 use MediaWiki\Actions\WatchAction;
 use MediaWiki\Context\DerivativeContext;
 use MediaWiki\Context\IContextSource;
@@ -12,7 +9,6 @@ use MediaWiki\Language\Language;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Message\Message;
 use MediaWiki\Page\Article;
-use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\Page\WikiPage;
 use MediaWiki\Permissions\PermissionManager;
 use MediaWiki\Request\FauxRequest;
@@ -20,12 +16,11 @@ use MediaWiki\Status\Status;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentityValue;
 use MediaWiki\Watchlist\WatchedItem;
-use MediaWikiIntegrationTestCase;
-use MockMessageLocalizer;
 use PHPUnit\Framework\MockObject\MockObject;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\TestingAccessWrapper;
@@ -337,7 +332,7 @@ class WatchActionTest extends MediaWikiIntegrationTestCase {
 		// Fake current time to be 2020-06-10T00:00:00Z
 		ConvertibleTimestamp::setFakeTime( '20200610000000' );
 		$userIdentity = new UserIdentityValue( 100, 'User Name' );
-		$target = PageReferenceValue::localReference( 0, 'SomeDbKey' );
+		$target = new TitleValue( 0, 'SomeDbKey' );
 		$watchedItem = $createWatchedItem
 			? new WatchedItem( $userIdentity, $target, null, $expiry )
 			: false;

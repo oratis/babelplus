@@ -5,7 +5,6 @@
  */
 namespace Wikimedia\Rdbms;
 
-use Exception;
 use InvalidArgumentException;
 use LogicException;
 use Psr\Log\LoggerAwareInterface;
@@ -24,7 +23,6 @@ use Wikimedia\ScopedCallback;
 use Wikimedia\Telemetry\NoopTracer;
 use Wikimedia\Telemetry\SpanInterface;
 use Wikimedia\Telemetry\TracerInterface;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A single concrete connection to a relational database.
@@ -119,7 +117,7 @@ abstract class Database implements Stringable, IDatabaseForOwner, IMaintainableD
 	private $csmId;
 	/** @var string|null Last critical section caller name */
 	private $csmFname;
-	/** @var Exception|null Last unresolved critical section error */
+	/** @var DBUnexpectedError|null Last unresolved critical section error */
 	private $csmError;
 
 	/** Whether the database is a file on disk */
@@ -2999,8 +2997,7 @@ abstract class Database implements Stringable, IDatabaseForOwner, IMaintainableD
 	}
 
 	/** @inheritDoc */
-	#[\NoDiscard]
-	public function getScopedLockAndFlush( $lockKey, $fname, $timeout ): ?ScopedCallback {
+	public function getScopedLockAndFlush( $lockKey, $fname, $timeout ) {
 		$this->transactionManager->onGetScopedLockAndFlush( $this, $fname );
 
 		if ( !$this->lock( $lockKey, $fname, $timeout ) ) {
@@ -3541,7 +3538,7 @@ abstract class Database implements Stringable, IDatabaseForOwner, IMaintainableD
 	}
 
 	/** @inheritDoc */
-	public function decodeExpiry( $expiry, $format = TS::MW ) {
+	public function decodeExpiry( $expiry, $format = TS_MW ) {
 		return $this->platform->decodeExpiry( $expiry, $format );
 	}
 

@@ -213,8 +213,6 @@ interface SecondaryAuthenticationProvider extends AuthenticationProvider {
 	 *    testForAccountCreation() do a more thorough test.
 	 *  - canAlwaysAutocreate: (bool) If true the session provider is exempt from
 	 *    autocreate user permissions checks.
-	 *  - performer: (Authority) The performer of the action, used for user rights
-	 *    checking.
 	 * @return StatusValue
 	 */
 	public function testUserForCreation( $user, $autocreate, array $options = [] );

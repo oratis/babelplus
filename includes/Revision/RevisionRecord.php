@@ -67,6 +67,8 @@ abstract class RevisionRecord implements WikiAwareEntity {
 	protected $mDeleted = 0;
 	/** @var int|null */
 	protected $mSize;
+	/** @var string|null */
+	protected $mSha1;
 	/** @var int|null */
 	protected $mParentId;
 	/** @var CommentStoreComment|null */

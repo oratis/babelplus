@@ -15,7 +15,7 @@ namespace MediaWiki\Maintenance;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/../Maintenance.php';
-require_once __DIR__ . '/../../includes/Export/WikiExporter.php';
+require_once __DIR__ . '/../../includes/export/WikiExporter.php';
 // @codeCoverageIgnoreEnd
 
 use DumpFilter;
@@ -28,8 +28,6 @@ use MediaWiki\WikiMap\WikiMap;
 use WikiExporter;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\IMaintainableDatabase;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 use XmlDumpWriter;
 
 /**
@@ -428,7 +426,7 @@ abstract class BackupDumper extends Maintenance {
 
 	public function showReport() {
 		if ( $this->reporting ) {
-			$now = ConvertibleTimestamp::now( TS::DB );
+			$now = wfTimestamp( TS_DB );
 			$nowts = microtime( true );
 			$deltaAll = $nowts - $this->startTime;
 			$deltaPart = $nowts - $this->lastTime;
@@ -438,7 +436,7 @@ abstract class BackupDumper extends Maintenance {
 			if ( $deltaAll ) {
 				$portion = $this->revCount / $this->maxCount;
 				$eta = $this->startTime + $deltaAll / $portion;
-				$etats = wfTimestamp( TS::DB, intval( $eta ) );
+				$etats = wfTimestamp( TS_DB, intval( $eta ) );
 				$pageRate = $this->pageCount / $deltaAll;
 				$revRate = $this->revCount / $deltaAll;
 			} else {

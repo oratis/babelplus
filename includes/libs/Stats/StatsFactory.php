@@ -152,6 +152,7 @@ class StatsFactory {
 		// unless new stats were added to the cache since the last flush.
 		if ( $cacheSize > 0 ) {
 			$this->getCounter( 'stats_buffered_total' )
+				->copyToStatsdAt( 'stats.statslib.buffered' )
 				->incrementBy( $cacheSize );
 
 			$this->emitter->send();

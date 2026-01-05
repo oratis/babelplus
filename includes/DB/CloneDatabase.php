@@ -6,13 +6,7 @@
  * @file
  * @ingroup Database
  */
-
-namespace MediaWiki\DB;
-
-use InvalidArgumentException;
-use LogicException;
 use MediaWiki\MediaWikiServices;
-use RuntimeException;
 use Wikimedia\Rdbms\IMaintainableDatabase;
 
 class CloneDatabase {
@@ -138,6 +132,3 @@ class CloneDatabase {
 		$wgDBprefix = $prefix;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( CloneDatabase::class, 'CloneDatabase' );

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\User\User;
 
@@ -24,6 +24,3 @@ interface PrefsEmailAuditHook {
 	 */
 	public function onPrefsEmailAudit( $user, $oldaddr, $newaddr );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PrefsEmailAuditHook::class, 'MediaWiki\\Hook\\PrefsEmailAuditHook' );

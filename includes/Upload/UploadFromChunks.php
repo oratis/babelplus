@@ -1,18 +1,13 @@
 <?php
 
-namespace MediaWiki\Upload;
-
 use MediaWiki\Deferred\AutoCommitUpdate;
 use MediaWiki\Deferred\DeferredUpdates;
+use MediaWiki\FileRepo\FileRepo;
 use MediaWiki\FileRepo\LocalRepo;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Request\WebRequestUpload;
 use MediaWiki\Status\Status;
-use MediaWiki\Upload\Exception\UploadChunkFileException;
-use MediaWiki\Upload\Exception\UploadChunkVerificationException;
-use MediaWiki\Upload\Exception\UploadStashBadPathException;
-use MediaWiki\Upload\Exception\UploadStashException;
 use MediaWiki\User\User;
 use Psr\Log\LoggerInterface;
 use Wikimedia\FileBackend\FileBackend;
@@ -57,7 +52,7 @@ class UploadFromChunks extends UploadFromFile {
 	 *
 	 * @param User $user
 	 * @param UploadStash|false $stash Default: false
-	 * @param LocalRepo|false $repo Default: false
+	 * @param FileRepo|false $repo Default: false
 	 */
 	public function __construct( User $user, $stash = false, $repo = false ) {
 		$this->user = $user;
@@ -204,7 +199,7 @@ class UploadFromChunks extends UploadFromFile {
 			DeferredUpdates::addUpdate( new AutoCommitUpdate(
 				$this->repo->getPrimaryDB(),
 				__METHOD__,
-				function () use ( $fileList, $oldFileKey ) {
+				function () use( $fileList, $oldFileKey ) {
 					$status = $this->repo->quickPurgeBatch( $fileList );
 					if ( !$status->isOK() ) {
 						$this->logger->warning(
@@ -504,6 +499,3 @@ class UploadFromChunks extends UploadFromFile {
 		return $errorToThrow ?? $warningToThrow ?? [ 'unknown', 'no error recorded' ];
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UploadFromChunks::class, 'UploadFromChunks' );

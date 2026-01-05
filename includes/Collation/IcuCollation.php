@@ -4,14 +4,9 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
-use Collator;
-use InvalidArgumentException;
 use MediaWiki\Language\Language;
 use MediaWiki\Languages\LanguageFactory;
 use MediaWiki\MediaWikiServices;
-use RuntimeException;
 use Wikimedia\ArrayUtils\ArrayUtils;
 
 /**
@@ -33,7 +28,7 @@ class IcuCollation extends Collation {
 	protected $digitTransformLanguage;
 
 	/** @var bool */
-	private $isNumericCollation = false;
+	private $useNumericCollation = false;
 
 	/** @var array */
 	private $firstLetterData;
@@ -334,10 +329,13 @@ class IcuCollation extends Collation {
 		$this->primaryCollator = Collator::create( $locale );
 		$this->primaryCollator->setStrength( Collator::PRIMARY );
 
-		// Strip the numeric collation suffix so that it doesn't trip up fetchFirstLetterData()
+		// If the special suffix for numeric collation is present, turn on numeric collation.
 		if ( str_ends_with( $locale, '-u-kn' ) ) {
-			$this->isNumericCollation = true;
+			$this->useNumericCollation = true;
+			// Strip off the special suffix so it doesn't trip up fetchFirstLetterData().
 			$this->locale = substr( $this->locale, 0, -5 );
+			$this->mainCollator->setAttribute( Collator::NUMERIC_COLLATION, Collator::ON );
+			$this->primaryCollator->setAttribute( Collator::NUMERIC_COLLATION, Collator::ON );
 		}
 	}
 
@@ -385,7 +383,7 @@ class IcuCollation extends Collation {
 			$sortLetter = substr( $sortLetter, strlen( "\u{FDD0}" ) );
 		}
 
-		if ( $this->isNumericCollation ) {
+		if ( $this->useNumericCollation ) {
 			// If the sort letter is a number, return '0–9' (or localized equivalent).
 			// ASCII value of 0 is 48. ASCII value of 9 is 57.
 			// Note that this also applies to non-Arabic numerals since they are
@@ -417,9 +415,9 @@ class IcuCollation extends Collation {
 				INTL_ICU_VERSION,
 				self::FIRST_LETTER_VERSION
 			);
-			$this->firstLetterData = $cache->getWithSetCallback( $cacheKey, $cache::TTL_WEEK,
-				$this->fetchFirstLetterData( ... )
-			);
+			$this->firstLetterData = $cache->getWithSetCallback( $cacheKey, $cache::TTL_WEEK, function () {
+				return $this->fetchFirstLetterData();
+			} );
 		}
 		return $this->firstLetterData;
 	}
@@ -430,7 +428,7 @@ class IcuCollation extends Collation {
 	private function fetchFirstLetterData() {
 		// Generate data from serialized data file
 		if ( isset( self::TAILORING_FIRST_LETTERS[$this->locale] ) ) {
-			$letters = require dirname( __DIR__, 2 ) . "/languages/data/first-letters-root.php";
+			$letters = require __DIR__ . "/data/first-letters-root.php";
 			// Append additional characters
 			$letters = array_merge( $letters, self::TAILORING_FIRST_LETTERS[$this->locale] );
 			// Remove unnecessary ones, if any
@@ -444,7 +442,7 @@ class IcuCollation extends Collation {
 				$letters[] = $this->digitTransformLanguage->formatNumNoSeparators( $digit );
 			}
 		} elseif ( $this->locale === 'root' ) {
-			$letters = require dirname( __DIR__, 2 ) . "/languages/data/first-letters-root.php";
+			$letters = require __DIR__ . "/data/first-letters-root.php";
 		} else {
 			throw new RuntimeException( "MediaWiki does not support ICU locale " .
 				"\"{$this->locale}\"" );
@@ -558,6 +556,3 @@ class IcuCollation extends Collation {
 		return false;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( IcuCollation::class, 'IcuCollation' );

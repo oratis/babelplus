@@ -1,12 +1,11 @@
 <?php
 
 use MediaWiki\Request\FauxRequest;
-use MediaWiki\Upload\UploadFromStash;
 
 /**
  * @group Database
  *
- * @covers \MediaWiki\Upload\UploadStash
+ * @covers \UploadStash
  */
 class UploadStashTest extends MediaWikiIntegrationTestCase {
 	/**

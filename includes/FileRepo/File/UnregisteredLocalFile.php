@@ -185,9 +185,12 @@ class UnregisteredLocalFile extends File {
 
 	private function getSizeAndMetadata(): array {
 		if ( $this->sizeAndMetadata === null ) {
-			$handler = $this->getHandler() ?: null;
-			$result = $handler?->getSizeAndMetadataWithFallback( $this, $this->getLocalRefPath() );
-			$this->sizeAndMetadata = $result ?: [ 'width' => 0, 'height' => 0, 'metadata' => [] ];
+			if ( !$this->getHandler() ) {
+				$this->sizeAndMetadata = [ 'width' => 0, 'height' => 0, 'metadata' => [] ];
+			} else {
+				$this->sizeAndMetadata = $this->getHandler()->getSizeAndMetadataWithFallback(
+					$this, $this->getLocalRefPath() );
+			}
 		}
 
 		return $this->sizeAndMetadata;

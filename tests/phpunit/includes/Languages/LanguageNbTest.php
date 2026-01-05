@@ -1,9 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
-
 class LanguageNbTest extends LanguageClassesTestCase {
 	/**
 	 * Regression test for T391423

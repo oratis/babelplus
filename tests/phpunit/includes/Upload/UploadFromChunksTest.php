@@ -1,12 +1,11 @@
 <?php
 
 use MediaWiki\Request\FauxRequest;
-use MediaWiki\Upload\UploadFromChunks;
 
 /**
  * @group Database
  *
- * @covers \MediaWiki\Upload\UploadFromChunks
+ * @covers \UploadFromChunks
  */
 class UploadFromChunksTest extends MediaWikiIntegrationTestCase {
 

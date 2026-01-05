@@ -10,10 +10,8 @@
 
 namespace MediaWiki\Watchlist;
 
-use MediaWiki\Page\PageReference;
 use MediaWiki\User\UserIdentity;
 use Wikimedia\Rdbms\DBReadOnlyError;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @internal
@@ -38,12 +36,12 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 	}
 
 	/** @inheritDoc */
-	public function countWatchers( PageReference $target ) {
+	public function countWatchers( $target ) {
 		return $this->actualStore->countWatchers( $target );
 	}
 
 	/** @inheritDoc */
-	public function countVisitingWatchers( PageReference $target, $threshold ) {
+	public function countVisitingWatchers( $target, $threshold ) {
 		return $this->actualStore->countVisitingWatchers( $target, $threshold );
 	}
 
@@ -67,12 +65,12 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 	}
 
 	/** @inheritDoc */
-	public function getWatchedItem( UserIdentity $user, PageReference $target ) {
+	public function getWatchedItem( UserIdentity $user, $target ) {
 		return $this->actualStore->getWatchedItem( $user, $target );
 	}
 
 	/** @inheritDoc */
-	public function loadWatchedItem( UserIdentity $user, PageReference $target ) {
+	public function loadWatchedItem( UserIdentity $user, $target ) {
 		return $this->actualStore->loadWatchedItem( $user, $target );
 	}
 
@@ -87,12 +85,12 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 	}
 
 	/** @inheritDoc */
-	public function isWatched( UserIdentity $user, PageReference $target ) {
+	public function isWatched( UserIdentity $user, $target ) {
 		return $this->actualStore->isWatched( $user, $target );
 	}
 
 	/** @inheritDoc */
-	public function isTempWatched( UserIdentity $user, PageReference $target ): bool {
+	public function isTempWatched( UserIdentity $user, $target ): bool {
 		return $this->actualStore->isTempWatched( $user, $target );
 	}
 
@@ -107,17 +105,17 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 	}
 
 	/** @inheritDoc */
-	public function duplicateAllAssociatedEntries( PageReference $oldTarget, PageReference $newTarget ) {
+	public function duplicateAllAssociatedEntries( $oldTarget, $newTarget ) {
 		throw new DBReadOnlyError( null, self::DB_READONLY_ERROR );
 	}
 
 	/** @inheritDoc */
-	public function duplicateEntry( PageReference $oldTarget, PageReference $newTarget ) {
+	public function duplicateEntry( $oldTarget, $newTarget ) {
 		throw new DBReadOnlyError( null, self::DB_READONLY_ERROR );
 	}
 
 	/** @inheritDoc */
-	public function addWatch( UserIdentity $user, PageReference $target, ?string $expiry = null ) {
+	public function addWatch( UserIdentity $user, $target, ?string $expiry = null ) {
 		throw new DBReadOnlyError( null, self::DB_READONLY_ERROR );
 	}
 
@@ -131,7 +129,7 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 	}
 
 	/** @inheritDoc */
-	public function removeWatch( UserIdentity $user, PageReference $target ) {
+	public function removeWatch( UserIdentity $user, $target ) {
 		throw new DBReadOnlyError( null, self::DB_READONLY_ERROR );
 	}
 
@@ -159,7 +157,7 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 	/** @inheritDoc */
 	public function resetNotificationTimestamp(
 		UserIdentity $user,
-		PageReference $title,
+		$title,
 		$force = '',
 		$oldid = 0
 	) {
@@ -193,9 +191,9 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 
 	/** @inheritDoc */
 	public function getLatestNotificationTimestamp(
-		$timestamp, UserIdentity $user, PageReference $target
+		$timestamp, UserIdentity $user, $target
 	) {
-		return wfTimestampOrNull( TS::MW, $timestamp );
+		return wfTimestampOrNull( TS_MW, $timestamp );
 	}
 
 	/** @inheritDoc */
@@ -205,16 +203,6 @@ class NoWriteWatchedItemStore implements WatchedItemStoreInterface {
 
 	/** @inheritDoc */
 	public function removeExpired( int $limit, bool $deleteOrphans = false ): void {
-		throw new DBReadOnlyError( null, self::DB_READONLY_ERROR );
-	}
-
-	/** @inheritDoc */
-	public function addLabels( UserIdentity $user, array $targets, array $labels ): void {
-		throw new DBReadOnlyError( null, self::DB_READONLY_ERROR );
-	}
-
-	/** @inheritDoc */
-	public function removeLabels( UserIdentity $user, array $targets, array $labels ): void {
 		throw new DBReadOnlyError( null, self::DB_READONLY_ERROR );
 	}
 }

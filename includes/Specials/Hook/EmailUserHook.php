@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Mail\MailAddress;
 use MediaWiki\Status\Status;
@@ -29,6 +29,3 @@ interface EmailUserHook {
 	 */
 	public function onEmailUser( &$to, &$from, &$subject, &$text, &$error );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( EmailUserHook::class, 'MediaWiki\\Hook\\EmailUserHook' );

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Integration\Logging;
+namespace MediaWiki\Tests\Log;
 
 use MediaWiki\Logging\DatabaseLogEntry;
 use MediaWiki\Logging\LogPage;

@@ -16,6 +16,7 @@ use MediaWiki\HTMLForm\Field\HTMLMultiSelectField;
 use MediaWiki\HTMLForm\HTMLForm;
 use MediaWiki\Logging\LogEventsList;
 use MediaWiki\MainConfigNames;
+use MediaWiki\MediaWikiServices;
 use MediaWiki\Pager\ContribsPager;
 use MediaWiki\Pager\ContributionsPager;
 use MediaWiki\Permissions\PermissionManager;
@@ -83,7 +84,7 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 	 * @param UserFactory $userFactory
 	 * @param UserIdentityLookup $userIdentityLookup
 	 * @param DatabaseBlockStore $blockStore
-	 * @param UserGroupAssignmentService $userGroupAssignmentService
+	 * @param mixed $userGroupAssignmentService
 	 * @param string $name
 	 * @param string $restriction
 	 */
@@ -97,10 +98,21 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 		UserFactory $userFactory,
 		UserIdentityLookup $userIdentityLookup,
 		DatabaseBlockStore $blockStore,
-		UserGroupAssignmentService $userGroupAssignmentService,
-		$name,
+		$userGroupAssignmentService,
+		$name = '',
 		$restriction = ''
 	) {
+		// For backwards compatability, temporarily handle the $userGroupAssignmentService
+		// being a string
+		if ( $userGroupAssignmentService instanceof UserGroupAssignmentService ) {
+			$this->userGroupAssignmentService = $userGroupAssignmentService;
+		} else {
+			// Shift params by one
+			$restriction = $name;
+			$name = $userGroupAssignmentService;
+			$this->userGroupAssignmentService = MediaWikiServices::getInstance()
+				->getUserGroupAssignmentService();
+		}
 		parent::__construct( $name, $restriction );
 		$this->permissionManager = $permissionManager;
 		$this->dbProvider = $dbProvider;
@@ -111,7 +123,6 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 		$this->userFactory = $userFactory;
 		$this->userIdentityLookup = $userIdentityLookup;
 		$this->blockStore = $blockStore;
-		$this->userGroupAssignmentService = $userGroupAssignmentService;
 	}
 
 	/**
@@ -119,14 +130,15 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 	 */
 	public function execute( $par ) {
 		$request = $this->getRequest();
-		$target = $par ?? $request->getText( 'target' );
-		$target = trim( $target );
+		$target = $request->getText( 'target' );
 
 		if ( $target !== '' ) {
 			// Update the value in the request so that code reading it
 			// directly form the request gets the trimmed value (T378279).
 			$request->setVal( 'target', trim( $target ) );
 		}
+
+		$target = trim( $par ?? $target );
 
 		$this->setHeaders();
 		$this->outputHeader();
@@ -238,14 +250,14 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 		$isOwnContributionPage = $user->getName() === $target;
 		if ( $contributeEnabled && $isOwnContributionPage ) {
 			$out->enableOOUI();
-			$out->addHTML( ( new ButtonWidget( [
+			$out->addHTML( new ButtonWidget( [
 				'id' => 'mw-specialcontributions-newcontribution',
 				'href' => SpecialPage::getTitleFor( 'Contribute' )->getLinkURL(),
 				'label' => $this->msg( 'sp-contributions-newcontribution' )->text(),
 				'icon' => 'add',
 				'framed' => true,
 				'flags' => 'progressive',
-			] ) )->toString() );
+			] ) );
 		}
 
 		# For IP ranges, we want the contributionsSub, but not the skin-dependent
@@ -474,7 +486,7 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 
 		// First subheading. "For Username (talk | block log | logs | etc.)"
 		$userName = $userObj->getName();
-		$subHeadingsHtml = Html::rawElement( 'span', [ 'class' => 'mw-contributions-user-tools' ],
+		$subHeadingsHtml = Html::rawElement( 'div', [ 'class' => 'mw-contributions-user-tools' ],
 			$this->msg( 'contributions-subtitle' )->rawParams(
 				Html::rawElement( 'bdi', [], $user )
 			)->params( $userName )
@@ -499,61 +511,11 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 					->escaped();
 			}
 
-			$subHeadingsHtml .= Html::element( 'br' );
 			$subHeadingsHtml .= Html::rawElement(
-				'span',
+				'div',
 				[ 'class' => 'mw-contributions-editor-info' ],
 				$userInfo
 			);
-		}
-
-		// Second subheading on IP contributions pages. "See broader ranges: /16, /24."
-		if ( $this->shouldShowIPRangeNavigationLinks( $userObj ) ) {
-			$ip = $userObj->getName();
-			if ( IPUtils::isIPv4( $ip ) ) {
-				$ranges = [ 16, 24 ];
-			} else {
-				$ranges = [ 32, 48, 64 ];
-			}
-
-			$ipParts = explode( '/', $ip );
-			if ( count( $ipParts ) !== 2 ) {
-				$baseIp = $ip;
-				$currentRangeWidth = IPUtils::isValidIPv4( $ip ) ? 32 : 128;
-			} else {
-				$baseIp = $ipParts[0];
-				$currentRangeWidth = $ipParts[1];
-			}
-			// Don't suggest going to narrower ranges - going e.g., from 1.2.3.4 to /16 and then to /32
-			// won't take you back to 1.2.3.4.
-			$ranges = array_filter( $ranges, static fn ( $range ) => $range < $currentRangeWidth );
-
-			if ( count( $ranges ) > 0 ) {
-				$rangeLinks = [];
-				$linkRenderer = $this->getLinkRenderer();
-				foreach ( $ranges as $range ) {
-					$target = $baseIp . '/' . $range;
-					if ( !$this->isQueryableRange( $target, $this->getConfig() ) ) {
-						continue;
-					}
-
-					$rangeLinks[] = $linkRenderer->makeKnownLink(
-						$this->getPageTitle( $target ),
-						'/' . $range
-					);
-				}
-
-				$rangesMsg = $this->msg( 'contributions-ip-range-navigation' )
-					->rawParams( $this->getLanguage()->commaList( $rangeLinks ) )
-					->params( count( $rangeLinks ) );
-
-				$subHeadingsHtml .= Html::element( 'br' );
-				$subHeadingsHtml .= Html::rawElement(
-					'span',
-					[ 'class' => 'mw-contributions-ip-range-navigation' ],
-					$rangesMsg
-				);
-			}
 		}
 
 		return $subHeadingsHtml;
@@ -597,7 +559,7 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 	 */
 	protected function shouldDisplayActionLinks( User $userObj ): bool {
 		// T211910. Don't show action links if a range is outside block limit
-		$showForIp = $this->isValidIPOrQueryableRange( $userObj->getName(), $this->getConfig() );
+		$showForIp = $this->isValidIPOrQueryableRange( $userObj, $this->getConfig() );
 
 		$talk = $userObj->getTalkPage();
 
@@ -624,19 +586,6 @@ class ContributionsSpecialPage extends IncludableSpecialPage {
 		);
 
 		return $talk && $registeredAndVisible;
-	}
-
-	/**
-	 * Determine whether to show navigation links for IP ranges
-	 *
-	 * @param User $userObj User object for the target
-	 * @return bool
-	 */
-	protected function shouldShowIPRangeNavigationLinks( User $userObj ): bool {
-		if ( $userObj->isRegistered() ) {
-			return false;
-		}
-		return $this->isValidIPOrQueryableRange( $userObj->getName(), $this->getConfig() );
 	}
 
 	/**

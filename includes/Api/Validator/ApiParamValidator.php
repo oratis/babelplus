@@ -27,7 +27,6 @@ use Wikimedia\ParamValidator\TypeDef\TimestampDef;
 use Wikimedia\ParamValidator\TypeDef\UploadDef;
 use Wikimedia\ParamValidator\ValidationException;
 use Wikimedia\RequestTimeout\TimeoutException;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This wraps a bunch of the API-specific parameter validation logic.
@@ -73,7 +72,7 @@ class ApiParamValidator {
 		'timestamp' => [
 			'class' => TimestampDef::class,
 			'args' => [ [
-				'defaultFormat' => TS::MW,
+				'defaultFormat' => TS_MW,
 			] ],
 		],
 		'title' => [

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Specials\SpecialUpload;
 
@@ -22,6 +22,3 @@ interface SpecialUploadCompleteHook {
 	 */
 	public function onSpecialUploadComplete( $form );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialUploadCompleteHook::class, 'MediaWiki\\Hook\\SpecialUploadCompleteHook' );

@@ -62,8 +62,7 @@ const MenuSelectWidget = function MwRcfiltersUiMenuSelectWidget( controller, mod
 		this.model,
 		{
 			$overlay: this.$overlay,
-			isMobile: config.isMobile,
-			specialPage: config.widget.specialPage || ''
+			isMobile: config.isMobile
 		}
 	);
 

@@ -1,10 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Registration;
-
 use MediaWiki\Registration\VersionChecker;
-use MediaWikiUnitTestCase;
-use UnexpectedValueException;
 
 /**
  * @covers \MediaWiki\Registration\VersionChecker

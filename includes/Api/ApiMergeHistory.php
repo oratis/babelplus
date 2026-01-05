@@ -50,8 +50,6 @@ class ApiMergeHistory extends ApiBase {
 			if ( !$fromTitle ) {
 				$this->dieWithError( [ 'apierror-nosuchpageid', $params['fromid'] ] );
 			}
-		} else {
-			self::dieDebug( __METHOD__, 'unknown from parameter' );
 		}
 
 		if ( isset( $params['to'] ) ) {
@@ -64,8 +62,6 @@ class ApiMergeHistory extends ApiBase {
 			if ( !$toTitle ) {
 				$this->dieWithError( [ 'apierror-nosuchpageid', $params['toid'] ] );
 			}
-		} else {
-			self::dieDebug( __METHOD__, 'unknown to parameter' );
 		}
 
 		$reason = $params['reason'];
@@ -73,13 +69,16 @@ class ApiMergeHistory extends ApiBase {
 		$startTimestamp = $params['starttimestamp'] ?? '';
 
 		// Merge!
+		// @phan-suppress-next-line PhanTypeMismatchArgumentNullable,PhanPossiblyUndeclaredVariable T240141
 		$status = $this->merge( $fromTitle, $toTitle, $timestamp, $reason, $startTimestamp );
 		if ( !$status->isOK() ) {
 			$this->dieStatus( $status );
 		}
 
 		$r = [
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable T240141
 			'from' => $fromTitle->getPrefixedText(),
+			// @phan-suppress-next-line PhanPossiblyUndeclaredVariable T240141
 			'to' => $toTitle->getPrefixedText(),
 			'timestamp' => $params['timestamp'],
 			'reason' => $params['reason']

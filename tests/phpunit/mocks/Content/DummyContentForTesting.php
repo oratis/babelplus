@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Mocks\Content;
-
 use MediaWiki\Content\AbstractContent;
 use MediaWiki\Content\Content;
 
@@ -101,5 +99,3 @@ class DummyContentForTesting extends AbstractContent {
 		return false;
 	}
 }
-// @deprecated since 1.46
-class_alias( DummyContentForTesting::class, 'DummyContentForTesting' );

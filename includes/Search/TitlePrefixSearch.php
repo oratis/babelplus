@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Search;
-
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Title\Title;
 
@@ -31,7 +29,7 @@ class TitlePrefixSearch extends PrefixSearch {
 	 * @return Title[]
 	 */
 	protected function strings( array $strings ) {
-		$titles = array_map( Title::newFromText( ... ), $strings );
+		$titles = array_map( [ Title::class, 'newFromText' ], $strings );
 		$linkBatchFactory = MediaWikiServices::getInstance()->getLinkBatchFactory();
 		$linkBatchFactory->newLinkBatch( $titles )
 			->setCaller( __METHOD__ )
@@ -39,6 +37,3 @@ class TitlePrefixSearch extends PrefixSearch {
 		return $titles;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( TitlePrefixSearch::class, 'TitlePrefixSearch' );

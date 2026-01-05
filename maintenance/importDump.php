@@ -175,7 +175,6 @@ TEXT
 
 	public function reportPage( array $page ) {
 		$this->pageCount++;
-		$this->report();
 	}
 
 	public function handleRevision( WikiRevision $rev ) {
@@ -191,6 +190,7 @@ TEXT
 		}
 
 		$this->revCount++;
+		$this->report();
 
 		if ( !$this->dryRun ) {
 			( $this->importCallback )( $rev );

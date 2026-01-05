@@ -39,10 +39,10 @@ class RecentChangesUpdateJobTest extends MediaWikiIntegrationTestCase {
 		$this->addTestingExpiredRows();
 		// Set the time as one day beyond the last test edit
 		ConvertibleTimestamp::setFakeTime( '20240406060708' );
-		// Reset wgRCMaxAge, to ignore any LocalSettings overrides (T277470).
+		// Fix wgRCMaxAge for the test, in case the default value changes.
 		$this->overrideConfigValue( MainConfigNames::RCMaxAge, 90 * 24 * 3600 );
-		$hookRun = 0;
-		$this->setTemporaryHook( 'RecentChangesPurgeRows', function ( $rows ) use ( &$hookRun ) {
+		$hookRunAtLeastOnce = false;
+		$this->setTemporaryHook( 'RecentChangesPurgeRows', function ( $rows ) use ( &$hookRunAtLeastOnce ) {
 			// Check that the first row has the expected columns. Checking just the first row should be fine
 			// as the value of $rows should come from ::fetchResultSet which returns the same columns for each
 			// returned row.
@@ -65,7 +65,7 @@ class RecentChangesUpdateJobTest extends MediaWikiIntegrationTestCase {
 				true,
 				'Columns in the provided $row are not as expected'
 			);
-			$hookRun++;
+			$hookRunAtLeastOnce = true;
 		} );
 		// Call the code we are testing
 		$objectUnderTest = RecentChangesUpdateJob::newPurgeJob();
@@ -76,8 +76,12 @@ class RecentChangesUpdateJobTest extends MediaWikiIntegrationTestCase {
 			->field( 'rc_timestamp' )
 			->table( 'recentchanges' )
 			->assertFieldValue( $this->getDb()->timestamp( '20240405060708' ) );
-		$this->assertFalse( $this->getDb()->sessionLocksPending(), 'Any locks were released' );
-		$this->assertSame( 1, $hookRun, 'RecentChangesPurgeRows hook was run' );
+		// Verify that the lock placed to do the purge is no longer active.
+		$this->assertTrue( $this->getDb()->lockIsFree(
+			$this->getDb()->getDomainID() . ':recentchanges-prune', __METHOD__
+		) );
+		// Check that the RecentChangesPurgeRows hook was run at least once
+		$this->assertTrue( $hookRunAtLeastOnce, 'RecentChangesPurgeRows hook was not run' );
 	}
 
 	/** @dataProvider provideInvalidTypes */

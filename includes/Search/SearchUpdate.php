@@ -13,6 +13,7 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\ExistingPageRecord;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Title\Title;
+use SearchEngine;
 use Wikimedia\Rdbms\IDBAccessObject;
 
 /**

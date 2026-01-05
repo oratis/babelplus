@@ -5,7 +5,7 @@
  * @file
  */
 
-namespace MediaWiki\Tests\Unit\Xml;
+namespace MediaWiki\Tests\Unit;
 
 use MediaWiki\Xml\Xml;
 use MediaWikiUnitTestCase;

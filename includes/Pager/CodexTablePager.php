@@ -10,7 +10,6 @@ use InvalidArgumentException;
 use MediaWiki\Context\IContextSource;
 use MediaWiki\Html\Html;
 use MediaWiki\Linker\LinkRenderer;
-use MediaWiki\Navigation\CodexPagerNavigationBuilder;
 use MediaWiki\Parser\ParserOutput;
 
 /**
@@ -25,7 +24,7 @@ abstract class CodexTablePager extends TablePager {
 	/**
 	 * @stable to call
 	 *
-	 * @param string $caption Text for the caption element
+	 * @param string $caption Text for visually-hidden caption element
 	 * @param ?IContextSource $context
 	 * @param ?LinkRenderer $linkRenderer
 	 */
@@ -59,12 +58,11 @@ abstract class CodexTablePager extends TablePager {
 		$navigation = $this->getNavigationBar();
 		// `<table>` element and its contents.
 		$body = parent::getBody();
-		$header = $this->getHeader();
 
 		$pout = new ParserOutput();
 		$pout->setRawText(
 			Html::openElement( 'div', [ 'class' => 'cdx-table' ] ) . "\n" .
-			$header . "\n" .
+			// In the future, a visible caption + header content could go here.
 			$navigation . "\n" .
 			Html::openElement( 'div', [ 'class' => 'cdx-table__table-wrapper' ] ) . "\n" .
 			$body . "\n" .
@@ -281,24 +279,42 @@ abstract class CodexTablePager extends TablePager {
 			return '';
 		}
 
-		return $this->getNavigationBuilder()->getHtml();
-	}
+		$types = [ 'first', 'prev', 'next', 'last' ];
+		$queries = $this->getPagingQueries();
+		$title = $this->getTitle();
 
-	/**
-	 * @inheritDoc
-	 */
-	protected function createNavigationBuilder(): CodexPagerNavigationBuilder {
-		$builder = new CodexPagerNavigationBuilder( $this->getContext(), $this->getRequest()->getQueryValues() );
-		$builder->setNavClass( $this->getNavClass() );
-		return $builder;
-	}
+		$buttons = [];
 
-	/**
-	 * @return CodexPagerNavigationBuilder
-	 */
-	public function getNavigationBuilder(): CodexPagerNavigationBuilder {
-		// @phan-suppress-next-line PhanTypeMismatchReturnSuperType
-		return parent::getNavigationBuilder();
+		foreach ( $types as $type ) {
+			// TODO: Update Codex class suffix for previous to 'prev' so we don't have to do this.
+			$classSuffix = $type === 'prev' ? 'previous' : $type;
+			$isDisabled = $queries[ $type ] === false;
+			$buttons[] = Html::rawElement( 'a',
+				[
+					'class' => [
+						'cdx-button',
+						'cdx-button--fake-button',
+						'cdx-button--fake-button--' . ( $isDisabled ? 'disabled' : 'enabled' ),
+						'cdx-button--weight-quiet',
+						'cdx-button--icon-only'
+					],
+					'role' => 'button',
+					'disabled' => $queries[ $type ] === false,
+					'aria-label' => $this->msg( 'table_pager_' . $type )->text(),
+					'href' => $queries[ $type ] ?
+						$title->getLinkURL( $queries[ $type ] + $this->getDefaultQuery() ) :
+						null,
+				],
+				Html::rawElement( 'span',
+					[ 'class' => [ 'cdx-button__icon', 'cdx-table-pager__icon--' . $classSuffix ] ]
+				)
+			);
+		}
+
+		return Html::openElement( 'div', [ 'class' => $this->getNavClass() ] ) . "\n" .
+			Html::rawElement( 'div', [ 'class' => 'cdx-table-pager__start' ], $this->getLimitForm() ) . "\n" .
+			Html::rawElement( 'div', [ 'class' => 'cdx-table-pager__end' ], implode( '', $buttons ) ) . "\n" .
+			Html::closeElement( 'div' );
 	}
 
 	/**
@@ -308,16 +324,45 @@ abstract class CodexTablePager extends TablePager {
 	 * @return string HTML fragment
 	 */
 	public function getLimitSelect( array $attribs = [] ): string {
-		$navBuilder = $this->getNavigationBuilder();
-		return $navBuilder->getLimitSelect();
+		return parent::getLimitSelect( [ 'class' => 'cdx-select' ] );
 	}
 
 	/**
 	 * Get a list of items to show as options in the item-per-page select.
 	 */
 	public function getLimitSelectList(): array {
-		$navBuilder = $this->getNavigationBuilder();
-		return $navBuilder->getLimitSelectList();
+		$options = parent::getLimitSelectList();
+
+		foreach ( $options as $key => $option ) {
+			// Add new option with "rows" after the number.
+			$options[ $this->msg( 'cdx-table-pager-items-per-page-current', $option )->text() ] = $option;
+			// Remove the old option.
+			unset( $options[ $key ] );
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Get a form with the items-per-page select.
+	 *
+	 * @return string HTML fragment
+	 */
+	public function getLimitForm(): string {
+		return Html::rawElement(
+			'form',
+			[
+				'method' => 'get',
+				'action' => wfScript(),
+				'class' => 'cdx-table-pager__limit-form'
+			],
+			"\n" . $this->getLimitSelect() . "\n" .
+			Html::element( 'button',
+				[ 'class' => [ 'cdx-button', 'cdx-table-pager__limit-form__submit' ] ],
+				$this->msg( 'table_pager_limit_submit' )->text()
+			) . "\n" .
+			$this->getHiddenFields( [ 'limit' ] )
+		) . "\n";
 	}
 
 	/**
@@ -325,37 +370,6 @@ abstract class CodexTablePager extends TablePager {
 	 */
 	public function getModuleStyles(): array {
 		return [ 'mediawiki.pager.codex.styles' ];
-	}
-
-	/**
-	 * Returns whether a visible table caption should be shown.
-	 *
-	 * @since 1.46
-	 * @stable to override
-	 */
-	protected function shouldShowVisibleCaption(): bool {
-		return false;
-	}
-
-	protected function getHeader(): string {
-		if ( !$this->shouldShowVisibleCaption() ) {
-			return '';
-		}
-
-		$captionAttributes = [
-			'class' => 'cdx-table__header__caption',
-			'aria-hidden' => 'true'
-		];
-
-		return Html::rawElement(
-			'div',
-			[ 'class' => 'cdx-table__header' ],
-			Html::element(
-				'div',
-				$captionAttributes,
-				$this->mCaption
-			)
-		);
 	}
 }
 

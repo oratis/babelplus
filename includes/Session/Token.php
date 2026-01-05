@@ -7,8 +7,6 @@
 namespace MediaWiki\Session;
 
 use Stringable;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Value object representing a CSRF token
@@ -80,7 +78,7 @@ class Token implements Stringable {
 	 * @return string
 	 */
 	public function toString() {
-		return $this->toStringAtTimestamp( (int)ConvertibleTimestamp::now( TS::UNIX ) );
+		return $this->toStringAtTimestamp( (int)wfTimestamp( TS_UNIX ) );
 	}
 
 	public function __toString() {
@@ -101,7 +99,7 @@ class Token implements Stringable {
 		if ( $timestamp === null ) {
 			return false;
 		}
-		if ( $maxAge !== null && $timestamp < (int)ConvertibleTimestamp::now( TS::UNIX ) - $maxAge ) {
+		if ( $maxAge !== null && $timestamp < (int)wfTimestamp( TS_UNIX ) - $maxAge ) {
 			// Expired token
 			return false;
 		}

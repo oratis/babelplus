@@ -5,9 +5,6 @@
  * @ingroup Search
  */
 
-namespace MediaWiki\Search;
-
-use File;
 use MediaWiki\Title\Title;
 
 /**
@@ -161,6 +158,3 @@ abstract class SearchResult {
 	 */
 	abstract public function isFileMatch();
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchResult::class, 'SearchResult' );

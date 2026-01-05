@@ -20,7 +20,6 @@ use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
 use MediaWiki\Html\Html;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Format Image metadata values into a human readable form.
@@ -156,7 +155,7 @@ class FormatMetadata extends ContextSource {
 					. ':' . str_pad( (string)( (int)$m[0] / (int)$m[1] ), 2, '0', STR_PAD_LEFT )
 					. ':' . str_pad( (string)( (int)$s[0] / (int)$s[1] ), 2, '0', STR_PAD_LEFT );
 
-				$time = wfTimestamp( TS::MW, '1971:01:01 ' . $vals );
+				$time = wfTimestamp( TS_MW, '1971:01:01 ' . $vals );
 				// the 1971:01:01 is just a placeholder, and not shown to user.
 				if ( $time && (int)$time > 0 ) {
 					$vals = $this->getLanguage()->time( $time );
@@ -175,52 +174,110 @@ class FormatMetadata extends ContextSource {
 			foreach ( $vals as &$val ) {
 				switch ( $tag ) {
 					case 'Compression':
-						$val = match ( $val ) {
-							1, 2, 3, 4, 5, 6, 7, 8,
-							32773,
-							32946,
-							34712 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 5:
+							case 6:
+							case 7:
+							case 8:
+							case 32773:
+							case 32946:
+							case 34712:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'PhotometricInterpretation':
-						$val = match ( $val ) {
-							0, 1, 2, 3, 4, 5, 6, 8, 9, 10,
-							32803,
-							34892 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 5:
+							case 6:
+							case 8:
+							case 9:
+							case 10:
+							case 32803:
+							case 34892:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'Orientation':
-						$val = match ( $val ) {
-							1, 2, 3, 4, 5, 6, 7, 8 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 5:
+							case 6:
+							case 7:
+							case 8:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'PlanarConfiguration':
+						switch ( $val ) {
+							case 1:
+							case 2:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
+						break;
+
 					// TODO: YCbCrSubSampling
 					case 'YCbCrPositioning':
-						$val = match ( $val ) {
-							1, 2 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 1:
+							case 2:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'XResolution':
 					case 'YResolution':
-						$val = match ( $resolutionunit ) {
-							2 => $this->exifMsg( 'XYResolution', 'i', $this->formatNum( $val ) ),
-							3 => $this->exifMsg( 'XYResolution', 'c', $this->formatNum( $val ) ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $resolutionunit ) {
+							case 2:
+								$val = $this->exifMsg( 'XYResolution', 'i', $this->formatNum( $val ) );
+								break;
+							case 3:
+								$val = $this->exifMsg( 'XYResolution', 'c', $this->formatNum( $val ) );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					// TODO: YCbCrCoefficients  #p27 (see annex E)
@@ -238,19 +295,34 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'ColorSpace':
-						$val = match ( $val ) {
-							1, 65535 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 1:
+							case 65535:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'ComponentsConfiguration':
-						$val = match ( $val ) {
-							0, 1, 2, 3, 4, 5, 6 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 5:
+							case 6:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'DateTime':
@@ -279,7 +351,7 @@ class FormatMetadata extends ContextSource {
 							$val
 						) ) {
 							// Full date.
-							$time = wfTimestamp( TS::MW, $val );
+							$time = wfTimestamp( TS_MW, $val );
 							if ( $time && (int)$time > 0 ) {
 								$val = $this->getLanguage()->timeanddate( $time );
 								break;
@@ -288,14 +360,14 @@ class FormatMetadata extends ContextSource {
 							// No second field. Still format the same
 							// since timeanddate doesn't include seconds anyways,
 							// but second still available in api
-							$time = wfTimestamp( TS::MW, $val . ':00' );
+							$time = wfTimestamp( TS_MW, $val . ':00' );
 							if ( $time && (int)$time > 0 ) {
 								$val = $this->getLanguage()->timeanddate( $time );
 								break;
 							}
 						} elseif ( preg_match( '/^(?:\d{4}):(?:\d\d):(?:\d\d)$/D', $val ) ) {
 							// If only the date but not the time is filled in.
-							$time = wfTimestamp( TS::MW, substr( $val, 0, 4 )
+							$time = wfTimestamp( TS_MW, substr( $val, 0, 4 )
 								. substr( $val, 5, 2 )
 								. substr( $val, 8, 2 )
 								. '000000' );
@@ -309,11 +381,23 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'ExposureProgram':
-						$val = match ( $val ) {
-							0, 1, 2, 3, 4, 5, 6, 7, 8 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 5:
+							case 6:
+							case 7:
+							case 8:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'SubjectDistance':
@@ -321,24 +405,59 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'MeteringMode':
-						$val = match ( $val ) {
-							0, 1, 2, 3, 4, 5, 6, 7, 255 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 5:
+							case 6:
+							case 7:
+							case 255:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'LightSource':
-						$val = match ( $val ) {
-							0, 1, 2, 3, 4, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24,
-							255 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 9:
+							case 10:
+							case 11:
+							case 12:
+							case 13:
+							case 14:
+							case 15:
+							case 17:
+							case 18:
+							case 19:
+							case 20:
+							case 21:
+							case 22:
+							case 23:
+							case 24:
+							case 255:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'Flash':
-						if ( !is_int( $val ) ) {
+						if ( $val === '' ) {
 							$val = 0;
 						}
 						$flashDecode = [
@@ -363,106 +482,221 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'FocalPlaneResolutionUnit':
-						$val = match ( $val ) {
-							2 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 2:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'SensingMethod':
-						$val = match ( $val ) {
-							1, 2, 3, 4, 5, 7, 8 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+							case 5:
+							case 7:
+							case 8:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'FileSource':
-						$val = match ( $val ) {
-							3 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 3:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'SceneType':
-						$val = match ( $val ) {
-							1 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 1:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'CustomRendered':
-						$val = match ( $val ) {
-							0, /* normal */
-							1, /* custom */
-							/* The following are unofficial Apple additions */
-							2, /* HDR (no original saved) */
-							3, /* HDR (original saved) */
-							4, /* Original (for HDR) */
-							6, /* Panorama */
-							7, /* Portrait HDR */
-							8 /* Portrait */ => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0: /* normal */
+							case 1: /* custom */
+								/* The following are unofficial Apple additions */
+							case 2: /* HDR (no original saved) */
+							case 3: /* HDR (original saved) */
+							case 4: /* Original (for HDR) */
+								/* Yes 5 is not present ;) */
+							case 6: /* Panorama */
+							case 7: /* Portrait HDR */
+							case 8: /* Portrait */
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'ExposureMode':
-					case 'Contrast':
-					case 'Saturation':
-					case 'Sharpness':
-						$val = match ( $val ) {
-							0, 1, 2 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								break;
+						}
 						break;
 
 					case 'WhiteBalance':
-						$val = match ( $val ) {
-							0, 1 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'SceneCaptureType':
-					case 'SubjectDistanceRange':
-						$val = match ( $val ) {
-							0, 1, 2, 3 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GainControl':
-						$val = match ( $val ) {
-							0, 1, 2, 3, 4 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+							case 4:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
+						break;
+
+					case 'Contrast':
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
+						break;
+
+					case 'Saturation':
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
+						break;
+
+					case 'Sharpness':
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
+						break;
+
+					case 'SubjectDistanceRange':
+						switch ( $val ) {
+							case 0:
+							case 1:
+							case 2:
+							case 3:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					// The GPS...Ref values are kept for compatibility, probably won't be reached.
 					case 'GPSLatitudeRef':
 					case 'GPSDestLatitudeRef':
-						$val = match ( $val ) {
-							'N', 'S' => $this->exifMsg( 'GPSLatitude', $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'N':
+							case 'S':
+								$val = $this->exifMsg( 'GPSLatitude', $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GPSLongitudeRef':
 					case 'GPSDestLongitudeRef':
-						$val = match ( $val ) {
-							'E', 'W' => $this->exifMsg( 'GPSLongitude', $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'E':
+							case 'W':
+								$val = $this->exifMsg( 'GPSLongitude', $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GPSAltitude':
@@ -474,29 +708,44 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'GPSStatus':
-						$val = match ( $val ) {
-							'A', 'V' => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'A':
+							case 'V':
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GPSMeasureMode':
-						$val = match ( $val ) {
-							2, 3 => $this->exifMsg( $tag, $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 2:
+							case 3:
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GPSTrackRef':
 					case 'GPSImgDirectionRef':
 					case 'GPSDestBearingRef':
-						$val = match ( $val ) {
-							'T', 'M' => $this->exifMsg( 'GPSDirection', $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'T':
+							case 'M':
+								$val = $this->exifMsg( 'GPSDirection', $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GPSLatitude':
@@ -509,19 +758,31 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'GPSSpeedRef':
-						$val = match ( $val ) {
-							'K', 'M', 'N' => $this->exifMsg( 'GPSSpeed', $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'K':
+							case 'M':
+							case 'N':
+								$val = $this->exifMsg( 'GPSSpeed', $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GPSDestDistanceRef':
-						$val = match ( $val ) {
-							'K', 'M', 'N' => $this->exifMsg( 'GPSDestDistance', $val ),
-							/* If not recognized, display as is. */
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'K':
+							case 'M':
+							case 'N':
+								$val = $this->exifMsg( 'GPSDestDistance', $val );
+								break;
+							default:
+								/* If not recognized, display as is. */
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 
 					case 'GPSDOP':
@@ -613,14 +874,34 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'iimCategory':
-						$val = match ( strtolower( $val ) ) {
+						switch ( strtolower( $val ) ) {
 							// See pg 29 of IPTC photo
 							// metadata standard.
-							'ace', 'clj', 'dis', 'fin', 'edu', 'evn', 'hth', 'hum', 'lab', 'lif',
-							'pol', 'rel', 'sci', 'soi', 'spo', 'war',
-							'wea' => $this->exifMsg( 'iimcategory', $val ),
-							default => $this->literal( $val )
-						};
+							case 'ace':
+							case 'clj':
+							case 'dis':
+							case 'fin':
+							case 'edu':
+							case 'evn':
+							case 'hth':
+							case 'hum':
+							case 'lab':
+							case 'lif':
+							case 'pol':
+							case 'rel':
+							case 'sci':
+							case 'soi':
+							case 'spo':
+							case 'war':
+							case 'wea':
+								$val = $this->exifMsg(
+									'iimcategory',
+									$val
+								);
+								break;
+							default:
+								$val = $this->literal( $val );
+						}
 						break;
 					case 'SubjectNewsCode':
 						// Essentially like iimCategory.
@@ -760,24 +1041,39 @@ class FormatMetadata extends ContextSource {
 						break;
 
 					case 'ProjectionType':
-						$val = match ( $val ) {
-							'equirectangular' => $this->exifMsg( $tag, $val ),
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'equirectangular':
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 					case 'ObjectCycle':
-						$val = match ( $val ) {
-							'a', 'p', 'b' => $this->exifMsg( $tag, $val ),
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'a':
+							case 'p':
+							case 'b':
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 					case 'Copyrighted':
 					case 'UsePanoramaViewer':
 					case 'ExposureLockUsed':
-						$val = match ( $val ) {
-							'True', 'False' => $this->exifMsg( $tag, $val ),
-							default => $this->literal( $val )
-						};
+						switch ( $val ) {
+							case 'True':
+							case 'False':
+								$val = $this->exifMsg( $tag, $val );
+								break;
+							default:
+								$val = $this->literal( $val );
+								break;
+						}
 						break;
 					case 'Rating':
 						if ( $val === '-1' ) {
@@ -1140,26 +1436,60 @@ class FormatMetadata extends ContextSource {
 			// Not a valid news code.
 			return $val;
 		}
-		$cat = match ( substr( $val, 0, 2 ) ) {
-			'01' => 'ace',
-			'02' => 'clj',
-			'03' => 'dis',
-			'04' => 'fin',
-			'05' => 'edu',
-			'06' => 'evn',
-			'07' => 'hth',
-			'08' => 'hum',
-			'09' => 'lab',
-			'10' => 'lif',
-			'11' => 'pol',
-			'12' => 'rel',
-			'13' => 'sci',
-			'14' => 'soi',
-			'15' => 'spo',
-			'16' => 'war',
-			'17' => 'wea',
-			default => '',
-		};
+		$cat = '';
+		switch ( substr( $val, 0, 2 ) ) {
+			case '01':
+				$cat = 'ace';
+				break;
+			case '02':
+				$cat = 'clj';
+				break;
+			case '03':
+				$cat = 'dis';
+				break;
+			case '04':
+				$cat = 'fin';
+				break;
+			case '05':
+				$cat = 'edu';
+				break;
+			case '06':
+				$cat = 'evn';
+				break;
+			case '07':
+				$cat = 'hth';
+				break;
+			case '08':
+				$cat = 'hum';
+				break;
+			case '09':
+				$cat = 'lab';
+				break;
+			case '10':
+				$cat = 'lif';
+				break;
+			case '11':
+				$cat = 'pol';
+				break;
+			case '12':
+				$cat = 'rel';
+				break;
+			case '13':
+				$cat = 'sci';
+				break;
+			case '14':
+				$cat = 'soi';
+				break;
+			case '15':
+				$cat = 'spo';
+				break;
+			case '16':
+				$cat = 'war';
+				break;
+			case '17':
+				$cat = 'wea';
+				break;
+		}
 		if ( $cat !== '' ) {
 			$catMsg = $this->exifMsg( 'iimcategory', $cat );
 			$val = $this->exifMsg( 'subjectnewscode', '', $this->literal( $val ), $catMsg );
@@ -1427,7 +1757,7 @@ class FormatMetadata extends ContextSource {
 			return $file->getExtendedMetadata() ?: [];
 		}
 
-		$uploadDate = wfTimestamp( TS::ISO_8601, $file->getTimestamp() );
+		$uploadDate = wfTimestamp( TS_ISO_8601, $file->getTimestamp() );
 
 		$fileMetadata = [
 			// This is modification time, which is close to "upload" time.
@@ -1627,7 +1957,7 @@ class FormatMetadata extends ContextSource {
 		unset( $value );
 
 		// Handle API metadata keys (particularly "_type")
-		$keys = array_filter( array_keys( $arr ), ApiResult::isMetadataKey( ... ) );
+		$keys = array_filter( array_keys( $arr ), [ ApiResult::class, 'isMetadataKey' ] );
 		if ( $keys ) {
 			ApiResult::setPreserveKeysList( $arr, $keys );
 		}

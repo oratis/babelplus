@@ -330,7 +330,7 @@ class SpecialMergeHistory extends SpecialPage {
 				$revisions->getNavigationBar()
 			);
 		} else {
-			$form->setFooterHtml( $this->msg( 'mergehistory-empty' )->escaped() );
+			$form->setFooterHtml( $this->msg( 'mergehistory-empty' ) );
 		}
 
 		$form->prepareForm()->displayForm( false );

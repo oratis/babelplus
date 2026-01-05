@@ -14,7 +14,6 @@ use MediaWiki\SpecialPage\SpecialPageFactory;
 use MediaWiki\Title\Title;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Query module to get the results of a QueryPage-based special page
@@ -95,7 +94,7 @@ class ApiQueryQueryPage extends ApiQueryGeneratorBase {
 					$r['cached'] = true;
 					$ts = $qp->getCachedTimestamp();
 					if ( $ts ) {
-						$r['cachedtimestamp'] = wfTimestamp( TS::ISO_8601, $ts );
+						$r['cachedtimestamp'] = wfTimestamp( TS_ISO_8601, $ts );
 					}
 					$r['maxresults'] = $this->getConfig()->get( MainConfigNames::QueryCacheLimit );
 				}
@@ -124,7 +123,7 @@ class ApiQueryQueryPage extends ApiQueryGeneratorBase {
 				if ( isset( $row->value ) ) {
 					$data['value'] = $row->value;
 					if ( $qp->usesTimestamps() ) {
-						$data['timestamp'] = wfTimestamp( TS::ISO_8601, $row->value );
+						$data['timestamp'] = wfTimestamp( TS_ISO_8601, $row->value );
 					}
 				}
 				self::addTitleInfo( $data, $title );

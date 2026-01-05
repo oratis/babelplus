@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -21,6 +21,3 @@ interface SpecialVersionVersionUrlHook {
 	 */
 	public function onSpecialVersionVersionUrl( $version, &$versionUrl );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialVersionVersionUrlHook::class, 'MediaWiki\\Hook\\SpecialVersionVersionUrlHook' );

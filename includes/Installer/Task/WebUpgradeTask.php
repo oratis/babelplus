@@ -32,7 +32,6 @@ class WebUpgradeTask extends Task {
 		);
 		$updater->setAutoExtensionHookContainer( $this->getHookContainer() );
 		$updater->doUpdates();
-		$updater->outputAppliedSummary();
 		$updater->purgeCache();
 		return $status;
 	}

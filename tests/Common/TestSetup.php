@@ -7,7 +7,6 @@ use MediaWiki\Logger\LegacySpi;
 use MediaWiki\Maintenance\MaintenanceFatalError;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Registration\ExtensionRegistry;
-use MediaWiki\Search\SearchEngineDummy;
 use MediaWiki\Session\CookieSessionProvider;
 
 /**

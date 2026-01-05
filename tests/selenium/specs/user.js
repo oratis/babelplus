@@ -37,7 +37,8 @@ describe( 'User', () => {
 		await LoginPage.login( username, password );
 
 		// check
-		await expect( await LoginPage.getActualUsername() ).toBe( username );
+		const actualUsername = await LoginPage.getActualUsername();
+		expect( actualUsername ).toBe( username );
 	} );
 
 	it( 'named user should see extra signup form fields when creating an account', async () => {
@@ -61,12 +62,7 @@ describe( 'User', () => {
 		const pageText = getTestString();
 
 		await EditPage.edit( pageTitle, pageText );
-
-		// Wait for the edit to succeed, which when it has the
-		// temporary account should have been created
-		await expect( EditPage.heading ).toHaveText( pageTitle );
-
-		await CreateAccountPage.open();
+		await EditPage.openCreateAccountPageAsTempUser();
 
 		await expect( CreateAccountPage.username ).toExist();
 		await expect( CreateAccountPage.password ).toExist();
@@ -83,15 +79,18 @@ describe( 'User', () => {
 		const pageText = getTestString();
 
 		await EditPage.edit( pageTitle, pageText );
-
-		// Wait for the edit to succeed, which when it has the
-		// temporary account should have been created
-		await expect( EditPage.heading ).toHaveText( pageTitle );
-
-		await CreateAccountPage.open();
+		await EditPage.openCreateAccountPageAsTempUser();
 
 		await CreateAccountPage.submitForm( username, password );
-		await expect( await LoginPage.getActualUsername() ).toBe( username );
+		await browser.waitUntil(
+			async () => ( await LoginPage.getActualUsername() ) === username,
+			{
+				timeoutMsg: 'expected user is not logged in'
+			}
+		);
+
+		const actualUsername = await LoginPage.getActualUsername();
+		await expect( actualUsername ).toBe( username );
 		await expect( CreateAccountPage.heading ).toHaveText( `Welcome, ${ username }!` );
 	} );
 

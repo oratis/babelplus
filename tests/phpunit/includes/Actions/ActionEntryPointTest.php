@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Actions;
+namespace MediaWiki\Tests\Action;
 
 use MediaWiki\Actions\ActionEntryPoint;
 use MediaWiki\Context\RequestContext;

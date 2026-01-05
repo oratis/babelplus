@@ -1,13 +1,10 @@
 <?php
 
-namespace MediaWiki\Tests\Content\Transform;
-
 use MediaWiki\Content\WikitextContent;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Title\Title;
 use MediaWiki\User\User;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @covers \MediaWiki\Content\Transform\ContentTransformer

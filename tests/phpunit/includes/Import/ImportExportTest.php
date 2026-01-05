@@ -88,9 +88,10 @@ class ImportExportTest extends MediaWikiLangTestCase {
 	/**
 	 * @param string $prefix
 	 * @param string[] $keys
-	 * @return array<string,string>
+	 *
+	 * @return string[]
 	 */
-	private function getUniqueNames( string $prefix, array $keys ): array {
+	private function getUniqueNames( string $prefix, array $keys ) {
 		$names = [];
 
 		foreach ( $keys as $k ) {
@@ -102,7 +103,8 @@ class ImportExportTest extends MediaWikiLangTestCase {
 
 	/**
 	 * @param string $xmlData
-	 * @param array<string,string> $pageTitles
+	 * @param string[] $pageTitles
+	 *
 	 * @return string
 	 */
 	private function injectPageTitles( string $xmlData, array $pageTitles ) {
@@ -136,10 +138,11 @@ class ImportExportTest extends MediaWikiLangTestCase {
 	}
 
 	/**
-	 * @param array<string,string> $pageTitles
-	 * @return array<string,string>
+	 * @param string[] $pageTitles
+	 *
+	 * @return string[]
 	 */
-	private function getPageInfoVars( array $pageTitles ): array {
+	private function getPageInfoVars( array $pageTitles ) {
 		$vars = [];
 		foreach ( $pageTitles as $name => $page ) {
 			$title = Title::newFromText( $page );
@@ -168,25 +171,27 @@ class ImportExportTest extends MediaWikiLangTestCase {
 
 	/**
 	 * @param string $schemaVersion
-	 * @return array<string,string>
+	 * @return string[]
 	 */
-	private function getSiteVars( string $schemaVersion ): array {
+	private function getSiteVars( $schemaVersion ) {
 		global $wgSitename, $wgDBname, $wgCapitalLinks;
 
-		$services = $this->getServiceContainer();
-		return [
-			'mw_version' => MW_VERSION,
-			'schema_version' => $schemaVersion,
-			'site_name' => $wgSitename,
-			'project_namespace' => $services->getTitleFormatter()->getNamespaceName(
+		$vars = [];
+		$vars['mw_version'] = MW_VERSION;
+		$vars['schema_version'] = $schemaVersion;
+
+		$vars['site_name'] = $wgSitename;
+		$vars['project_namespace'] =
+			$this->getServiceContainer()->getTitleFormatter()->getNamespaceName(
 				NS_PROJECT,
 				'Dummy'
-			),
-			'site_db' => $wgDBname,
-			'site_case' => $wgCapitalLinks ? 'first-letter' : 'case-sensitive',
-			'site_base' => Title::newMainPage()->getCanonicalURL(),
-			'site_language' => $services->getContentLanguage()->getHtmlCode(),
-		];
+			);
+		$vars['site_db'] = $wgDBname;
+		$vars['site_case'] = $wgCapitalLinks ? 'first-letter' : 'case-sensitive';
+		$vars['site_base'] = Title::newMainPage()->getCanonicalURL();
+		$vars['site_language'] = $this->getServiceContainer()->getContentLanguage()->getHtmlCode();
+
+		return $vars;
 	}
 
 	public static function provideImportExport() {

@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 use MediaWiki\HookContainer\HookContainer;
 use Wikimedia\ObjectFactory\ObjectFactory;
 use Wikimedia\Rdbms\IConnectionProvider;
@@ -83,6 +81,3 @@ class SearchEngineFactory {
 		}
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchEngineFactory::class, 'SearchEngineFactory' );

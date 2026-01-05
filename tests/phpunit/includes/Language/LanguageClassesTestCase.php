@@ -1,14 +1,12 @@
 <?php
-namespace MediaWiki\Tests\Language;
 
 use MediaWiki\Language\Language;
-use MediaWikiIntegrationTestCase;
 
 /**
  * Helping class to run tests using a clean language instance.
  *
  * This is intended for the MediaWiki language class tests under
- * tests/phpunit/includes/Languages.
+ * tests/phpunit/includes/languages.
  *
  * Before each tests, a new language object is built which you
  * can retrieve in your test using the $this->getLang() method:
@@ -53,7 +51,7 @@ abstract class LanguageClassesTestCase extends MediaWikiIntegrationTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		$lang = false;
-		if ( preg_match( '/(?:\w+\\\\)*Language(.+)Test/', static::class, $m ) ) {
+		if ( preg_match( '/Language(.+)Test/', static::class, $m ) ) {
 			# Normalize language code since classes uses underscores
 			$lang = strtolower( str_replace( '_', '-', $m[1] ) );
 		}

@@ -18,6 +18,10 @@ use Wikimedia\StringUtils\StringUtils;
  */
 class ConverterRule {
 	/**
+	 * @var string original text in -{text}-
+	 */
+	public $mText;
+	/**
 	 * @var LanguageConverter
 	 */
 	public $mConverter;
@@ -47,9 +51,11 @@ class ConverterRule {
 	public $mUnidtable = [];
 
 	/**
+	 * @param string $text The text between -{ and }-
 	 * @param LanguageConverter $converter
 	 */
-	public function __construct( LanguageConverter $converter ) {
+	public function __construct( $text, LanguageConverter $converter ) {
+		$this->mText = $text;
 		$this->mConverter = $converter;
 	}
 
@@ -75,7 +81,8 @@ class ConverterRule {
 	/**
 	 * Parse flags with syntax -{FLAG| ... }-
 	 */
-	private function parseFlags( string $text ) {
+	private function parseFlags() {
+		$text = $this->mText;
 		$flags = [];
 		$variantFlags = [];
 
@@ -347,15 +354,14 @@ class ConverterRule {
 
 	/**
 	 * Parse rules and flags.
-	 * @param string $inner The contents of the rule between -{ and }-
 	 * @param string|null $variant Variant language code
 	 */
-	public function parse( string $inner, ?string $variant = null ): void {
+	public function parse( $variant = null ) {
 		if ( !$variant ) {
 			$variant = $this->mConverter->getPreferredVariant();
 		}
 
-		$this->parseFlags( $inner );
+		$this->parseFlags();
 		$flags = $this->mFlags;
 
 		// convert to specified variant

@@ -10,7 +10,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Title\Title;
 use MediaWiki\Xml\Xml;
 use Wikimedia\Rdbms\IReadableDatabase;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Utility for generating a sitemap
@@ -18,8 +17,7 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  * @internal
  */
 class SitemapGenerator {
-	private ?array $selectedNamespaces = null;
-	private ?array $allowedNamespaces = null;
+	private ?array $namespaces = null;
 	private ?array $excludedNamespaces = null;
 	private ?int $startId = null;
 	private ?int $endId = null;
@@ -60,30 +58,13 @@ class SitemapGenerator {
 	}
 
 	/**
-	 * Set the selected namespaces
+	 * Optionally limit the namespace IDs
 	 *
 	 * @param int[]|null $namespaces
 	 * @return $this
 	 */
 	public function namespaces( ?array $namespaces ) {
-		$this->selectedNamespaces = $namespaces;
-		return $this;
-	}
-
-	/**
-	 * Add namespaces to the selected namespace list. If namespacesFromConfig()
-	 * was already called, the selected namespace list will include namespaces
-	 * from both $wgSitemapNamespaces and $namespaces.
-	 *
-	 * @param array|null $namespaces
-	 * @return $this
-	 */
-	public function additionalNamespaces( ?array $namespaces ) {
-		if ( $namespaces && $this->selectedNamespaces !== null ) {
-			$this->selectedNamespaces = array_unique( array_merge(
-				$this->selectedNamespaces, $namespaces
-			) );
-		}
+		$this->namespaces = $namespaces;
 		return $this;
 	}
 
@@ -94,14 +75,14 @@ class SitemapGenerator {
 	 * @return $this
 	 */
 	public function namespacesFromConfig( Config $config ) {
-		$this->allowedNamespaces = null;
+		$this->namespaces = null;
 		$this->excludedNamespaces = null;
 
-		$sitemapNamespaces = $config->get( MainConfigNames::SitemapNamespaces );
-		if ( $sitemapNamespaces ) {
-			$this->selectedNamespaces = $sitemapNamespaces;
+		$namespaces = $config->get( MainConfigNames::SitemapNamespaces );
+		if ( $namespaces ) {
+			$this->namespaces = $namespaces;
+			return $this;
 		}
-
 		$defaultPolicy = $config->get( MainConfigNames::DefaultRobotPolicy );
 		$namespacePolicies = $config->get( MainConfigNames::NamespaceRobotPolicies );
 		if ( self::isNoIndex( $defaultPolicy ) ) {
@@ -111,7 +92,7 @@ class SitemapGenerator {
 					$namespaces[] = $ns;
 				}
 			}
-			$this->allowedNamespaces = $namespaces;
+			$this->namespaces = $namespaces;
 		} else {
 			$excluded = [];
 			foreach ( $namespacePolicies as $ns => $policy ) {
@@ -213,12 +194,11 @@ class SitemapGenerator {
 		if ( $this->endId !== null ) {
 			$sqb->where( $dbr->expr( 'page_id', '<', $this->endId ) );
 		}
-		$namespaces = $this->getSelectedAndAllowedNamespaces();
-		if ( $namespaces !== null ) {
-			if ( $namespaces === [] ) {
+		if ( $this->namespaces !== null ) {
+			if ( $this->namespaces === [] ) {
 				$empty = true;
 			} else {
-				$sqb->where( [ 'page_namespace' => $namespaces ] );
+				$sqb->where( [ 'page_namespace' => $this->namespaces ] );
 			}
 		}
 		if ( $this->excludedNamespaces !== null ) {
@@ -252,7 +232,7 @@ class SitemapGenerator {
 				$query = $variant === null ? '' : 'variant=' . urlencode( $variant );
 				$xml .= '<url>' .
 					Xml::element( 'loc', null, $title->getCanonicalURL( $query ) ) .
-					Xml::element( 'lastmod', null, wfTimestamp( TS::ISO_8601, $row->page_touched ) ) .
+					Xml::element( 'lastmod', null, wfTimestamp( TS_ISO_8601, $row->page_touched ) ) .
 					"</url>\n";
 			}
 		}
@@ -265,23 +245,5 @@ class SitemapGenerator {
 		}
 
 		return $xml;
-	}
-
-	/**
-	 * Get namespaces that are both selected and allowed, or null if all
-	 * namespaces are selected.
-	 *
-	 * @return array|null
-	 */
-	private function getSelectedAndAllowedNamespaces() {
-		if ( $this->selectedNamespaces !== null ) {
-			if ( $this->allowedNamespaces !== null ) {
-				return array_intersect( $this->selectedNamespaces, $this->allowedNamespaces );
-			} else {
-				return $this->selectedNamespaces;
-			}
-		} else {
-			return $this->allowedNamespaces;
-		}
 	}
 }

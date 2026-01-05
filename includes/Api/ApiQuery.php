@@ -93,9 +93,6 @@ class ApiQuery extends ApiBase {
 		],
 		'images' => [
 			'class' => ApiQueryImages::class,
-			'services' => [
-				'LinksMigration',
-			]
 		],
 		'imageinfo' => [
 			'class' => ApiQueryImageInfo::class,
@@ -124,7 +121,6 @@ class ApiQuery extends ApiBase {
 				'PreloadedContentBuilder',
 				'RevisionLookup',
 				'UrlUtils',
-				'LinkRenderer',
 			],
 		],
 		'links' => [
@@ -317,7 +313,6 @@ class ApiQuery extends ApiBase {
 				'ContentLanguage',
 				'TempUserConfig',
 				'RecentChangeLookup',
-				'TempUserDetailsLookup',
 			]
 		],
 		'backlinks' => [
@@ -484,8 +479,6 @@ class ApiQuery extends ApiBase {
 				'UserGroupManager',
 				'GenderCache',
 				'AuthManager',
-				'TempUserConfig',
-				'TempUserDetailsLookup',
 			],
 		],
 		'watchlist' => [
@@ -562,7 +555,6 @@ class ApiQuery extends ApiBase {
 				'UserEditTracker',
 				'UserOptionsLookup',
 				'UserGroupManager',
-				'WatchlistLabelStore',
 			]
 		],
 		'filerepoinfo' => [
@@ -705,6 +697,7 @@ class ApiQuery extends ApiBase {
 				// Augment api-query.$module.executeTiming metric with timings for requestExtraData()
 				$timer = $statsFactory->getTiming( 'api_query_extraDataTiming_seconds' )
 					->setLabel( 'module', $module->getModuleName() )
+					->copyToStatsdAt( 'api-query.' . $module->getModuleName() . '.extraDataTiming' )
 					->start();
 				$module->requestExtraData( $this->mPageSet );
 				$timer->stop();
@@ -724,8 +717,8 @@ class ApiQuery extends ApiBase {
 			// Break down of the api.query.executeTiming metric by query module.
 			$timer = $statsFactory->getTiming( 'api_query_executeTiming_seconds' )
 				->setLabel( 'module', $module->getModuleName() )
+				->copyToStatsdAt( 'api-query.' . $module->getModuleName() . '.executeTiming' )
 				->start();
-			$t = microtime( true );
 
 			$params = $module->extractRequestParams();
 			$cacheMode = $this->mergeCacheMode(
@@ -733,24 +726,7 @@ class ApiQuery extends ApiBase {
 			$scope = LoggerFactory::getContext()->addScoped( [
 				'context.api_query_module_name' => $module->getModuleName(),
 			] );
-
-			// Wrap the execution in a try/catch to record metrics for success and errors
-			try {
-				$module->execute();
-				$module->recordUnifiedMetrics(
-					microtime( true ) - $t // Run time
-				);
-			} catch ( \Throwable $e ) {
-				// Unified metrics for errors
-				$module->recordUnifiedMetrics(
-					microtime( true ) - $t, // Run time
-					[
-						'status' => 'error_' . $e->getCode(), // Failure codes
-					]
-				);
-				// Re-throw the exception so it's bubbled up
-				throw $e;
-			}
+			$module->execute();
 			ScopedCallback::consume( $scope );
 
 			$timer->stop();
@@ -867,11 +843,10 @@ class ApiQuery extends ApiBase {
 
 		// Report any missing titles
 		foreach ( $pageSet->getMissingPages() as $fakeId => $page ) {
-			$vals = [
-				'ns' => $page->getNamespace(),
-				'title' => $this->titleFormatter->getPrefixedText( $page ),
-				'missing' => true,
-			];
+			$vals = [];
+			$vals['ns'] = $page->getNamespace();
+			$vals['title'] = $this->titleFormatter->getPrefixedText( $page );
+			$vals['missing'] = true;
 			$title = $this->titleFactory->newFromPageIdentity( $page );
 			if ( $title->isKnown() ) {
 				$vals['known'] = true;
@@ -892,11 +867,10 @@ class ApiQuery extends ApiBase {
 		// Report special pages
 		/** @var \MediaWiki\Page\PageReference $page */
 		foreach ( $pageSet->getSpecialPages() as $fakeId => $page ) {
-			$vals = [
-				'ns' => $page->getNamespace(),
-				'title' => $this->titleFormatter->getPrefixedText( $page ),
-				'special' => true,
-			];
+			$vals = [];
+			$vals['ns'] = $page->getNamespace();
+			$vals['title'] = $this->titleFormatter->getPrefixedText( $page );
+			$vals['special'] = true;
 			$title = $this->titleFactory->newFromPageReference( $page );
 			if ( !$title->isKnown() ) {
 				$vals['missing'] = true;
@@ -906,11 +880,11 @@ class ApiQuery extends ApiBase {
 
 		// Output general page information for found titles
 		foreach ( $pageSet->getGoodPages() as $pageid => $page ) {
-			$pages[$pageid] = [
-				'pageid' => $pageid,
-				'ns' => $page->getNamespace(),
-				'title' => $this->titleFormatter->getPrefixedText( $page ),
-			];
+			$vals = [];
+			$vals['pageid'] = $pageid;
+			$vals['ns'] = $page->getNamespace();
+			$vals['title'] = $this->titleFormatter->getPrefixedText( $page );
+			$pages[$pageid] = $vals;
 		}
 
 		if ( count( $pages ) ) {

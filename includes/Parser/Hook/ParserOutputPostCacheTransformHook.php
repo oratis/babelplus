@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Parser\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Parser\ParserOutput;
 
@@ -27,6 +27,3 @@ interface ParserOutputPostCacheTransformHook {
 		&$options
 	): void;
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ParserOutputPostCacheTransformHook::class, 'MediaWiki\\Hook\\ParserOutputPostCacheTransformHook' );

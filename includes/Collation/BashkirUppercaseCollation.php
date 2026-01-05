@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 use MediaWiki\Languages\LanguageFactory;
 
 class BashkirUppercaseCollation extends CustomUppercaseCollation {
@@ -63,6 +61,3 @@ class BashkirUppercaseCollation extends CustomUppercaseCollation {
 		);
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( BashkirUppercaseCollation::class, 'BashkirUppercaseCollation' );

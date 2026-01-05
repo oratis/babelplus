@@ -252,9 +252,7 @@ abstract class ParsoidHandler extends Handler {
 		$acceptLanguage = null;
 		if ( $opts['accept-language'] !== null ) {
 			$acceptLanguage = LanguageCode::normalizeNonstandardCodeAndWarn(
-				HtmlOutputRendererHelper::getAcceptedTargetLanguage(
-					$opts['accept-language']
-				)
+				$opts['accept-language']
 			);
 		}
 
@@ -276,7 +274,6 @@ abstract class ParsoidHandler extends Handler {
 			'cookie' => $request->getHeaderLine( 'Cookie' ),
 			'reqId' => $request->getHeaderLine( 'X-Request-Id' ),
 			'userAgent' => $request->getHeaderLine( 'User-Agent' ),
-			// Used in pb2pb variant updates and wtLint
 			'htmlVariantLanguage' => $acceptLanguage,
 			// Semver::satisfies checks below expect a valid outputContentVersion value.
 			// Better to set it here instead of adding the default value at every check.
@@ -948,7 +945,7 @@ abstract class ParsoidHandler extends Handler {
 				$revision['data-mw']['body'] ?? null
 			);
 			$this->validatePb( $pb, $attribs['envOptions']['inputContentVersion'] );
-			Parsoid::downgrade( $downgrade, $pb, $this->siteConfig );
+			Parsoid::downgrade( $downgrade, $pb );
 
 			if ( !empty( $attribs['body_only'] ) ) {
 				$doc = $this->parseHTML( $pb->html );

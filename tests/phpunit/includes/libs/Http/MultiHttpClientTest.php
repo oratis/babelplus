@@ -1,17 +1,8 @@
 <?php
 
-namespace Tests\Wikimedia\Http;
-
-use Exception;
-use Generator;
-use MediaWiki\Http\HttpRequestFactory;
 use MediaWiki\Status\Status;
-use MediaWikiIntegrationTestCase;
-use MWHttpRequest;
 use PHPUnit\Framework\Constraint\IsType;
 use PHPUnit\Framework\MockObject\MockObject;
-use ReflectionClass;
-use StatusValue;
 use Wikimedia\Http\MultiHttpClient;
 use Wikimedia\Http\TelemetryHeadersInterface;
 use Wikimedia\ScopedCallback;
@@ -53,7 +44,7 @@ class MultiHttpClientTest extends MediaWikiIntegrationTestCase {
 	}
 
 	private function mockHttpRequestFactory( $httpRequest ) {
-		$factory = $this->createMock( HttpRequestFactory::class );
+		$factory = $this->createMock( MediaWiki\Http\HttpRequestFactory::class );
 		$factory->method( 'create' )
 			->willReturn( $httpRequest );
 		return $factory;
@@ -251,7 +242,7 @@ class MultiHttpClientTest extends MediaWikiIntegrationTestCase {
 	) {
 		$url = 'http://www.example.test';
 		$httpRequest = $this->getHttpRequest( StatusValue::newGood( 200 ), 200 );
-		$factory = $this->createMock( HttpRequestFactory::class );
+		$factory = $this->createMock( MediaWiki\Http\HttpRequestFactory::class );
 		$factory->method( 'create' )
 			->with(
 				$url,

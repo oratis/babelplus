@@ -21,7 +21,6 @@ use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionRenderer;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\TitleFormatter;
-use MediaWiki\Utils\MWTimestamp;
 use MediaWiki\WikiMap\WikiMap;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
@@ -50,9 +49,6 @@ class ParserOutputAccess implements LoggerAwareInterface {
 
 	/** @internal */
 	public const PARSOID_RCACHE_NAME = 'parsoid-' . ParserCacheFactory::DEFAULT_RCACHE_NAME;
-
-	/** @internal */
-	public const POSTPROC_CACHE_PREFIX = 'postproc-';
 
 	/**
 	 * @var int Do not check the cache before parsing (force parse)
@@ -107,11 +103,6 @@ class ParserOutputAccess implements LoggerAwareInterface {
 	 *      Otherwise, if it's not Parsoid's default, it will be invalidated.
 	 */
 	public const OPT_IGNORE_PROFILE_VERSION = 128;
-
-	/**
-	 * @var int ignore postprocessing cache
-	 */
-	public const OPT_NO_POSTPROC_CACHE = 256;
 
 	/**
 	 * Whether to fall back to using stale content when failing to
@@ -205,6 +196,8 @@ class ParserOutputAccess implements LoggerAwareInterface {
 	 * If the input is an array, any integer key that has multiple bits set will
 	 * be split into separate keys for each bit. String keys remain unchanged.
 	 *
+	 * This method supports up to 32 bits.
+	 *
 	 * @param int|array $options
 	 *
 	 * @return array An associative array with one key for each bit,
@@ -223,9 +216,9 @@ class ParserOutputAccess implements LoggerAwareInterface {
 
 			// Collect all bits from array keys, in case one of the keys
 			// sets multiple bits.
-			foreach ( $options as $opt => $enabled ) {
-				if ( is_int( $opt ) && $enabled === true ) {
-					$bits |= $opt;
+			foreach ( $options as $key => $value ) {
+				if ( is_int( $key ) ) {
+					$bits |= $key;
 				}
 			}
 		} else {
@@ -233,9 +226,10 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			$options = [];
 		}
 
-		// From the (numerically) smallest to the largest option that can possibly exist
-		for ( $b = self::OPT_NO_CHECK_CACHE; $b <= self::OPT_NO_POSTPROC_CACHE; $b <<= 1 ) {
-			$options[$b] = (bool)( $bits & $b );
+		$b = 1;
+		for ( $i = 0; $i < 32; $i++ ) {
+			$options[$b] = ( $bits & $b ) > 0;
+			$b <<= 1;
 		}
 
 		if ( $options[ self::OPT_FOR_ARTICLE_VIEW ] ) {
@@ -314,7 +308,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 		$classCacheKey = $primaryCache->makeParserOutputKey( $page, $parserOptions );
 
 		if ( $useCache === self::CACHE_PRIMARY ) {
-			if ( !$isOld && $this->localCache->hasField( $classCacheKey, $page->getLatest() ) ) {
+			if ( $this->localCache->hasField( $classCacheKey, $page->getLatest() ) && !$isOld ) {
 				return $this->localCache->getField( $classCacheKey, $page->getLatest() );
 			}
 			$output = $primaryCache->get( $page, $parserOptions );
@@ -344,7 +338,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			}
 		}
 
-		if ( $output && !$isOld && !$parserOptions->getPostproc() ) {
+		if ( $output && !$isOld ) {
 			$this->localCache->setField( $classCacheKey, $page->getLatest(), $output );
 		}
 
@@ -353,7 +347,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			->setLabel( 'cache', $useCache )
 			->setLabel( 'reason', $statReason )
 			->setLabel( 'type', $statType )
-			->setLabel( 'postproc', $parserOptions->getPostproc() ? 'true' : 'false' )
+			->copyToStatsdAt( "ParserOutputAccess.Cache.$useCache.$statReason" )
 			->increment();
 
 		return $output ?: null; // convert false to null
@@ -448,7 +442,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			$this->statsFactory
 				->getCounter( 'parseroutputaccess_case' )
 				->setLabel( 'case', 'error' )
-				->setLabel( 'postproc', $parserOptions->getPostproc() ? 'true' : 'false' )
+				->copyToStatsdAt( 'ParserOutputAccess.Case.error' )
 				->increment();
 			return $error;
 		}
@@ -458,17 +452,17 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			$this->statsFactory
 				->getCounter( 'parseroutputaccess_case' )
 				->setLabel( 'case', 'old' )
-				->setLabel( 'postproc', $parserOptions->getPostproc() ? 'true' : 'false' )
+				->copyToStatsdAt( 'ParserOutputAccess.Case.old' )
 				->increment();
 		} else {
 			$this->statsFactory
 				->getCounter( 'parseroutputaccess_case' )
 				->setLabel( 'case', 'current' )
-				->setLabel( 'postproc', $parserOptions->getPostproc() ? 'true' : 'false' )
+				->copyToStatsdAt( 'ParserOutputAccess.Case.current' )
 				->increment();
 		}
 
-		if ( $this->shouldCheckCache( $parserOptions, $options ) ) {
+		if ( !$options[ self::OPT_NO_CHECK_CACHE ] ) {
 			$output = $this->getCachedParserOutput( $page, $parserOptions, $revision );
 			if ( $output ) {
 				return Status::newGood( $output );
@@ -483,7 +477,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 				$this->statsFactory
 					->getCounter( 'parseroutputaccess_status' )
 					->setLabel( 'status', 'norev' )
-					->setLabel( 'postproc', $parserOptions->getPostproc() ? 'true' : 'false' )
+					->copyToStatsdAt( "ParserOutputAccess.Status.norev" )
 					->increment();
 				return Status::newFatal( 'missing-revision', $revId );
 			}
@@ -499,7 +493,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			$this->statsFactory->getCounter( 'parseroutputaccess_render_total' )
 				->setLabel( 'pool', 'none' )
 				->setLabel( 'cache', self::CACHE_NONE )
-				->setLabel( 'postproc', $parserOptions->getPostproc() ? 'true' : 'false' )
+				->copyToStatsdAt( 'ParserOutputAccess.PoolWork.None' )
 				->increment();
 
 			$status = $this->renderRevision( $page, $parserOptions, $revision, $options, null );
@@ -508,23 +502,28 @@ class ParserOutputAccess implements LoggerAwareInterface {
 		$output = $status->getValue();
 		Assert::postcondition( $output || !$status->isOK(), 'Inconsistent status' );
 
-		// T301310: cache even uncacheable content locally
-		// T348255: temporarily disable local cache of postprocessed
-		// content out of an abundance of caution
-		if ( $output && !$isOld && !$parserOptions->getPostproc() ) {
+		if ( $output && !$isOld ) {
 			$primaryCache = $this->getPrimaryCache( $parserOptions );
 			$classCacheKey = $primaryCache->makeParserOutputKey( $page, $parserOptions );
 			$this->localCache->setField( $classCacheKey, $page->getLatest(), $output );
 		}
 
-		$labels = [
-			'postproc' => $parserOptions->getPostproc() ? 'true' : 'false',
-			'status' => $status->isGood() ? 'good' : ( $status->isOK() ? 'ok' : 'error' ),
-		];
-
-		$this->statsFactory->getCounter( 'parseroutputaccess_status' )
-			->setLabels( $labels )
-			->increment();
+		if ( $status->isGood() ) {
+			$this->statsFactory->getCounter( 'parseroutputaccess_status' )
+				->setLabel( 'status', 'good' )
+				->copyToStatsdAt( 'ParserOutputAccess.Status.good' )
+				->increment();
+		} elseif ( $status->isOK() ) {
+			$this->statsFactory->getCounter( 'parseroutputaccess_status' )
+				->setLabel( 'status', 'ok' )
+				->copyToStatsdAt( 'ParserOutputAccess.Status.ok' )
+				->increment();
+		} else {
+			$this->statsFactory->getCounter( 'parseroutputaccess_status' )
+				->setLabel( 'status', 'error' )
+				->copyToStatsdAt( 'ParserOutputAccess.Status.error' )
+				->increment();
+		}
 
 		return $status;
 	}
@@ -554,6 +553,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 		$span = $this->startOperationSpan( __FUNCTION__, $page, $revision );
 
 		$isCurrent = $revision->getId() === $page->getLatest();
+		$useCache = $this->shouldUseCache( $page, $revision );
 
 		// T371713: Temporary statistics collection code to determine
 		// feasibility of Parsoid selective update
@@ -568,27 +568,22 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			// but it is likely those template transclusions are out of date.
 			// Try to reuse the template transclusions from the most recent
 			// parse, which are more likely to reflect the current template.
-			if ( $this->shouldCheckCache( $parserOptions, $options ) ) {
+			if ( !$options[ self::OPT_NO_CHECK_CACHE ] ) {
 				$previousOutput = $this->getPrimaryCache( $parserOptions )->getDirty( $page, $parserOptions ) ?: null;
 			}
 		}
 
-		$preStatus = null;
-		if ( $parserOptions->getPostproc() ) {
-			$preParserOptions = $parserOptions->clearPostproc();
-			$preStatus = $this->getParserOutput( $page, $preParserOptions, $revision, $options );
-			$output = $preStatus->getValue();
-			if ( $output ) {
-				$output = $this->postprocess( $output, $parserOptions, $page );
-			}
-		} else {
-			$renderedRev = $this->revisionRenderer->getRenderedRevision( $revision, $parserOptions, null, [
-					'audience' => RevisionRecord::RAW,
-					'previous-output' => $previousOutput,
-				] );
+		$renderedRev = $this->revisionRenderer->getRenderedRevision(
+			$revision,
+			$parserOptions,
+			null,
+			[
+				'audience' => RevisionRecord::RAW,
+				'previous-output' => $previousOutput,
+			]
+		);
 
-			$output = $renderedRev->getRevisionParserOutput();
-		}
+		$output = $renderedRev->getRevisionParserOutput();
 
 		if ( $doSample ) {
 			$labels = [
@@ -599,7 +594,6 @@ class ParserOutputAccess implements LoggerAwareInterface {
 				'opportunistic' => 'false',
 				'wiki' => WikiMap::getCurrentWikiId(),
 				'model' => $revision->getMainContentModel(),
-				'postproc' => $parserOptions->getPostproc() ? 'true' : 'false',
 			];
 			$this->statsFactory
 				->getCounter( 'ParserCache_selective_total' )
@@ -608,25 +602,25 @@ class ParserOutputAccess implements LoggerAwareInterface {
 			$this->statsFactory
 				->getCounter( 'ParserCache_selective_cpu_seconds' )
 				->setLabels( $labels )
-				->incrementBy( $output->getTimeProfile( 'cpu' ) ?? 0 );
+				->incrementBy( $output->getTimeProfile( 'cpu' ) );
 		}
 
-		$res = Status::newGood( $output );
-		if ( $preStatus ) {
-			$res->merge( $preStatus );
+		if ( !$options[ self::OPT_NO_UPDATE_CACHE ] && $output->isCacheable() ) {
+			if ( $useCache === self::CACHE_PRIMARY ) {
+				$primaryCache = $this->getPrimaryCache( $parserOptions );
+				$primaryCache->save( $output, $page, $parserOptions );
+			} elseif ( $useCache === self::CACHE_SECONDARY ) {
+				$secondaryCache = $this->getSecondaryCache( $parserOptions );
+				$secondaryCache->save( $output, $revision, $parserOptions );
+			}
 		}
 
-		if ( $output && $res->isGood() ) {
-			// do not cache the result if the parsercache result wasn't good (e.g. stale)
-			$this->saveToCache( $parserOptions, $output, $page, $revision, $options );
-		}
-
-		if ( $output && $options[ self::OPT_LINKS_UPDATE ] && !$parserOptions->getPostproc() ) {
+		if ( $options[ self::OPT_LINKS_UPDATE ] ) {
 			$this->wikiPageFactory->newFromTitle( $page )
 				->triggerOpportunisticLinksUpdate( $output );
 		}
 
-		return $res;
+		return Status::newGood( $output );
 	}
 
 	private function checkPreconditions(
@@ -658,7 +652,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 					'missing-revision-permission',
 					$revision->getId(),
 					$revision->getTimestamp(),
-					$this->titleFormatter->getPrefixedURL( $page )
+					$this->titleFormatter->getPrefixedDBkey( $page )
 				);
 			}
 		}
@@ -672,9 +666,6 @@ class ParserOutputAccess implements LoggerAwareInterface {
 		RevisionRecord $revision,
 		array $options
 	): PoolCounterWork {
-		$profile = $options[ self::OPT_POOL_COUNTER ];
-		// Once we're in a pool counter, don't spawn another poolcounter job
-		$options[self::OPT_POOL_COUNTER] = false;
 		// Default behavior (no caching)
 		$callbacks = [
 			'doWork' => function () use ( $page, $parserOptions, $revision, $options ) {
@@ -700,10 +691,15 @@ class ParserOutputAccess implements LoggerAwareInterface {
 
 		$useCache = $this->shouldUseCache( $page, $revision );
 
+		$statCacheLabelLegacy = [
+			self::CACHE_PRIMARY => 'Current',
+			self::CACHE_SECONDARY => 'Old',
+		][$useCache] ?? 'Uncached';
+
 		$this->statsFactory->getCounter( 'parseroutputaccess_render_total' )
 			->setLabel( 'pool', 'articleview' )
 			->setLabel( 'cache', $useCache )
-			->setLabel( 'postproc', $parserOptions->getPostproc() ? 'true' : 'false' )
+			->copyToStatsdAt( "ParserOutputAccess.PoolWork.$statCacheLabelLegacy" )
 			->increment();
 
 		switch ( $useCache ) {
@@ -753,6 +749,7 @@ class ParserOutputAccess implements LoggerAwareInterface {
 				$workKey = $secondaryCache->makeParserOutputKeyOptionalRevId( $revision, $parserOptions );
 		}
 
+		$profile = $options[ self::OPT_POOL_COUNTER ];
 		$pool = $this->poolCounterFactory->create( $profile, $workKey );
 		return new PoolCounterWorkViaCallback(
 			$pool,
@@ -762,19 +759,27 @@ class ParserOutputAccess implements LoggerAwareInterface {
 	}
 
 	private function getPrimaryCache( ParserOptions $pOpts ): ParserCache {
-		$name = $pOpts->getUseParsoid() ? self::PARSOID_PCACHE_NAME : ParserCacheFactory::DEFAULT_NAME;
-		if ( $pOpts->getPostproc() ) {
-			$name = self::POSTPROC_CACHE_PREFIX . $name;
+		if ( $pOpts->getUseParsoid() ) {
+			return $this->parserCacheFactory->getParserCache(
+				self::PARSOID_PCACHE_NAME
+			);
 		}
-		return $this->parserCacheFactory->getParserCache( $name );
+
+		return $this->parserCacheFactory->getParserCache(
+			ParserCacheFactory::DEFAULT_NAME
+		);
 	}
 
 	private function getSecondaryCache( ParserOptions $pOpts ): RevisionOutputCache {
-		$name = $pOpts->getUseParsoid() ? self::PARSOID_RCACHE_NAME : ParserCacheFactory::DEFAULT_RCACHE_NAME;
-		if ( $pOpts->getPostproc() ) {
-			$name = self::POSTPROC_CACHE_PREFIX . $name;
+		if ( $pOpts->getUseParsoid() ) {
+			return $this->parserCacheFactory->getRevisionOutputCache(
+				self::PARSOID_RCACHE_NAME
+			);
 		}
-		return $this->parserCacheFactory->getRevisionOutputCache( $name );
+
+		return $this->parserCacheFactory->getRevisionOutputCache(
+			ParserCacheFactory::DEFAULT_RCACHE_NAME
+		);
 	}
 
 	private function startOperationSpan(
@@ -805,83 +810,5 @@ class ParserOutputAccess implements LoggerAwareInterface {
 	 */
 	public function clearLocalCache() {
 		$this->localCache->clear();
-	}
-
-	private function saveToCache(
-		ParserOptions $parserOptions, ParserOutput $output, PageRecord $page, RevisionRecord $revision, array $options
-	): void {
-		$useCache = $this->shouldUseCache( $page, $revision );
-		if ( !$options[ self::OPT_NO_UPDATE_CACHE ] && $output->isCacheable() ) {
-			if ( $useCache === self::CACHE_PRIMARY ) {
-				$primaryCache = $this->getPrimaryCache( $parserOptions );
-				$primaryCache->save( $output, $page, $parserOptions );
-			} elseif ( $useCache === self::CACHE_SECONDARY ) {
-				$secondaryCache = $this->getSecondaryCache( $parserOptions );
-				$secondaryCache->save( $output, $revision, $parserOptions );
-			}
-		}
-	}
-
-	/**
-	 * Postprocess the given ParserOutput.
-	 */
-	public function postprocess( ParserOutput $output, ParserOptions $parserOptions, PageRecord $page ): ParserOutput {
-		// Kludgey workaround: extract $textOptions from the $parserOptions
-		$textOptions = [];
-		// Don't add these to the used options set of $output because we
-		// don't want to mutate that, and the actual return value ParserOutput
-		// doesn't yet exist.
-		$parserOptions->registerWatcher( null );
-		foreach ( ParserOptions::$postprocOptions as $key ) {
-			$textOptions[$key] = $parserOptions->getOption( $key );
-		}
-		$textOptions = [
-			'allowClone' => true,
-		] + $textOptions;
-
-		$pipeline = MediaWikiServices::getInstance()->getDefaultOutputPipeline();
-		$output = $pipeline->run( $output, $parserOptions, $textOptions );
-		// Ensure this ParserOptions is watching the resulting ParserOutput,
-		// now that it exists.
-		$parserOptions->registerWatcher( $output->recordOption( ... ) );
-		// Ensure "postproc" is in the set of used options
-		// (Probably not necessary, but it doesn't hurt to be safe.)
-		$parserOptions->getPostproc();
-		// Ensure all postprocOptions are in the set of used options
-		// (Since we can't detect accesses via $textOptions)
-		foreach ( ParserOptions::$postprocOptions as $key ) {
-			$parserOptions->getOption( $key );
-		}
-		// Add a cache message if debug info is requested (this used to
-		// be part of $textOptions)
-		if ( $parserOptions->getOption( 'includeDebugInfo' ) ) {
-			# Note that we can't make the key before postprocessing because
-			# the set of used options may vary during postprocessing; similarly
-			# we can't use ParserOutput::addCacheMsg() because the
-			# RenderDebugInfo stage has already run by the time we get here.
-			# So add the debug info "the hard way", but consistent with how
-			# RenderDebugInfo does it.
-			$parserOutputKey = $this->getPrimaryCache( $parserOptions )
-				->makeParserOutputKey( $page, $parserOptions, $output->getUsedOptions() );
-			$timestamp = MWTimestamp::now();
-			$msg = "Post-processing cache key $parserOutputKey, generated at $timestamp";
-			// Sanitize for comment. Note '‐' in the replacement is U+2010,
-			// which looks much like the problematic '-'.
-			$msg = str_replace( [ '-', '>' ], [ '‐', '&gt;' ], $msg );
-			$output->setContentHolderText(
-				$output->getContentHolderText() . "<!--\n$msg\n-->"
-			);
-		}
-		return $output;
-	}
-
-	private function shouldCheckCache( ParserOptions $parserOptions, array $options ): bool {
-		if ( $options[ self::OPT_NO_CHECK_CACHE ] ) {
-			return false;
-		}
-		if ( $parserOptions->getPostproc() ) {
-			return !$options[ self::OPT_NO_POSTPROC_CACHE ];
-		}
-		return true;
 	}
 }

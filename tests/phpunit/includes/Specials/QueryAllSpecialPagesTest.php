@@ -6,12 +6,10 @@
  *
  * @author Antoine Musso
  */
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\SpecialPage\QueryPage;
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Specials\SpecialLinkSearch;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\Rdbms\ResultWrapper;
 
 /**

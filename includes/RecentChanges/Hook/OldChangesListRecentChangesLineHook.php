@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\RecentChanges\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\RecentChanges\OldChangesList;
 use MediaWiki\RecentChanges\RecentChange;
@@ -32,6 +32,3 @@ interface OldChangesListRecentChangesLineHook {
 		&$classes, &$attribs
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( OldChangesListRecentChangesLineHook::class, 'MediaWiki\\Hook\\OldChangesListRecentChangesLineHook' );

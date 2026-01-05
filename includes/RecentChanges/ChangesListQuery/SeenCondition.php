@@ -2,14 +2,13 @@
 
 namespace MediaWiki\RecentChanges\ChangesListQuery;
 
-use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\Watchlist\WatchedItemStoreInterface;
 use stdClass;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\RawSQLExpression;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Check if the recentchange row has been seen by the current watchlist user.
@@ -37,24 +36,22 @@ class SeenCondition extends ChangesListConditionBase {
 		if ( !$this->user ) {
 			$seen = false;
 		} else {
-			$firstUnseen = $this->getLatestNotificationTimestamp( $row, $this->user );
+			$firstUnseen = $this->getLatestNotificationTimestamp( $row );
 			$seen = $firstUnseen === null
-				|| $firstUnseen > ConvertibleTimestamp::convert( TS::MW, $row->rc_timestamp );
+				|| $firstUnseen > ConvertibleTimestamp::convert( TS_MW, $row->rc_timestamp );
 		}
 		return $seen === $value;
 	}
 
 	/**
-	 * @return string|null TS::MW timestamp of first unseen revision or null if there isn't one
+	 * @param stdClass $row
+	 * @return string|null TS_MW timestamp of first unseen revision or null if there isn't one
 	 */
-	private function getLatestNotificationTimestamp( stdClass $row, UserIdentity $user ) {
-		if ( $row->rc_title === '' ) {
-			return null;
-		}
+	private function getLatestNotificationTimestamp( $row ) {
 		return $this->watchedItemStore->getLatestNotificationTimestamp(
 			$row->wl_notificationtimestamp,
-			$user,
-			new PageReferenceValue( (int)$row->rc_namespace, $row->rc_title, PageReferenceValue::LOCAL )
+			$this->user,
+			new TitleValue( (int)$row->rc_namespace, $row->rc_title )
 		);
 	}
 

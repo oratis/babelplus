@@ -28,11 +28,11 @@ class HandleParsoidSectionLinksTest extends OutputTransformStageTestBase {
 	}
 
 	public static function provideShouldRun(): iterable {
-		yield [ PageBundleParserOutputConverter::parserOutputFromPageBundle( new HtmlPageBundle( '' ) ), ParserOptions::newFromAnon(), [] ];
+		yield [ PageBundleParserOutputConverter::parserOutputFromPageBundle( new HtmlPageBundle( '' ) ), null, [] ];
 	}
 
 	public static function provideShouldNotRun(): iterable {
-		yield [ new ParserOutput(), ParserOptions::newFromAnon(), [] ];
+		yield [ new ParserOutput(), null, [] ];
 	}
 
 	private static function newParserOutput(
@@ -99,25 +99,24 @@ class HandleParsoidSectionLinksTest extends OutputTransformStageTestBase {
 		] );
 		$input = '<section id="a"><h2 id="foo">Foo</h2>Bar</section>';
 
-		$expected = '<section id="a" aria-labelledby="foo"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">Foo</h2></div>Bar</section>';
-		$pOpts = ParserOptions::newFromAnon();
+		$expected = '<section id="a"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">Foo</h2></div>Bar</section>';
 		yield 'Standard Parsoid output: no links' => [
-			self::newParserOutput( $input, $pOpts, $toc ),
-			$pOpts, [ 'enableSectionEditLinks' => false ] + $options,
-			self::newParserOutput( $expected, $pOpts, $toc )
+			self::newParserOutput( $input, null, $toc ),
+			null, [ 'enableSectionEditLinks' => false ] + $options,
+			self::newParserOutput( $expected, null, $toc )
 		];
 
-		$expected = '<section id="a" aria-labelledby="foo"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">Foo</h2>!<a id="c">edit</a>!</div>Bar</section>';
+		$expected = '<section id="a"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">Foo</h2>!<a id="c">edit</a>!</div>Bar</section>';
 		yield 'Standard Parsoid output: with links' => [
-			self::newParserOutput( $input, $pOpts, $toc ),
-			$pOpts, $options,
-			self::newParserOutput( $expected, $pOpts, $toc )
+			self::newParserOutput( $input, null, $toc ),
+			null, $options,
+			self::newParserOutput( $expected, null, $toc )
 		];
 
 		// Test collapsible section wrapper (T359001)
 		$pOpts = ParserOptions::newFromAnon();
 		$pOpts->setCollapsibleSections();
-		$expected = '<section id="a" aria-labelledby="foo"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">Foo</h2>!<a id="c">edit</a>!</div><div id="mwAQ">Bar</div></section>';
+		$expected = '<section id="a"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">Foo</h2>!<a id="c">edit</a>!</div><div id="mwAQ">Bar</div></section>';
 		yield 'Standard Parsoid output: collapsible with links' => [
 			self::newParserOutput( $input, $pOpts, $toc ),
 			$pOpts, $options,
@@ -126,18 +125,15 @@ class HandleParsoidSectionLinksTest extends OutputTransformStageTestBase {
 
 		// Test that an existing heading <div> wrapper is reused (T357826)
 		$input = '<section id="a"><div class="mw-heading mw-heading2" id="b">prefix<h2 id="foo">Foo</h2>suffix</div>Bar</section>';
-		$expected = '<section id="a" aria-labelledby="foo"><div class="mw-heading mw-heading2" id="b">prefix<h2 id="foo">Foo</h2>!<a id="c">edit</a>!suffix</div>Bar</section>';
-		$pOpts = ParserOptions::newFromAnon();
+		$expected = '<section id="a"><div class="mw-heading mw-heading2" id="b">prefix<h2 id="foo">Foo</h2>!<a id="c">edit</a>!suffix</div>Bar</section>';
 		yield 'Output with existing div: with links' => [
-			self::newParserOutput( $input, $pOpts, $toc ),
-			$pOpts, $options,
-			self::newParserOutput( $expected, $pOpts, $toc )
+			self::newParserOutput( $input, null, $toc ),
+			null, $options,
+			self::newParserOutput( $expected, null, $toc )
 		];
 
 		// Reused <div> plus collapsible sections
-		$expected = '<section id="a" aria-labelledby="foo"><div class="mw-heading mw-heading2" id="b">prefix<h2 id="foo">Foo</h2>!<a id="c">edit</a>!suffix</div><div id="mwAA">Bar</div></section>';
-		$pOpts = ParserOptions::newFromAnon();
-		$pOpts->setCollapsibleSections();
+		$expected = '<section id="a"><div class="mw-heading mw-heading2" id="b">prefix<h2 id="foo">Foo</h2>!<a id="c">edit</a>!suffix</div><div id="mwAA">Bar</div></section>';
 		yield 'Output with existing div: collapsible with links' => [
 			self::newParserOutput( $input, $pOpts, $toc ),
 			$pOpts, $options,
@@ -155,7 +151,7 @@ class HandleParsoidSectionLinksTest extends OutputTransformStageTestBase {
 
 		// T353489: Wrappers aren't added to headings with attributes
 		$input = '<section id="a"><h2 id="foo">F</h2>Oo<h2 id="bar" class="b">B</h2>Ar</section>';
-		$expected = '<section id="a" aria-labelledby="foo"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">F</h2>!<a id="c">edit</a>!</div><div id="mwAQ">Oo<h2 id="bar" class="b mw-html-heading">B</h2>Ar</div></section>';
+		$expected = '<section id="a"><div class="mw-heading mw-heading-1" id="mwAA"><h2 id="foo">F</h2>!<a id="c">edit</a>!</div><div id="mwAQ">Oo<h2 id="bar" class="b mw-html-heading">B</h2>Ar</div></section>';
 		yield 'Heading with attributes is skipped' => [
 			self::newParserOutput( $input, $pOpts, $toc ),
 			$pOpts, $options,

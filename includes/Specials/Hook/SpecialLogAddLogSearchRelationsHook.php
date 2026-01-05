@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Request\WebRequest;
 
@@ -24,6 +24,3 @@ interface SpecialLogAddLogSearchRelationsHook {
 	 */
 	public function onSpecialLogAddLogSearchRelations( $type, $request, &$qc );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialLogAddLogSearchRelationsHook::class, 'MediaWiki\\Hook\\SpecialLogAddLogSearchRelationsHook' );

@@ -1,9 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
-use ArrayIterator;
-
 // @phan-file-suppress PhanUndeclaredMethod
 
 /**
@@ -62,6 +58,3 @@ trait SearchResultSetTrait {
 		return new ArrayIterator( $this->extractResults() );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchResultSetTrait::class, 'SearchResultSetTrait' );

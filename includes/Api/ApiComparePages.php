@@ -27,7 +27,6 @@ use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentity;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\RequestTimeout\TimeoutException;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @ingroup API
@@ -161,8 +160,6 @@ class ApiComparePages extends ApiBase {
 					$toRelRev = $toRev;
 					$toValsRev = $toRev;
 					break;
-				default:
-					self::dieDebug( __METHOD__, 'unknown torelative value' );
 			}
 		} else {
 			[ $toRev, $toRelRev, $toValsRev ] = $this->getDiffRevision( 'to', $params );
@@ -170,6 +167,7 @@ class ApiComparePages extends ApiBase {
 
 		// Handle missing from or to revisions (should never happen)
 		// @codeCoverageIgnoreStart
+		// @phan-suppress-next-line PhanPossiblyUndeclaredVariable T240141
 		if ( !$fromRev || !$toRev ) {
 			$this->dieWithError( 'apierror-baddiff' );
 		}
@@ -187,6 +185,7 @@ class ApiComparePages extends ApiBase {
 		$context = new DerivativeContext( $this->getContext() );
 		if ( $fromRelRev ) {
 			$context->setTitle( Title::newFromPageIdentity( $fromRelRev->getPage() ) );
+		// @phan-suppress-next-line PhanPossiblyUndeclaredVariable T240141
 		} elseif ( $toRelRev ) {
 			$context->setTitle( Title::newFromPageIdentity( $toRelRev->getPage() ) );
 		} else {
@@ -216,6 +215,7 @@ class ApiComparePages extends ApiBase {
 		// Fill in the response
 		$vals = [];
 		$this->setVals( $vals, 'from', $fromValsRev );
+		// @phan-suppress-next-line PhanPossiblyUndeclaredVariable T240141
 		$this->setVals( $vals, 'to', $toValsRev );
 
 		if ( isset( $this->props['rel'] ) ) {
@@ -615,7 +615,7 @@ class ApiComparePages extends ApiBase {
 			if ( isset( $this->props['timestamp'] ) ) {
 				$revTimestamp = $rev->getTimestamp();
 				if ( $revTimestamp ) {
-					$vals["{$prefix}timestamp"] = wfTimestamp( TS::ISO_8601, $revTimestamp );
+					$vals["{$prefix}timestamp"] = wfTimestamp( TS_ISO_8601, $revTimestamp );
 				}
 			}
 

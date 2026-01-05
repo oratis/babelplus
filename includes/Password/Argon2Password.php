@@ -37,11 +37,18 @@ class Argon2Password extends Password {
 	 * @return mixed[] Array of 2nd and third parameters to password_hash()
 	 */
 	private function prepareParams(): array {
-		$algo = match ( $this->config['algo'] ) {
-			'argon2i' => PASSWORD_ARGON2I,
-			'argon2id', 'auto' => PASSWORD_ARGON2ID,
-			default => throw new LogicException( "Unexpected algo: {$this->config['algo']}" )
-		};
+		switch ( $this->config['algo'] ) {
+			case 'argon2i':
+				$algo = PASSWORD_ARGON2I;
+				break;
+			case 'argon2id':
+			case 'auto':
+				$algo = PASSWORD_ARGON2ID;
+				break;
+			default:
+				throw new LogicException( "Unexpected algo: {$this->config['algo']}" );
+
+		}
 
 		$params = array_intersect_key( $this->config, self::KNOWN_OPTIONS );
 

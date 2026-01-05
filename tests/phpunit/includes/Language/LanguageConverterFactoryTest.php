@@ -1,31 +1,11 @@
 <?php
 
-namespace MediaWiki\Tests\Language;
-
-use BanConverter;
-use CrhConverter;
-use EnConverter;
-use GanConverter;
-use IuConverter;
-use KuConverter;
 use MediaWiki\Config\HashConfig;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Language\LanguageConverter;
 use MediaWiki\Languages\LanguageConverterFactory;
 use MediaWiki\MainConfigNames;
-use MediaWikiLangTestCase;
-use MniConverter;
-use ShConverter;
-use ShiConverter;
-use SrConverter;
-use TgConverter;
-use TlyConverter;
-use TrivialLanguageConverter;
-use UzConverter;
 use Wikimedia\TestingAccessWrapper;
-use WuuConverter;
-use ZghConverter;
-use ZhConverter;
 
 /**
  * @group large

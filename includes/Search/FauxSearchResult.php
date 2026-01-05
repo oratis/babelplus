@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 use MediaWiki\FileRepo\File\File;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Title\Title;
@@ -30,6 +28,3 @@ class FauxSearchResult extends RevisionSearchResult {
 		// everything's initialized in the constructor
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( FauxSearchResult::class, 'FauxSearchResult' );

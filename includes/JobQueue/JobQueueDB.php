@@ -633,7 +633,9 @@ class JobQueueDB extends JobQueue {
 		try {
 			return new MappedIterator(
 				$qb->caller( __METHOD__ )->fetchResultSet(),
-				$this->jobFromRow( ... )
+				function ( $row ) {
+					return $this->jobFromRow( $row );
+				}
 			);
 		} catch ( DBError $e ) {
 			throw $this->getDBException( $e );

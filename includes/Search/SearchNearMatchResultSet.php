@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 use MediaWiki\Title\Title;
 
 /**
@@ -24,6 +22,3 @@ class SearchNearMatchResultSet extends SearchResultSet {
 		return $this->results ? 1 : 0;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchNearMatchResultSet::class, 'SearchNearMatchResultSet' );

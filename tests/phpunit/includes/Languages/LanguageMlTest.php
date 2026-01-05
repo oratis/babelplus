@@ -4,9 +4,6 @@
  * @copyright Copyright © 2011, Santhosh Thottingal
  * @file
  */
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
 
 /**
  * @group Language

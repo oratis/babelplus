@@ -74,23 +74,23 @@ class PageDataRequestHandler {
 
 		if ( $subPage !== '' ) {
 			$parts = explode( '/', $subPage, 2 );
-			$titleText = $parts[1] ?? '';
+			$title = $parts[1] ?? '';
 		} else {
-			$titleText = $request->getText( 'target' );
+			$title = $request->getText( 'target' );
 		}
 
 		$revision = $request->getInt( 'oldid', $revision );
 		$revision = $request->getInt( 'revision', $revision );
 
-		if ( $titleText === null || $titleText === '' ) {
+		if ( $title === null || $title === '' ) {
 			// TODO: different error message?
-			throw new HttpError( 400, wfMessage( 'pagedata-bad-title', (string)$titleText ) );
+			throw new HttpError( 400, wfMessage( 'pagedata-bad-title', (string)$title ) );
 		}
 
 		try {
-			$title = MediaWikiServices::getInstance()->getTitleFactory()->newFromTextThrow( $titleText );
+			$title = MediaWikiServices::getInstance()->getTitleFactory()->newFromTextThrow( $title );
 		} catch ( MalformedTitleException ) {
-			throw new HttpError( 400, wfMessage( 'pagedata-bad-title', $titleText ) );
+			throw new HttpError( 400, wfMessage( 'pagedata-bad-title', $title ) );
 		}
 
 		$this->httpContentNegotiation( $request, $output, $title, $revision );

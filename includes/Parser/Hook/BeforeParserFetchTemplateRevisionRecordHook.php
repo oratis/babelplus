@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Parser\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\Revision\RevisionRecord;
@@ -34,7 +34,3 @@ interface BeforeParserFetchTemplateRevisionRecordHook {
 		bool &$skip, ?RevisionRecord &$revRecord
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( BeforeParserFetchTemplateRevisionRecordHook::class,
-	'MediaWiki\\Hook\\BeforeParserFetchTemplateRevisionRecordHook' );

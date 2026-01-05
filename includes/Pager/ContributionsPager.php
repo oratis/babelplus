@@ -422,22 +422,6 @@ abstract class ContributionsPager extends RangeChronologicalPager {
 			}
 		}
 
-		$this->modifyQueryInfoWithTagFilter( $queryInfo );
-
-		if ( !$this->isArchive && $this->runHooks ) {
-			$this->hookRunner->onContribsPager__getQueryInfo( $this, $queryInfo );
-		}
-
-		return $queryInfo;
-	}
-
-	/**
-	 * Modifies the query info, prepared by {@see getQueryInfo}, to account for the tag filter.
-	 *
-	 * Can be overridden in a subclass to change the way tag filtering is applied.
-	 * @stable to override
-	 */
-	protected function modifyQueryInfoWithTagFilter( array &$queryInfo ): void {
 		MediaWikiServices::getInstance()->getChangeTagsStore()->modifyDisplayQuery(
 			$queryInfo['tables'],
 			$queryInfo['fields'],
@@ -447,6 +431,12 @@ abstract class ContributionsPager extends RangeChronologicalPager {
 			$this->tagFilter,
 			$this->tagInvert,
 		);
+
+		if ( !$this->isArchive && $this->runHooks ) {
+			$this->hookRunner->onContribsPager__getQueryInfo( $this, $queryInfo );
+		}
+
+		return $queryInfo;
 	}
 
 	protected function getNamespaceCond(): array {
@@ -1056,7 +1046,7 @@ abstract class ContributionsPager extends RangeChronologicalPager {
 		}
 
 		$attribs = array_filter( $attribs,
-			Sanitizer::isReservedDataAttribute( ... ),
+			[ Sanitizer::class, 'isReservedDataAttribute' ],
 			ARRAY_FILTER_USE_KEY
 		);
 

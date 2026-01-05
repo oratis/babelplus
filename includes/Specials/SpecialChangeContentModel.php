@@ -18,10 +18,10 @@ use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
-use MediaWiki\Search\SearchEngineFactory;
 use MediaWiki\SpecialPage\FormSpecialPage;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\Title;
+use SearchEngineFactory;
 
 /**
  * @ingroup SpecialPage
@@ -263,7 +263,7 @@ class SpecialChangeContentModel extends FormSpecialPage {
 	public function onSuccess() {
 		$out = $this->getOutput();
 		$out->setPageTitleMsg( $this->msg( 'changecontentmodel-success-title' ) );
-		$out->addWikiMsg( 'changecontentmodel-success-text', $this->title->getPrefixedText() );
+		$out->addWikiMsg( 'changecontentmodel-success-text', $this->title );
 	}
 
 	/**

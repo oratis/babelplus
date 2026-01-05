@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Actions;
-
 use MediaWiki\Actions\Action;
 use MediaWiki\Actions\ActionFactory;
 use MediaWiki\Context\IContextSource;
@@ -9,9 +7,7 @@ use MediaWiki\Context\RequestContext;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\Article;
 use MediaWiki\Title\Title;
-use MediaWikiIntegrationTestCase;
 use Psr\Log\NullLogger;
-use ReflectionClassConstant;
 
 /**
  * Test that runs against all core actions to make sure that

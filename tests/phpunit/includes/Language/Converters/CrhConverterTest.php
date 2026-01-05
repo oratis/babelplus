@@ -1,10 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Language\Converters;
-
-use MediaWiki\Tests\Language\LanguageConverterTestTrait;
-use MediaWikiIntegrationTestCase;
-
 /**
  * @group Language
  * @covers \CrhConverter

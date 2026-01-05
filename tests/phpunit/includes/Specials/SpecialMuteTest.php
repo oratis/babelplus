@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Exception\ErrorPageError;
 use MediaWiki\Exception\UserNotLoggedIn;

@@ -1,10 +1,8 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Exception\UserNotLoggedIn;
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Specials\SpecialEditWatchlist;
-use TestUser;
 
 /**
  * @author Addshore
@@ -24,7 +22,6 @@ class SpecialEditWatchlistTest extends SpecialPageTestBase {
 		$services = $this->getServiceContainer();
 		return new SpecialEditWatchlist(
 			$services->getWatchedItemStore(),
-			$services->getWatchlistLabelStore(),
 			$services->getTitleParser(),
 			$services->getGenderCache(),
 			$services->getLinkBatchFactory(),

@@ -140,17 +140,14 @@ class BaseMetric implements BaseMetricInterface {
 		return $this->statsdNamespaces;
 	}
 
-	/** @inheritDoc */
-	public function getLabels(): array {
-		return $this->workingLabels;
-	}
-
-	/** @inheritDoc */
+	/** @return string[] */
 	public function getLabelKeys(): array {
 		return array_keys( $this->workingLabels );
 	}
 
-	/** @inheritDoc */
+	/**
+	 * @return string[]
+	 */
 	public function getLabelValues(): array {
 		# make sure all labels are accounted for
 		if ( in_array( null, $this->workingLabels, true ) ) {

@@ -7,7 +7,6 @@
 			"Iwan Novirion",
 			"Kenrick95",
 			"Palladin911",
-			"Penyuwangi",
 			"Rachmat04",
 			"William Surya Permana"
 		]
@@ -65,7 +64,7 @@
 	"period-am": "AM",
 	"period-pm": "PM",
 	"timezone-utc": "UTC",
-	"timezone-local": "Setempat",
+	"timezone-local": "Lokal",
 	"hebrew-calendar-m1": "Tisyri",
 	"hebrew-calendar-m2": "Markhesywan",
 	"hebrew-calendar-m3": "Kislew",

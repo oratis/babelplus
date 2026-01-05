@@ -1,9 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Xml;
-
 use MediaWiki\Xml\XmlSelect;
-use MediaWikiUnitTestCase;
 
 /**
  * @group Xml

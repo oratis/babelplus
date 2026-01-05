@@ -3,10 +3,6 @@
  * @license GPL-2.0-or-later
  * @file
  */
-namespace Wikimedia\LockManager;
-
-use LogicException;
-use StatusValue;
 
 /**
  * Base class for lock managers that use a quorum of peer servers for locks.
@@ -286,5 +282,3 @@ abstract class QuorumLockManager extends LockManager {
 		throw new LogicException( __METHOD__ . ': proxy class does not need this method.' );
 	}
 }
-/** @deprecated class alias since 1.46 */
-class_alias( QuorumLockManager::class, 'QuorumLockManager' );

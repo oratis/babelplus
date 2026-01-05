@@ -383,7 +383,7 @@ class UserMailer {
 			self::$mErrorString = '';
 			$html_errors = ini_get( 'html_errors' );
 			ini_set( 'html_errors', '0' );
-			set_error_handler( self::errorHandler( ... ) );
+			set_error_handler( [ self::class, 'errorHandler' ] );
 
 			try {
 				foreach ( $to as $recip ) {
@@ -432,12 +432,11 @@ class UserMailer {
 	 * @param int $code Error number
 	 * @param string $string Error message
 	 */
-	private static function errorHandler( $code, $string ): bool {
+	private static function errorHandler( $code, $string ) {
 		if ( self::$mErrorString !== '' ) {
 			self::$mErrorString .= "\n";
 		}
 		self::$mErrorString .= preg_replace( '/^mail\(\)(\s*\[.*?\])?: /', '', $string );
-		return false;
 	}
 
 	/**

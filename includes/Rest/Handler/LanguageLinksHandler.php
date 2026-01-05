@@ -17,7 +17,6 @@ use MediaWiki\Title\TitleParser;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\Rdbms\IConnectionProvider;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Class LanguageLinksHandler
@@ -166,7 +165,7 @@ class LanguageLinksHandler extends SimpleHandler {
 		}
 
 		// XXX: use hash of the rendered HTML?
-		return '"' . $page->getLatest() . '@' . wfTimestamp( TS::MW, $page->getTouched() ) . '"';
+		return '"' . $page->getLatest() . '@' . wfTimestamp( TS_MW, $page->getTouched() ) . '"';
 	}
 
 	protected function getLastModified(): ?string {

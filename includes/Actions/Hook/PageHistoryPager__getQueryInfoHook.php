@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Pager\HistoryPager;
 
@@ -24,6 +24,3 @@ interface PageHistoryPager__getQueryInfoHook {
 	 */
 	public function onPageHistoryPager__getQueryInfo( $pager, &$queryInfo );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PageHistoryPager__getQueryInfoHook::class, 'MediaWiki\\Hook\\PageHistoryPager__getQueryInfoHook' );

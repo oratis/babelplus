@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Content;
-
 use MediaWiki\Content\FallbackContent;
 use MediaWiki\Content\FallbackContentHandler;
 use MediaWiki\Context\RequestContext;
@@ -9,7 +7,6 @@ use MediaWiki\Parser\ParserObserver;
 use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Title\Title;
-use MediaWikiLangTestCase;
 
 /**
  * See also unit tests at \MediaWiki\Tests\Unit\FallbackContentHandlerTest

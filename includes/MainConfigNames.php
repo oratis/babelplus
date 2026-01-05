@@ -978,12 +978,6 @@ class MainConfigNames {
 	public const UserEmailConfirmationTokenExpiry = 'UserEmailConfirmationTokenExpiry';
 
 	/**
-	 * Name constant for the UserEmailConfirmationUseHTML setting, for use with Config::get()
-	 * @see MainConfigSchema::UserEmailConfirmationUseHTML
-	 */
-	public const UserEmailConfirmationUseHTML = 'UserEmailConfirmationUseHTML';
-
-	/**
 	 * Name constant for the PasswordExpirationDays setting, for use with Config::get()
 	 * @see MainConfigSchema::PasswordExpirationDays
 	 */
@@ -1258,12 +1252,6 @@ class MainConfigNames {
 	 * @see MainConfigSchema::FileSchemaMigrationStage
 	 */
 	public const FileSchemaMigrationStage = 'FileSchemaMigrationStage';
-
-	/**
-	 * Name constant for the ImageLinksSchemaMigrationStage setting, for use with Config::get()
-	 * @see MainConfigSchema::ImageLinksSchemaMigrationStage
-	 */
-	public const ImageLinksSchemaMigrationStage = 'ImageLinksSchemaMigrationStage';
 
 	/**
 	 * Name constant for the ExternalLinksDomainGaps setting, for use with Config::get()
@@ -2433,12 +2421,6 @@ class MainConfigNames {
 	public const RegisterInternalExternals = 'RegisterInternalExternals';
 
 	/**
-	 * Name constant for the ExternalLinksIgnoreDomains setting, for use with Config::get()
-	 * @see MainConfigSchema::ExternalLinksIgnoreDomains
-	 */
-	public const ExternalLinksIgnoreDomains = 'ExternalLinksIgnoreDomains';
-
-	/**
 	 * Name constant for the AllowDisplayTitle setting, for use with Config::get()
 	 * @see MainConfigSchema::AllowDisplayTitle
 	 */
@@ -2673,12 +2655,6 @@ class MainConfigNames {
 	public const HiddenPrefs = 'HiddenPrefs';
 
 	/**
-	 * Name constant for the UserJsPrefLimit setting, for use with Config::get()
-	 * @see MainConfigSchema::UserJsPrefLimit
-	 */
-	public const UserJsPrefLimit = 'UserJsPrefLimit';
-
-	/**
 	 * Name constant for the InvalidUsernameCharacters setting, for use with Config::get()
 	 * @see MainConfigSchema::InvalidUsernameCharacters
 	 */
@@ -2821,12 +2797,6 @@ class MainConfigNames {
 	 * @see MainConfigSchema::GroupsRemoveFromSelf
 	 */
 	public const GroupsRemoveFromSelf = 'GroupsRemoveFromSelf';
-
-	/**
-	 * Name constant for the RestrictedGroups setting, for use with Config::get()
-	 * @see MainConfigSchema::RestrictedGroups
-	 */
-	public const RestrictedGroups = 'RestrictedGroups';
 
 	/**
 	 * Name constant for the RestrictionTypes setting, for use with Config::get()
@@ -3181,6 +3151,12 @@ class MainConfigNames {
 	 * @see MainConfigSchema::SessionSecret
 	 */
 	public const SessionSecret = 'SessionSecret';
+
+	/**
+	 * Name constant for the EnableUnsafeXsltOption setting, for use with Config::get()
+	 * @see MainConfigSchema::EnableUnsafeXsltOption
+	 */
+	public const EnableUnsafeXsltOption = 'EnableUnsafeXsltOption';
 
 	/**
 	 * Name constant for the CookieExpiration setting, for use with Config::get()
@@ -3796,18 +3772,6 @@ class MainConfigNames {
 	public const WatchlistExpiry = 'WatchlistExpiry';
 
 	/**
-	 * Name constant for the EnableWatchlistLabels setting, for use with Config::get()
-	 * @see MainConfigSchema::EnableWatchlistLabels
-	 */
-	public const EnableWatchlistLabels = 'EnableWatchlistLabels';
-
-	/**
-	 * Name constant for the WatchlistLabelsMaxPerUser setting, for use with Config::get()
-	 * @see MainConfigSchema::WatchlistLabelsMaxPerUser
-	 */
-	public const WatchlistLabelsMaxPerUser = 'WatchlistLabelsMaxPerUser';
-
-	/**
 	 * Name constant for the WatchlistPurgeRate setting, for use with Config::get()
 	 * @see MainConfigSchema::WatchlistPurgeRate
 	 */
@@ -3818,6 +3782,12 @@ class MainConfigNames {
 	 * @see MainConfigSchema::WatchlistExpiryMaxDuration
 	 */
 	public const WatchlistExpiryMaxDuration = 'WatchlistExpiryMaxDuration';
+
+	/**
+	 * Name constant for the EditWatchlistPaginate setting, for use with Config::get()
+	 * @see MainConfigSchema::EditWatchlistPaginate
+	 */
+	public const EditWatchlistPaginate = 'EditWatchlistPaginate';
 
 	/**
 	 * Name constant for the EnableChangesListQueryPartitioning setting, for use with Config::get()
@@ -4266,6 +4236,13 @@ class MainConfigNames {
 	public const APIMaxLagThreshold = 'APIMaxLagThreshold';
 
 	/**
+	 * Name constant for the APIRequestLog setting, for use with Config::get()
+	 * @see MainConfigSchema::APIRequestLog
+	 * @deprecated since 1.43; use api or api-request $wgDebugLogGroups channel
+	 */
+	public const APIRequestLog = 'APIRequestLog';
+
+	/**
 	 * Name constant for the APICacheHelpTimeout setting, for use with Config::get()
 	 * @see MainConfigSchema::APICacheHelpTimeout
 	 */
@@ -4306,12 +4283,6 @@ class MainConfigNames {
 	 * @see MainConfigSchema::RestAPIAdditionalRouteFiles
 	 */
 	public const RestAPIAdditionalRouteFiles = 'RestAPIAdditionalRouteFiles';
-
-	/**
-	 * Name constant for the RestSandboxSpecs setting, for use with Config::get()
-	 * @see MainConfigSchema::RestSandboxSpecs
-	 */
-	public const RestSandboxSpecs = 'RestSandboxSpecs';
 
 	/**
 	 * Name constant for the MaxShellMemory setting, for use with Config::get()
@@ -4566,21 +4537,9 @@ class MainConfigNames {
 	public const FeatureShutdown = 'FeatureShutdown';
 
 	/**
-	 * Name constant for the CloneArticleParserOutput setting, for use with Config::get()
-	 * @see MainConfigSchema::CloneArticleParserOutput
-	 */
-	public const CloneArticleParserOutput = 'CloneArticleParserOutput';
-
-	/**
 	 * Name constant for the UseLeximorph setting, for use with Config::get()
 	 * @see MainConfigSchema::UseLeximorph
 	 */
 	public const UseLeximorph = 'UseLeximorph';
-
-	/**
-	 * Name constant for the UsePostprocCache setting, for use with Config::get()
-	 * @see MainConfigSchema::UsePostprocCache
-	 */
-	public const UsePostprocCache = 'UsePostprocCache';
 
 }

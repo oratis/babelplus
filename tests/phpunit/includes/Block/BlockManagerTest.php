@@ -1,8 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Block;
-
-use LoggedServiceOptions;
 use MediaWiki\Block\AbstractBlock;
 use MediaWiki\Block\Block;
 use MediaWiki\Block\BlockManager;
@@ -14,11 +11,7 @@ use MediaWiki\Request\FauxRequest;
 use MediaWiki\Request\FauxResponse;
 use MediaWiki\User\User;
 use MediaWiki\User\UserIdentityValue;
-use MediaWikiIntegrationTestCase;
-use MWCryptHash;
 use Psr\Log\NullLogger;
-use TestAllServiceOptionsUsed;
-use TestUser;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -1183,27 +1176,4 @@ class BlockManagerTest extends MediaWikiIntegrationTestCase {
 		}
 	}
 
-	public function testGetIpRangeBlock() {
-		$blockStatus = $this->getServiceContainer()->getBlockUserFactory()
-			->newBlockUser(
-				'1.2.3.4/16',
-				$this->getTestSysop()->getUser(),
-				'infinity'
-			)
-			->placeBlock();
-		$this->assertTrue( $blockStatus->isGood() );
-		$this->assertNotNull( $this->getServiceContainer()->getBlockManager()->getIpRangeBlock( '1.2.3.4/16' ) );
-	}
-
-	public function testGetIpRangeBlockInvalidTarget() {
-		$blockStatus = $this->getServiceContainer()->getBlockUserFactory()
-			->newBlockUser(
-				'1.2.3.4',
-				$this->getTestSysop()->getUser(),
-				'infinity'
-			)
-			->placeBlock();
-		$this->assertTrue( $blockStatus->isGood() );
-		$this->assertNull( $this->getServiceContainer()->getBlockManager()->getIpRangeBlock( '1.2.3.4' ) );
-	}
 }

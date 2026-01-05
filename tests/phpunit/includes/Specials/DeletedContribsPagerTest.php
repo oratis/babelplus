@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\CommentFormatter\CommentFormatter;
@@ -14,7 +13,6 @@ use MediaWiki\Title\Title;
 use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentityValue;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\TestingAccessWrapper;
 

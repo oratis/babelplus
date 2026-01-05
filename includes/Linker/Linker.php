@@ -707,7 +707,7 @@ class Linker {
 
 		$isBadFile = $exists && $thumb && $parser &&
 			$parser->getBadFileLookup()->isBadFile(
-				$manualthumb ? $manual_title->getDBkey() : $title->getDBkey(),
+				$manualthumb ? $manual_title : $title->getDBkey(),
 				$parser->getTitle()
 			);
 
@@ -1064,7 +1064,7 @@ class Linker {
 	 * @return string HTML fragment
 	 * @since 1.16.3. $altUserName was added in 1.19. $attributes was added in 1.40.
 	 *
-	 * @deprecated since 1.44, use {@link LinkRenderer::makeUserLink()} instead.
+	 * @deprecated since 1.44, use {@link UserLinkRenderer::userLink()} instead.
 	 */
 	public static function userLink(
 		$userId,
@@ -1078,8 +1078,8 @@ class Linker {
 			return wfMessage( 'empty-username' )->parse();
 		}
 
-		return MediaWikiServices::getInstance()->getLinkRenderer()
-			->makeUserLink(
+		return MediaWikiServices::getInstance()->getUserLinkRenderer()
+			->userLink(
 				new UserIdentityValue( $userId, (string)$userName ),
 				RequestContext::getMain(),
 				$altUserName === false ? null : (string)$altUserName,
@@ -1592,6 +1592,10 @@ class Linker {
 		if ( $services->getUserOptionsLookup()
 			->getBoolOption( $context->getUser(), 'showrollbackconfirmation' )
 		) {
+			$services->getStatsFactory()
+				->getCounter( 'rollbackconfirmation_event_load_total' )
+				->copyToStatsdAt( 'rollbackconfirmation.event.load' )
+				->increment();
 			$context->getOutput()->addModules( 'mediawiki.misc-authed-curate' );
 		}
 
@@ -1706,7 +1710,7 @@ class Linker {
 		];
 
 		$attrs = [
-			'data-mw-interface' => '',
+			'data-mw' => 'interface',
 			'title' => $context->msg( 'tooltip-rollback' )->text()
 		];
 

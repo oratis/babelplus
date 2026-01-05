@@ -15,7 +15,6 @@ use Wikimedia\TestingAccessWrapper;
 
 /**
  * @group AuthManager
- * @group Database
  * @covers \MediaWiki\Auth\Throttler
  */
 class ThrottlerTest extends MediaWikiIntegrationTestCase {
@@ -227,27 +226,15 @@ class ThrottlerTest extends MediaWikiIntegrationTestCase {
 		$logger = $this->getMockBuilder( AbstractLogger::class )
 			->onlyMethods( [ 'log' ] )
 			->getMockForAbstractClass();
-		$logger->expects( $this->once() )->method( 'log' )->with(
-			$this->anything(),
-			$this->anything(),
-			$this->callback( function ( $actualData ) {
-				$expectedSubset = [
-					'throttle' => 'custom',
-					'index' => 0,
-					'ipKey' => '1.2.3.4',
-					'username' => 'SomeUser',
-					'count' => 1,
-					'expiry' => 10,
-					'method' => 'foo',
-					'clientIp' => '127.0.0.1',
-					'ua' => false,
-					'user' => 'SomeUser',
-					'user_exists_locally' => false,
-				];
-				$this->assertArrayContains( $expectedSubset, $actualData );
-				return true;
-			} )
-		);
+		$logger->expects( $this->once() )->method( 'log' )->with( $this->anything(), $this->anything(), [
+			'throttle' => 'custom',
+			'index' => 0,
+			'ipKey' => '1.2.3.4',
+			'username' => 'SomeUser',
+			'count' => 1,
+			'expiry' => 10,
+			'method' => 'foo',
+		] );
 		$throttler->setLogger( $logger );
 		// Call the increase method and expect that the throttling occurred.
 		$result = $throttler->increase( 'SomeUser', '1.2.3.4', 'foo' );

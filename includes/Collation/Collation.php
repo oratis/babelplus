@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 /**
  * @since 1.16.3
  * @author Tim Starling
@@ -72,6 +70,3 @@ abstract class Collation {
 	abstract public function getFirstLetter( $string );
 
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( Collation::class, 'Collation' );

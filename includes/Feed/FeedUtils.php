@@ -21,7 +21,6 @@ use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Title\Title;
 use UtfNormal;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Helper functions for feeds
@@ -71,7 +70,7 @@ class FeedUtils {
 	 */
 	public static function formatDiff( $row, $formattedComment = null ) {
 		$titleObj = Title::makeTitle( $row->rc_namespace, $row->rc_title );
-		$timestamp = wfTimestamp( TS::MW, $row->rc_timestamp );
+		$timestamp = wfTimestamp( TS_MW, $row->rc_timestamp );
 		$actiontext = '';
 		if ( $row->rc_source === RecentChange::SRC_LOG ) {
 			$rcRow = (array)$row; // newFromRow() only accepts arrays for RC rows
@@ -119,7 +118,7 @@ class FeedUtils {
 	 * except with preformatted comments.
 	 *
 	 * @param Title $title
-	 * @param int|null $oldid Old revision's id
+	 * @param int $oldid Old revision's id
 	 * @param int $newid New revision's id
 	 * @param string $timestamp New revision's timestamp
 	 * @param string $formattedComment New revision's comment in HTML format

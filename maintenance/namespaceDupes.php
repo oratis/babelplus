@@ -157,14 +157,13 @@ class NamespaceDupes extends Maintenance {
 		// since we're doing case-sensitive searches in the db.
 		$capitalLinks = $this->getConfig()->get( MainConfigNames::CapitalLinks );
 		foreach ( $spaces as $name => $ns ) {
-			$moreNames = [
-				$contLang->uc( $name ),
-				$contLang->ucfirst( $contLang->lc( $name ) ),
-				$contLang->ucwords( $name ),
-				$contLang->ucwords( $contLang->lc( $name ) ),
-				$contLang->ucwordbreaks( $name ),
-				$contLang->ucwordbreaks( $contLang->lc( $name ) ),
-			];
+			$moreNames = [];
+			$moreNames[] = $contLang->uc( $name );
+			$moreNames[] = $contLang->ucfirst( $contLang->lc( $name ) );
+			$moreNames[] = $contLang->ucwords( $name );
+			$moreNames[] = $contLang->ucwords( $contLang->lc( $name ) );
+			$moreNames[] = $contLang->ucwordbreaks( $name );
+			$moreNames[] = $contLang->ucwordbreaks( $contLang->lc( $name ) );
 			if ( !$capitalLinks ) {
 				foreach ( $moreNames as $altName ) {
 					$moreNames[] = $contLang->lcfirst( $altName );
@@ -453,6 +452,7 @@ class NamespaceDupes extends Maintenance {
 			[ $namespaceField, $titleField ] = $linksMigration->getTitleFields( $table );
 			$schemaMigrationStage = $linksMigration::$mapping[$table]['config'] === -1
 				? MIGRATION_NEW
+				// @phan-suppress-next-line PhanTypeMismatchArgument
 				: $this->getConfig()->get( $linksMigration::$mapping[$table]['config'] );
 			$linkTargetLookup = $this->getServiceContainer()->getLinkTargetLookup();
 			$targetIdField = $linksMigration::$mapping[$table]['target_id'];
@@ -715,14 +715,9 @@ class NamespaceDupes extends Maintenance {
 		// Update *_from_namespace in links tables
 		$fromNamespaceTables = [
 			[ 'templatelinks', 'tl', [ 'tl_target_id' ] ],
+			[ 'imagelinks', 'il', [ 'il_to' ] ],
 			[ 'pagelinks', 'pl', [ 'pl_target_id' ] ],
 		];
-		if ( $this->getConfig()->get( MainConfigNames::ImageLinksSchemaMigrationStage ) & SCHEMA_COMPAT_READ_OLD ) {
-			$fromNamespaceTables[] = [ 'imagelinks', 'il', [ 'il_to' ] ];
-		} else {
-			$fromNamespaceTables[] = [ 'imagelinks', 'il', [ 'il_target_id' ] ];
-		}
-
 		$updateRowsPerQuery = $this->getConfig()->get( MainConfigNames::UpdateRowsPerQuery );
 
 		foreach ( $fromNamespaceTables as [ $table, $fieldPrefix, $additionalPrimaryKeyFields ] ) {

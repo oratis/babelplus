@@ -127,7 +127,7 @@ class JpegHandler extends ExifBitmapHandler {
 
 	/**
 	 * @param File $file
-	 * @param array{rotation:int,srcPath:string,dstPath:string} $params Rotate parameters.
+	 * @param array $params Rotate parameters.
 	 *    'rotation' clockwise rotation in degrees, allowed are multiples of 90
 	 * @since 1.21
 	 * @return MediaTransformError|false
@@ -151,7 +151,7 @@ class JpegHandler extends ExifBitmapHandler {
 			if ( $result->getExitCode() !== 0 ) {
 				$this->logErrorForExternalProcess( $result->getExitCode(),
 					$result->getStdout(),
-					$command->__toString()
+					$command
 				);
 
 				return new MediaTransformError( 'thumbnail_error', 0, 0, $result->getStdout() );
@@ -288,7 +288,7 @@ class JpegHandler extends ExifBitmapHandler {
 		if ( $result->getExitCode() !== 0 ) {
 			$this->logErrorForExternalProcess( $result->getExitCode(),
 				$result->getStdout(),
-				$command->__toString()
+				$command
 			);
 
 			return false;

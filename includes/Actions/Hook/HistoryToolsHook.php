@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\User\UserIdentity;
@@ -28,6 +28,3 @@ interface HistoryToolsHook {
 	 */
 	public function onHistoryTools( $revRecord, &$links, $prevRevRecord, $userIdentity );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( HistoryToolsHook::class, 'MediaWiki\\Hook\\HistoryToolsHook' );

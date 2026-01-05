@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Password;
-
 use MediaWiki\Password\EncryptedPassword;
 use MediaWiki\Password\PasswordError;
 use MediaWiki\Password\Pbkdf2PasswordUsingHashExtension;

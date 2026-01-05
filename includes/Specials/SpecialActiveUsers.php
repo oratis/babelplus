@@ -19,7 +19,6 @@ use MediaWiki\User\TempUser\TempUserConfig;
 use MediaWiki\User\UserGroupManager;
 use MediaWiki\User\UserIdentityLookup;
 use Wikimedia\Rdbms\IConnectionProvider;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Implements Special:Activeusers
@@ -192,13 +191,13 @@ class SpecialActiveUsers extends SpecialPage {
 				->where( [ 'qci_type' => 'activeusers' ] )
 				->caller( __METHOD__ )->fetchField();
 			if ( $cTime ) {
-				$secondsOld = (int)wfTimestamp( TS::UNIX, $rcMax ) - (int)wfTimestamp( TS::UNIX, $cTime );
+				$secondsOld = (int)wfTimestamp( TS_UNIX, $rcMax ) - (int)wfTimestamp( TS_UNIX, $cTime );
 			} else {
 				$rcMin = $dbr->newSelectQueryBuilder()
 					->select( 'MIN(rc_timestamp)' )
 					->from( 'recentchanges' )
 					->caller( __METHOD__ )->fetchField();
-				$secondsOld = time() - (int)wfTimestamp( TS::UNIX, $rcMin );
+				$secondsOld = time() - (int)wfTimestamp( TS_UNIX, $rcMin );
 			}
 			if ( $secondsOld > 0 ) {
 				$intro .= $this->msg( 'cachedspecial-viewing-cached-ttl' )

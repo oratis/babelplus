@@ -11,7 +11,6 @@ use RuntimeException;
 use Wikimedia\Assert\Assert;
 use Wikimedia\AtEase\AtEase;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Class for getting statistically unique IDs without a central coordinator
@@ -327,10 +326,10 @@ class GlobalIdGenerator {
 	 * Get timestamp in a specified format from UUIDv1
 	 *
 	 * @param string $uuid the UUID to get the timestamp from
-	 * @param int|TS $format the format to convert the timestamp to. Default: TS::MW
+	 * @param int $format the format to convert the timestamp to. Default: TS_MW
 	 * @return string|false timestamp in requested format or false
 	 */
-	public function getTimestampFromUUIDv1( string $uuid, int|TS $format = TS::MW ) {
+	public function getTimestampFromUUIDv1( string $uuid, int $format = TS_MW ) {
 		$components = [];
 		if ( !preg_match(
 			'/^([0-9a-f]{8})-([0-9a-f]{4})-(1[0-9a-f]{3})-([89ab][0-9a-f]{3})-([0-9a-f]{12})$/',
@@ -593,7 +592,7 @@ class GlobalIdGenerator {
 	}
 
 	/**
-	 * @param array{0:int,1:int} $time Array of second and millisecond integers
+	 * @param array $time Array of second and millisecond integers
 	 * @param int $delta Number of intervals to add on to the timestamp
 	 * @return string 60 bits of "100ns intervals since 15 October 1582" (rolls over in 3400)
 	 * @throws RuntimeException
@@ -617,7 +616,7 @@ class GlobalIdGenerator {
 			$id_bin = str_pad( gmp_strval( $ts, 2 ), 60, '0', STR_PAD_LEFT );
 		} elseif ( extension_loaded( 'bcmath' ) ) {
 			// ms
-			$ts = bcadd( bcmul( (string)$sec, '1000' ), (string)$msec );
+			$ts = bcadd( bcmul( $sec, '1000' ), $msec );
 			// 100ns intervals
 			$ts = bcadd( bcmul( $ts, '10000' ), $offset );
 			$ts = bcadd( $ts, (string)$delta );

@@ -33,6 +33,15 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 
 	private const LOCAL_CACHE_SIZE = 100;
 
+	private ILoadBalancer $loadBalancer;
+	private UserNameUtils $userNameUtils;
+	private TempUserConfig $tempUserConfig;
+	private LoggerInterface $logger;
+	private HideUserUtils $hideUserUtils;
+
+	/** @var string|false */
+	private $wikiId;
+
 	private ActorCache $cache;
 
 	private bool $allowCreateIpActors;
@@ -46,15 +55,20 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	 * @param string|false $wikiId
 	 */
 	public function __construct(
-		private readonly ILoadBalancer $loadBalancer,
-		private readonly UserNameUtils $userNameUtils,
-		private readonly TempUserConfig $tempUserConfig,
-		private readonly LoggerInterface $logger,
-		private readonly HideUserUtils $hideUserUtils,
-		private $wikiId = WikiAwareEntity::LOCAL
+		ILoadBalancer $loadBalancer,
+		UserNameUtils $userNameUtils,
+		TempUserConfig $tempUserConfig,
+		LoggerInterface $logger,
+		HideUserUtils $hideUserUtils,
+		$wikiId = WikiAwareEntity::LOCAL
 	) {
 		Assert::parameterType( [ 'string', 'false' ], $wikiId, '$wikiId' );
 
+		$this->loadBalancer = $loadBalancer;
+		$this->userNameUtils = $userNameUtils;
+		$this->tempUserConfig = $tempUserConfig;
+		$this->logger = $logger;
+		$this->hideUserUtils = $hideUserUtils;
 		$this->wikiId = $wikiId;
 
 		$this->cache = new ActorCache( self::LOCAL_CACHE_SIZE );
@@ -160,6 +174,7 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	}
 
 	/**
+	 * @param UserIdentity $actor
 	 * @internal for use in User object only
 	 */
 	public function deleteUserIdentityFromCache( UserIdentity $actor ) {
@@ -187,15 +202,17 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 				->conds( [ 'actor_id' => $actorId ] )
 				->fetchUserIdentity() ??
 			// The actor ID mostly comes from DB, so if we can't find an actor by ID,
-			// it's most likely due to lagged DB replica and not because it doesn't exist.
-			// Probably we just inserted it? Try the primary database.
+			// it's most likely due to lagged replica and not cause it doesn't actually exist.
+			// Probably we just inserted it? Try primary database.
 			$this->newSelectQueryBuilder( IDBAccessObject::READ_LATEST )
 				->caller( __METHOD__ )
 				->conds( [ 'actor_id' => $actorId ] )
 				->fetchUserIdentity();
 	}
 
-	/** @inheritDoc */
+	/**
+	 * @inheritDoc
+	 */
 	public function getUserIdentityByName(
 		string $name,
 		int $queryFlags = IDBAccessObject::READ_NORMAL
@@ -212,7 +229,9 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 				->fetchUserIdentity();
 	}
 
-	/** @inheritDoc */
+	/**
+	 * @inheritDoc
+	 */
 	public function getUserIdentityByUserId(
 		int $userId,
 		int $queryFlags = IDBAccessObject::READ_NORMAL
@@ -250,6 +269,8 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	 * Detach the actor ID from $user for backwards compatibility.
 	 *
 	 * @todo remove this method when no longer needed (T273974).
+	 *
+	 * @param UserIdentity $user
 	 */
 	private function detachActorId( UserIdentity $user ) {
 		if ( $user instanceof User ) {
@@ -358,13 +379,13 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	 * return the existing ID.
 	 *
 	 * @note If called within a transaction, the returned ID might become invalid
-	 * if the transaction is rolled back, so it should not be passed outside the
+	 * if the transaction is rolled back, so it should not be passed outside of the
 	 * transaction context.
 	 *
 	 * @param UserIdentity $user
 	 * @param IDatabase $dbw The database connection to acquire the ID from.
 	 *        The database must correspond to ActorStore's wiki ID.
-	 * @return int actor ID greater than 0
+	 * @return int actor ID greater then 0
 	 * @throws CannotCreateActorException if no actor ID has been assigned to this $user
 	 */
 	public function acquireActorId( UserIdentity $user, IDatabase $dbw ): int {
@@ -411,13 +432,13 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	 * this method throws.
 	 *
 	 * @note If called within a transaction, the returned ID might become invalid
-	 * if the transaction is rolled back, so it should not be passed outside the
+	 * if the transaction is rolled back, so it should not be passed outside of the
 	 * transaction context.
 	 *
 	 * @param UserIdentity $user
 	 * @param IDatabase $dbw
-	 * @return int actor ID greater than 0
-	 * @throws CannotCreateActorException if an actor with this name already exists.
+	 * @return int actor ID greater then 0
+	 * @throws CannotCreateActorException if an actor with this name already exist.
 	 * @internal for use in user account creation only.
 	 */
 	public function createNewActor( UserIdentity $user, IDatabase $dbw ): int {
@@ -447,17 +468,17 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	 * Attempt to assign an ID to an actor for a system user. If an actor ID already
 	 * exists, return it.
 	 *
-	 * @note For reserved usernames this method will overwrite the user ID of the
+	 * @note For reserved user names this method will overwrite the user ID of the
 	 * existing anon actor.
 	 *
 	 * @note If called within a transaction, the returned ID might become invalid
-	 * if the transaction is rolled back, so it should not be passed outside the
+	 * if the transaction is rolled back, so it should not be passed outside of the
 	 * transaction context.
 	 *
 	 * @param UserIdentity $user
 	 * @param IDatabase $dbw
-	 * @return int actor ID greater than zero
-	 * @throws CannotCreateActorException if the existing actor is associated with the registered user.
+	 * @return int actor ID greater then zero
+	 * @throws CannotCreateActorException if the existing actor is associated with registered user.
 	 * @internal for use in user account creation only.
 	 */
 	public function acquireSystemActorId( UserIdentity $user, IDatabase $dbw ): int {
@@ -542,7 +563,7 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	}
 
 	/**
-	 * Returns a canonical form of username suitable for storage.
+	 * Returns a canonical form of user name suitable for storage.
 	 *
 	 * @internal
 	 * @param string $name
@@ -605,7 +626,11 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 	}
 
 	/**
-	 * Clear in-process caches if the transaction gets rolled back.
+	 * Clear in-process caches if transaction gets rolled back.
+	 *
+	 * @param IDatabase $dbw
+	 * @param UserIdentity $cachedActor
+	 * @param UserIdentity $originalActor
 	 */
 	private function setUpRollbackHandler(
 		IDatabase $dbw,
@@ -665,7 +690,7 @@ class ActorStore implements UserIdentityLookup, ActorNormalization {
 			[ $db, $flags ] = [ $dbOrQueryFlags, IDBAccessObject::READ_NORMAL ];
 			$this->checkDatabaseDomain( $db );
 		} else {
-			if ( ( $dbOrQueryFlags & IDBAccessObject::READ_LATEST ) === IDBAccessObject::READ_LATEST ) {
+			if ( ( $dbOrQueryFlags & IDBAccessObject::READ_LATEST ) == IDBAccessObject::READ_LATEST ) {
 				$db = $this->loadBalancer->getConnection( DB_PRIMARY, [], $this->wikiId );
 			} else {
 				$db = $this->loadBalancer->getConnection( DB_REPLICA, [], $this->wikiId );

@@ -20,7 +20,6 @@ namespace MediaWiki\Language;
 use CLDRPluralRuleParser\Evaluator;
 use DateTime;
 use DateTimeImmutable;
-use DateTimeInterface;
 use DateTimeZone;
 use InvalidArgumentException;
 use Locale;
@@ -58,7 +57,6 @@ use Wikimedia\Message\MessageSpecifier;
 use Wikimedia\ReplacementArray;
 use Wikimedia\StringUtils\StringUtils;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Base class for language-specific code.
@@ -289,27 +287,6 @@ class Language implements Bcp47Code {
 	 * @var int[]
 	 */
 	public static $durationIntervals = self::DURATION_INTERVALS;
-
-	/** Map of (time unit => relative datetime specifier) */
-	private const DEADLINE_DATE_SPEC_BY_UNIT = [
-		'Y' => 'first day of January next year midnight',
-		'M' => 'first day of next month midnight',
-		'W' => 'monday next week midnight',
-		'D' => 'next day midnight',
-		// Note that this may be before the current time, in which case
-		// we advance by a calendar year; the ISOY is actually 1 week past
-		// this, since dec 28 is always in "the last week of the ISO year".
-		'ISOY' => 'december 28 midnight',
-		// Note that this may be before the current time, in which case 'D'
-		// is used.
-		'AM' => 'today noon',
-		// Note that this relative datetime specifier does not zero out
-		// minutes/seconds, but we will do so manually in
-		// ::computeUnitTimestampDeadline() when given the unit 'H'/'m'/'s'
-		'H' => 'next hour',
-		'm' => 'next minute',
-		's' => 'next second',
-	];
 
 	/**
 	 * Unicode directional formatting characters
@@ -789,23 +766,6 @@ class Language implements Bcp47Code {
 	}
 
 	/**
-	 * Create a DateTime object, if it doesn't already exist.
-	 *
-	 * @param DateTime|false|null &$dateTimeObj
-	 * @param string $ts
-	 * @param DateTimeZone|false|null $zone
-	 * @return DateTime
-	 */
-	private static function dateTimeObj( &$dateTimeObj, $ts, $zone ): DateTime {
-		if ( !$dateTimeObj ) {
-			$dateTimeObj = DateTime::createFromFormat(
-				'YmdHis', $ts, $zone ?: new DateTimeZone( 'UTC' )
-			);
-		}
-		return $dateTimeObj;
-	}
-
-	/**
 	 * Pass through the result from $dateTimeObj->format()
 	 *
 	 * @param DateTime|false|null &$dateTimeObj
@@ -815,7 +775,12 @@ class Language implements Bcp47Code {
 	 * @return string
 	 */
 	private static function dateTimeObjFormat( &$dateTimeObj, $ts, $zone, $code ) {
-		return self::dateTimeObj( $dateTimeObj, $ts, $zone )->format( $code );
+		if ( !$dateTimeObj ) {
+			$dateTimeObj = DateTime::createFromFormat(
+				'YmdHis', $ts, $zone ?: new DateTimeZone( 'UTC' )
+			);
+		}
+		return $dateTimeObj->format( $code );
 	}
 
 	/**
@@ -881,7 +846,7 @@ class Language implements Bcp47Code {
 	 *      01234567890123
 	 * @param DateTimeZone|null $zone Timezone of $ts
 	 * @param int|null &$ttl The amount of time (in seconds) the output may be cached for.
-	 *   Only makes sense if $ts is the current time.
+	 * Only makes sense if $ts is the current time.
 	 * @todo handling of "o" format character for Iranian, Hebrew, Hijri & Thai?
 	 *
 	 * @return string
@@ -1323,21 +1288,17 @@ class Language implements Bcp47Code {
 			}
 		}
 
-		if ( $ttl !== 'unused' ) {
-			// Ensure $dateTimeObj is set.
-			self::dateTimeObj( $dateTimeObj, $ts, $zone );
-		}
-		'@phan-var DateTime $dateTimeObj';
 		if ( $ttl === 'unused' ) {
 			// No need to calculate the TTL, the caller won't use it anyway.
 		} elseif ( $usedSecond ) {
-			$ttl = self::computeUnitTimestampDeadline( $dateTimeObj, 's' );
+			$ttl = 1;
 		} elseif ( $usedMinute ) {
-			$ttl = self::computeUnitTimestampDeadline( $dateTimeObj, 'm' );
+			$ttl = 60 - (int)substr( $ts, 12, 2 );
 		} elseif ( $usedHour ) {
-			$ttl = self::computeUnitTimestampDeadline( $dateTimeObj, 'H' );
+			$ttl = 3600 - (int)substr( $ts, 10, 2 ) * 60 - (int)substr( $ts, 12, 2 );
 		} elseif ( $usedAMPM ) {
-			$ttl = self::computeUnitTimestampDeadline( $dateTimeObj, 'AM' );
+			$ttl = 43200 - ( (int)substr( $ts, 8, 2 ) % 12 ) * 3600 -
+				(int)substr( $ts, 10, 2 ) * 60 - (int)substr( $ts, 12, 2 );
 		} elseif (
 			$usedDay ||
 			$usedHebrewMonth ||
@@ -1350,30 +1311,49 @@ class Language implements Bcp47Code {
 		) {
 			// @todo Someone who understands the non-Gregorian calendars
 			// should write proper logic for them so that they don't need purged every day.
-			$ttl = self::computeUnitTimestampDeadline( $dateTimeObj, 'D' );
+			$ttl = 86400 - (int)substr( $ts, 8, 2 ) * 3600 -
+				(int)substr( $ts, 10, 2 ) * 60 - (int)substr( $ts, 12, 2 );
 		} else {
 			$possibleTtls = [];
+			$timeRemainingInDay = 86400 - (int)substr( $ts, 8, 2 ) * 3600 -
+				(int)substr( $ts, 10, 2 ) * 60 - (int)substr( $ts, 12, 2 );
 			if ( $usedWeek ) {
 				$possibleTtls[] =
-					self::computeUnitTimestampDeadline( $dateTimeObj, 'W' );
+					( 7 - (int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 'N' ) ) * 86400 +
+					$timeRemainingInDay;
 			} elseif ( $usedISOYear ) {
 				// December 28th falls on the last ISO week of the year, every year.
 				// The last ISO week of a year can be 52 or 53.
-				$possibleTtls[] =
-					self::computeUnitTimestampDeadline( $dateTimeObj, 'ISOY' );
+				$lastWeekOfISOYear = (int)DateTime::createFromFormat(
+					'Ymd',
+					(int)substr( $ts, 0, 4 ) . '1228',
+					$zone ?: new DateTimeZone( 'UTC' )
+				)->format( 'W' );
+				$currentISOWeek = (int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 'W' );
+				$weeksRemaining = $lastWeekOfISOYear - $currentISOWeek;
+				$timeRemainingInWeek =
+					( 7 - (int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 'N' ) ) * 86400
+					+ $timeRemainingInDay;
+				$possibleTtls[] = $weeksRemaining * 604800 + $timeRemainingInWeek;
 			}
 
 			if ( $usedMonth ) {
 				$possibleTtls[] =
-					self::computeUnitTimestampDeadline( $dateTimeObj, 'M' );
+					( (int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 't' ) -
+						(int)substr( $ts, 6, 2 ) ) * 86400
+					+ $timeRemainingInDay;
 			} elseif ( $usedYear ) {
 				$possibleTtls[] =
-					self::computeUnitTimestampDeadline( $dateTimeObj, 'Y' );
+					( (int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 'L' ) + 364 -
+						(int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 'z' ) ) * 86400
+					+ $timeRemainingInDay;
 			} elseif ( $usedIsLeapYear ) {
 				$year = (int)substr( $ts, 0, 4 );
-				$mod = $year % 4;
 				$timeRemainingInYear =
-					self::computeUnitTimestampDeadline( $dateTimeObj, 'Y' );
+					( (int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 'L' ) + 364 -
+						(int)self::dateTimeObjFormat( $dateTimeObj, $ts, $zone, 'z' ) ) * 86400
+					+ $timeRemainingInDay;
+				$mod = $year % 4;
 				if ( $mod || ( !( $year % 100 ) && $year % 400 ) ) {
 					// this isn't a leap year. see when the next one starts
 					$nextCandidate = $year - $mod + 4;
@@ -1396,65 +1376,6 @@ class Language implements Bcp47Code {
 		}
 
 		return $s;
-	}
-
-	/**
-	 * Compute a cache expiry to account for a dynamic timestamp displayed in output
-	 *
-	 * @param DateTimeInterface $date Current timestamp with the display timezone
-	 * @param string $unit The unit the timestamp is expressed in; one of ("Y", "M", "W", "D", "H", "ISOY" or "AM")
-	 * @return int TTL in seconds, staggered and limited to prevent expiry
-	 *  stampedes.
-	 * @since 1.46
-	 */
-	public static function computeUnitTimestampDeadline(
-		DateTimeInterface $date,
-		string $unit
-	): int {
-		// Ensure we don't mutate our argument
-		$date = DateTimeImmutable::createFromInterface( $date );
-		$tsUnix = $date->getTimestamp();
-
-		$date = $date->modify( self::DEADLINE_DATE_SPEC_BY_UNIT[$unit] );
-		if ( $unit === 'AM' ) {
-			if ( $date->getTimestamp() <= $tsUnix ) {
-				$date = $date->modify( self::DEADLINE_DATE_SPEC_BY_UNIT['D'] );
-			}
-		} elseif ( $unit === 'ISOY' ) {
-			// December 28th falls on the last ISO week of the year, every year.
-			// but we could be in the same, next, or previous ISO year as
-			// December 28 of this calendar year.
-			// Compute all three and use the first which is in the future.
-			$lastYear = $date->modify(
-				'december 28 midnight last year'
-			)->modify( 'monday next week midnight' );
-			$nextYear = $date->modify(
-				'december 28 midnight next year'
-			)->modify( 'monday next week midnight' );
-			// Advance to first week of next ISO year
-			$date = $date->modify( 'monday next week midnight' );
-			if ( $lastYear->getTimestamp() > $tsUnix ) {
-				$date = $lastYear;
-			} elseif ( $date->getTimestamp() <= $tsUnix ) {
-				$date = $nextYear;
-			}
-		} elseif ( $unit === 'H' ) {
-			// Zero out the minutes/seconds
-			$date = $date->setTime( intval( $date->format( 'H' ), 10 ), 0, 0 );
-		} elseif ( $unit === 'm' ) {
-			// Zero out the seconds
-			$date = $date->setTime( intval( $date->format( 'H' ), 10 ),
-									intval( $date->format( 'i' ), 10 ), 0 );
-		} elseif ( $unit === 's' ) {
-			// Zero out the fractional seconds
-			$date = $date->setTime( intval( $date->format( 'H' ), 10 ),
-									intval( $date->format( 'i' ), 10 ),
-									intval( $date->format( 's' ), 10 ) );
-		} else {
-			$date = $date->setTime( 0, 0, 0 );
-		}
-		$deadlineUnix = (int)$date->format( 'U' );
-		return $deadlineUnix - $tsUnix;
 	}
 
 	/**
@@ -2475,7 +2396,7 @@ class Language implements Bcp47Code {
 
 	/**
 	 * @param string $ts The time format which needs to be turned into a
-	 *   date('YmdHis') format with wfTimestamp(TS::MW,$ts)
+	 *   date('YmdHis') format with wfTimestamp(TS_MW,$ts)
 	 * @param bool $adj Whether to adjust the time output according to the
 	 *   user configured offset ($timecorrection)
 	 * @param mixed $format True to use user's date format preference
@@ -2484,7 +2405,7 @@ class Language implements Bcp47Code {
 	 * @return string
 	 */
 	public function date( $ts, $adj = false, $format = true, $timecorrection = false ) {
-		$ts = wfTimestamp( TS::MW, $ts );
+		$ts = wfTimestamp( TS_MW, $ts );
 		if ( $adj ) {
 			$ts = $this->userAdjust( $ts, $timecorrection );
 		}
@@ -2494,7 +2415,7 @@ class Language implements Bcp47Code {
 
 	/**
 	 * @param string $ts The time format which needs to be turned into a
-	 *   date('YmdHis') format with wfTimestamp(TS::MW,$ts)
+	 *   date('YmdHis') format with wfTimestamp(TS_MW,$ts)
 	 * @param bool $adj Whether to adjust the time output according to the
 	 *   user configured offset ($timecorrection)
 	 * @param mixed $format True to use user's date format preference
@@ -2503,7 +2424,7 @@ class Language implements Bcp47Code {
 	 * @return string
 	 */
 	public function time( $ts, $adj = false, $format = true, $timecorrection = false ) {
-		$ts = wfTimestamp( TS::MW, $ts );
+		$ts = wfTimestamp( TS_MW, $ts );
 		if ( $adj ) {
 			$ts = $this->userAdjust( $ts, $timecorrection );
 		}
@@ -2513,7 +2434,7 @@ class Language implements Bcp47Code {
 
 	/**
 	 * @param string $ts The time format which needs to be turned into a
-	 *   date('YmdHis') format with wfTimestamp(TS::MW,$ts)
+	 *   date('YmdHis') format with wfTimestamp(TS_MW,$ts)
 	 * @param bool $adj Whether to adjust the time output according to the
 	 *   user configured offset ($timecorrection)
 	 * @param mixed $format What date format to return the result in; if it's false output the
@@ -2523,7 +2444,7 @@ class Language implements Bcp47Code {
 	 * @return string
 	 */
 	public function timeanddate( $ts, $adj = false, $format = true, $timecorrection = false ) {
-		$ts = wfTimestamp( TS::MW, $ts );
+		$ts = wfTimestamp( TS_MW, $ts );
 		if ( $adj ) {
 			$ts = $this->userAdjust( $ts, $timecorrection );
 		}
@@ -2678,7 +2599,7 @@ class Language implements Bcp47Code {
 	 *
 	 * @param string $type Can be 'date', 'time' or 'both'
 	 * @param string $ts The time format which needs to be turned into a
-	 *   date('YmdHis') format with wfTimestamp(TS::MW,$ts)
+	 *   date('YmdHis') format with wfTimestamp(TS_MW,$ts)
 	 * @param UserIdentity $user User used to get preferences for timezone and format
 	 * @param array $options Array, can contain the following keys:
 	 *   - 'timecorrection': time correction, can have the following values:
@@ -2693,7 +2614,7 @@ class Language implements Bcp47Code {
 	 * @return string
 	 */
 	private function internalUserTimeAndDate( $type, $ts, UserIdentity $user, array $options ) {
-		$ts = wfTimestamp( TS::MW, $ts );
+		$ts = wfTimestamp( TS_MW, $ts );
 		$options += [ 'timecorrection' => true, 'format' => true ];
 		if ( $options['timecorrection'] !== false ) {
 			if ( $options['timecorrection'] === true ) {
@@ -2722,7 +2643,7 @@ class Language implements Bcp47Code {
 	 * the given user.
 	 *
 	 * @param mixed $ts Mixed: the time format which needs to be turned into a
-	 *   date('YmdHis') format with wfTimestamp(TS::MW,$ts)
+	 *   date('YmdHis') format with wfTimestamp(TS_MW,$ts)
 	 * @param UserIdentity $user User used to get preferences for timezone and format
 	 * @param array $options Array, can contain the following keys:
 	 *   - 'timecorrection': time correction, can have the following values:
@@ -2745,7 +2666,7 @@ class Language implements Bcp47Code {
 	 * the given user.
 	 *
 	 * @param mixed $ts The time format which needs to be turned into a
-	 *   date('YmdHis') format with wfTimestamp(TS::MW,$ts)
+	 *   date('YmdHis') format with wfTimestamp(TS_MW,$ts)
 	 * @param UserIdentity $user User used to get preferences for timezone and format
 	 * @param array $options Array, can contain the following keys:
 	 *   - 'timecorrection': time correction, can have the following values:
@@ -2768,7 +2689,7 @@ class Language implements Bcp47Code {
 	 * the given user.
 	 *
 	 * @param mixed $ts The time format which needs to be turned into a
-	 *   date('YmdHis') format with wfTimestamp(TS::MW,$ts)
+	 *   date('YmdHis') format with wfTimestamp(TS_MW,$ts)
 	 * @param UserIdentity $user User used to get preferences for timezone and format
 	 * @param array $options Array, can contain the following keys:
 	 *   - 'timecorrection': time correction, can have the following values:
@@ -2855,18 +2776,18 @@ class Language implements Bcp47Code {
 			 * @todo FIXME: Add better handling of future timestamps.
 			 */
 			$format = $this->getDateFormatString( 'both', $user->getDatePreference() ?: 'default' );
-			$ts = $this->sprintfDate( $format, $ts->getTimestamp( TS::MW ) );
+			$ts = $this->sprintfDate( $format, $ts->getTimestamp( TS_MW ) );
 		} elseif (
 			$days > 5 &&
 			$ts->timestamp->format( 'Y' ) !== $relativeTo->timestamp->format( 'Y' )
 		) {
 			// Timestamps are in different years and more than 5 days apart: use full date
 			$format = $this->getDateFormatString( 'date', $user->getDatePreference() ?: 'default' );
-			$ts = $this->sprintfDate( $format, $ts->getTimestamp( TS::MW ) );
+			$ts = $this->sprintfDate( $format, $ts->getTimestamp( TS_MW ) );
 		} elseif ( $days > 5 ) {
 			// Timestamps are in same year and more than 5 days ago: show day and month only.
 			$format = $this->getDateFormatString( 'pretty', $user->getDatePreference() ?: 'default' );
-			$ts = $this->sprintfDate( $format, $ts->getTimestamp( TS::MW ) );
+			$ts = $this->sprintfDate( $format, $ts->getTimestamp( TS_MW ) );
 		} elseif ( $days > 1 ) {
 			// Timestamp within the past 5 days: show the day of the week and time
 			$format = $this->getDateFormatString( 'time', $user->getDatePreference() ?: 'default' );
@@ -2874,19 +2795,19 @@ class Language implements Bcp47Code {
 			// The following messages are used here:
 			// * sunday-at, monday-at, tuesday-at, wednesday-at, thursday-at, friday-at, saturday-at
 			$ts = $this->msg( "$weekday-at" )
-				->params( $this->sprintfDate( $format, $ts->getTimestamp( TS::MW ) ) )
+				->params( $this->sprintfDate( $format, $ts->getTimestamp( TS_MW ) ) )
 				->text();
 		} elseif ( $days == 1 ) {
 			// Timestamp was yesterday: say 'yesterday' and the time.
 			$format = $this->getDateFormatString( 'time', $user->getDatePreference() ?: 'default' );
 			$ts = $this->msg( 'yesterday-at' )
-				->params( $this->sprintfDate( $format, $ts->getTimestamp( TS::MW ) ) )
+				->params( $this->sprintfDate( $format, $ts->getTimestamp( TS_MW ) ) )
 				->text();
 		} elseif ( $diff->h > 1 || ( $diff->h == 1 && $diff->i > 30 ) ) {
 			// Timestamp was today, but more than 90 minutes ago: say 'today' and the time.
 			$format = $this->getDateFormatString( 'time', $user->getDatePreference() ?: 'default' );
 			$ts = $this->msg( 'today-at' )
-				->params( $this->sprintfDate( $format, $ts->getTimestamp( TS::MW ) ) )
+				->params( $this->sprintfDate( $format, $ts->getTimestamp( TS_MW ) ) )
 				->text();
 
 		// From here on in, the timestamp was soon enough ago so that we can simply say
@@ -4447,7 +4368,7 @@ class Language implements Bcp47Code {
 			}
 
 			// Return the timestamp as-is if it is in an unknown format to ConvertibleTimestamp (T354663)
-			$time = ConvertibleTimestamp::convert( TS::MW, $time );
+			$time = ConvertibleTimestamp::convert( TS_MW, $time );
 			if ( $time === false ) {
 				return $str;
 			}
@@ -4614,7 +4535,7 @@ class Language implements Bcp47Code {
 	 * Decode an expiry (block, protection, etc.) which has come from the DB
 	 *
 	 * @param string $expiry Database expiry String
-	 * @param true|int|TS $format True to process using language functions, or TS:: constant
+	 * @param true|int $format True to process using language functions, or TS_ constant
 	 *     to return the expiry in a given timestamp
 	 * @param string $infinity If $format is not true, use this string for infinite expiry
 	 * @param UserIdentity|null $user If $format is true, use this user for date format

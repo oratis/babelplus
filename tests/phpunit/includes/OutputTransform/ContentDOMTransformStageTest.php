@@ -5,7 +5,6 @@ namespace MediaWiki\OutputTransform;
 
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Parser\Parsoid\PageBundleParserOutputConverter;
 use MediaWiki\Tests\OutputTransform\DummyDOMTransformStage;
@@ -35,10 +34,9 @@ class ContentDOMTransformStageTest extends TestCase {
 			new HtmlPageBundle( html: $html )
 		);
 		$transform = $this->createStage();
-		$popts = ParserOptions::newFromAnon();
 		$options = [];
 		$this->assertTrue( $po->getContentHolder()->isParsoidContent() );
-		$po = $transform->transform( $po, $popts, $options );
+		$po = $transform->transform( $po, null, $options );
 		$json = MediaWikiServices::getInstance()->getJsonCodec()->serialize( $po );
 		self::assertStringContainsString( "parsoid-page-bundle", $json );
 	}
@@ -52,10 +50,9 @@ class ContentDOMTransformStageTest extends TestCase {
 		$transform = $this->createStage();
 
 		// Legacy, should roundtrip the input
-		$popts = ParserOptions::newFromAnon();
 		$options = [];
 		$this->assertFalse( $po->getContentHolder()->isParsoidContent() );
-		$po = $transform->transform( $po, $popts, $options );
+		$po = $transform->transform( $po, null, $options );
 		$text = $po->getContentHolderText();
 		$this->assertEquals( $html, $text );
 
@@ -64,7 +61,7 @@ class ContentDOMTransformStageTest extends TestCase {
 			new HtmlPageBundle( html: $html )
 		);
 		$this->assertTrue( $po->getContentHolder()->isParsoidContent() );
-		$po = $transform->transform( $po, $popts, $options );
+		$po = $transform->transform( $po, null, $options );
 		$text = $po->getContentHolderText();
 		$this->assertEquals( $html, $text );
 	}

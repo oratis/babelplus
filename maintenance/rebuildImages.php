@@ -22,13 +22,11 @@ require_once __DIR__ . '/Maintenance.php';
 
 use MediaWiki\FileRepo\File\FileSelectQueryBuilder;
 use MediaWiki\FileRepo\LocalRepo;
-use MediaWiki\MainConfigNames;
 use MediaWiki\Maintenance\Maintenance;
 use MediaWiki\Specials\SpecialUpload;
 use MediaWiki\User\User;
-use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\IMaintainableDatabase;
 use Wikimedia\Rdbms\SelectQueryBuilder;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Maintenance script to update image metadata records.
@@ -37,7 +35,7 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  */
 class ImageBuilder extends Maintenance {
 	/**
-	 * @var IDatabase
+	 * @var IMaintainableDatabase
 	 */
 	protected $dbw;
 
@@ -101,16 +99,8 @@ class ImageBuilder extends Maintenance {
 	}
 
 	private function build() {
-		$migrationStage = $this->getServiceContainer()->getMainConfig()->get(
-			MainConfigNames::FileSchemaMigrationStage
-		);
-
-		if ( $migrationStage & SCHEMA_COMPAT_READ_OLD ) {
-			$this->buildImage();
-			$this->buildOldImage();
-		} else {
-			$this->buildFile();
-		}
+		$this->buildImage();
+		$this->buildOldImage();
 	}
 
 	/**
@@ -141,10 +131,10 @@ class ImageBuilder extends Maintenance {
 		$rate = $this->processed / $delta;
 
 		$this->output( sprintf( "%s: %6.2f%% done on %s; ETA %s [%d/%d] %.2f/sec <%.2f%% updated>\n",
-			wfTimestamp( TS::DB, intval( $now ) ),
+			wfTimestamp( TS_DB, intval( $now ) ),
 			$portion * 100.0,
 			$this->table,
-			wfTimestamp( TS::DB, intval( $eta ) ),
+			wfTimestamp( TS_DB, intval( $eta ) ),
 			$this->processed,
 			$this->count,
 			$rate,
@@ -210,30 +200,15 @@ class ImageBuilder extends Maintenance {
 		return $file->getUpgraded();
 	}
 
-	private function buildFile() {
-		$this->buildTable(
-			'file',
-			FileSelectQueryBuilder::newForFile( $this->getReplicaDB() ),
-			$this->fileCallback( ... )
-		);
-	}
-
-	private function fileCallback( \stdClass $row ): bool {
-		// Create a File object from the row
-		// This will also upgrade it
-		$file = $this->getRepo()->newFile( $row->file_name );
-
-		return $file->getUpgraded();
-	}
-
 	private function crawlMissing() {
 		$this->getRepo()->enumFiles( $this->checkMissingImage( ... ) );
 	}
 
 	private function checkMissingImage( string $fullpath ) {
 		$filename = wfBaseName( $fullpath );
-
-		$row = FileSelectQueryBuilder::newForFile( $this->getReplicaDB() )
+		$row = $this->dbw->newSelectQueryBuilder()
+			->select( [ 'img_name' ] )
+			->from( 'image' )
 			->where( [ 'img_name' => $filename ] )
 			->caller( __METHOD__ )->fetchRow();
 

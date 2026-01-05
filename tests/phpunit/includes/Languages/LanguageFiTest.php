@@ -1,8 +1,5 @@
 <?php
 declare( strict_types=1 );
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
 
 /**
  * @group Language

@@ -10,7 +10,6 @@ use DateTime;
 use MediaWiki\Html\Html;
 use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\Timestamp\TimestampException;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * IndexPager with a formatted navigation bar.
@@ -197,7 +196,7 @@ abstract class ReverseChronologicalPager extends IndexPager {
 
 		try {
 			// The timestamp used for DB queries is at midnight of the *next* day after the selected date.
-			$selectedDate = new DateTime( $timestamp->getTimestamp( TS::ISO_8601 ) );
+			$selectedDate = new DateTime( $timestamp->getTimestamp( TS_ISO_8601 ) );
 			$selectedDate = $selectedDate->modify( '-1 day' );
 
 			$this->mYear = (int)$selectedDate->format( 'Y' );
@@ -275,13 +274,6 @@ abstract class ReverseChronologicalPager extends IndexPager {
 			$month = 1;
 			$day = 1;
 			$year++;
-		}
-
-		// T402541 Do not overflow beyond end of the year 9999
-		if ( $year > 9999 ) {
-			$year = 9999;
-			$month = 12;
-			$day = 31;
 		}
 
 		$ymd = sprintf( "%04d%02d%02d", $year, $month, $day );

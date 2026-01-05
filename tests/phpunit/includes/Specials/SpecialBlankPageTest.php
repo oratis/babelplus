@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Specials\SpecialBlankpage;

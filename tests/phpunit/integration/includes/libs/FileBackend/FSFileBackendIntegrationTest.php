@@ -33,15 +33,15 @@ use Wikimedia\FileBackend\FSFileBackend;
  * @covers \Wikimedia\FileBackend\FileOps\FileOp
  * @covers \Wikimedia\FileBackend\FileOpBatch
  * @covers \Wikimedia\FileBackend\HTTPFileStreamer
- * @covers \MediaWiki\FileBackend\LockManager\LockManagerGroup
+ * @covers \LockManagerGroup
  * @covers \Wikimedia\FileBackend\FileOps\MoveFileOp
  * @covers \Wikimedia\FileBackend\FileOps\NullFileOp
  * @covers \Wikimedia\FileBackend\FileOps\StoreFileOp
  * @covers \Wikimedia\FileBackend\FSFile\TempFSFile
  *
- * @covers \Wikimedia\LockManager\FSLockManager
- * @covers \Wikimedia\LockManager\LockManager
- * @covers \Wikimedia\LockManager\NullLockManager
+ * @covers \FSLockManager
+ * @covers \LockManager
+ * @covers \NullLockManager
  */
 class FSFileBackendIntegrationTest extends FileBackendIntegrationTestBase {
 	protected function getBackend() {

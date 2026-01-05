@@ -17,7 +17,6 @@ use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Status\Status;
-use MediaWiki\Tests\Mocks\PoolCounter\MockPoolCounterFailing;
 use MediaWiki\Title\Title;
 use MediaWiki\User\User;
 use MediaWiki\Utils\MWTimestamp;
@@ -702,7 +701,7 @@ class ArticleViewTest extends MediaWikiIntegrationTestCase {
 		$article = TestingAccessWrapper::newFromObject( $article );
 		$article->fetchResult = Status::newFatal(
 			'rev-deleted-text-permission',
-			$page->getTitle()->getPrefixedURL()
+			$page->getTitle()->getPrefixedDBkey()
 		);
 
 		$article->view();
@@ -725,7 +724,7 @@ class ArticleViewTest extends MediaWikiIntegrationTestCase {
 		$article = TestingAccessWrapper::newFromObject( $article );
 		$article->fetchResult = Status::newFatal(
 			'rev-deleted-text-permission',
-			$page->getTitle()->getPrefixedURL()
+			$page->getTitle()->getPrefixedDBkey()
 		);
 
 		$article->view();

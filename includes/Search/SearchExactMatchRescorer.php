@@ -7,8 +7,6 @@
  * @file
  */
 
-namespace MediaWiki\Search;
-
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Title\Title;
@@ -151,6 +149,3 @@ class SearchExactMatchRescorer {
 		return $redir ? $redir->getPrefixedText() : null;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchExactMatchRescorer::class, 'SearchExactMatchRescorer' );

@@ -22,7 +22,6 @@ use Wikimedia\Rdbms\QueryBuilderFromRawSql;
 use Wikimedia\Rdbms\RawSQLValue;
 use Wikimedia\Rdbms\Subquery;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Sql abstraction object.
@@ -525,7 +524,7 @@ class SQLPlatform implements ISQLPlatform {
 	public function timestamp( $ts = 0 ) {
 		$t = new ConvertibleTimestamp( $ts );
 		// Let errors bubble up to avoid putting garbage in the DB
-		return $t->getTimestamp( TS::MW );
+		return $t->getTimestamp( TS_MW );
 	}
 
 	/** @inheritDoc */
@@ -550,7 +549,7 @@ class SQLPlatform implements ISQLPlatform {
 	}
 
 	/** @inheritDoc */
-	public function decodeExpiry( $expiry, $format = TS::MW ) {
+	public function decodeExpiry( $expiry, $format = TS_MW ) {
 		if ( $expiry == '' || $expiry == 'infinity' || $expiry == $this->getInfinity() ) {
 			return 'infinity';
 		}
@@ -1666,7 +1665,7 @@ class SQLPlatform implements ISQLPlatform {
 		$condsSql = " SET " . $this->makeList( $set, self::LIST_SET );
 		$cleanCondsSql = " SET " . $this->scrubArray( $set, self::LIST_SET );
 
-		if ( $conds !== self::ALL_ROWS && $conds !== [ self::ALL_ROWS ] ) {
+		if ( $conds && $conds !== self::ALL_ROWS && $conds !== [ self::ALL_ROWS ] ) {
 			$cleanCondsSql .= ' WHERE ' . $this->scrubArray( $conds );
 			if ( is_array( $conds ) ) {
 				$conds = $this->makeList( $conds, self::LIST_AND );

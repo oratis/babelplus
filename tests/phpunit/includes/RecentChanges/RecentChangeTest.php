@@ -7,8 +7,6 @@ use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -34,9 +32,10 @@ class RecentChangeTest extends MediaWikiIntegrationTestCase {
 
 	public static function provideAttribs() {
 		$attribs = [
-			'rc_timestamp' => ConvertibleTimestamp::now( TS::MW ),
+			'rc_timestamp' => wfTimestamp( TS_MW ),
 			'rc_namespace' => NS_USER,
 			'rc_title' => 'Tony',
+			'rc_type' => RC_EDIT,
 			'rc_source' => RecentChange::SRC_EDIT,
 			'rc_minor' => 0,
 			'rc_cur_id' => 77,
@@ -61,6 +60,7 @@ class RecentChangeTest extends MediaWikiIntegrationTestCase {
 
 		yield 'external user' => [
 			[
+				'rc_type' => RC_EXTERNAL,
 				'rc_source' => 'foo',
 				'rc_user' => 0,
 				'rc_user_text' => 'm>External User',
@@ -69,6 +69,7 @@ class RecentChangeTest extends MediaWikiIntegrationTestCase {
 
 		yield 'anon user' => [
 			[
+				'rc_type' => RC_EXTERNAL,
 				'rc_source' => 'foo',
 				'rc_user' => 0,
 				'rc_user_text' => '192.168.0.1',
@@ -79,6 +80,7 @@ class RecentChangeTest extends MediaWikiIntegrationTestCase {
 			[
 				'rc_namespace' => NS_SPECIAL,
 				'rc_title' => 'Log',
+				'rc_type' => RC_LOG,
 				'rc_source' => RecentChange::SRC_LOG,
 				'rc_log_type' => 'delete',
 				'rc_log_action' => 'delete',
@@ -89,6 +91,7 @@ class RecentChangeTest extends MediaWikiIntegrationTestCase {
 			[
 				'rc_namespace' => NS_MAIN,
 				'rc_title' => '',
+				'rc_type' => RC_LOG,
 				'rc_source' => RecentChange::SRC_LOG,
 				'rc_log_type' => 'delete',
 				'rc_log_action' => 'delete',
@@ -188,5 +191,31 @@ class RecentChangeTest extends MediaWikiIntegrationTestCase {
 		// when coverage is enabled.
 		$timestamp = time() + $offset;
 		$this->assertEquals( $expected, RecentChange::isInRCLifespan( $timestamp, $tolerance ) );
+	}
+
+	public static function provideRCTypes() {
+		return [
+			[ RC_EDIT, 'edit' ],
+			[ RC_NEW, 'new' ],
+			[ RC_LOG, 'log' ],
+			[ RC_EXTERNAL, 'external' ],
+			[ RC_CATEGORIZE, 'categorize' ],
+		];
+	}
+
+	/**
+	 * @dataProvider provideRCTypes
+	 * @covers \MediaWiki\RecentChanges\RecentChange::parseFromRCType
+	 */
+	public function testParseFromRCType( $rcType, $type ) {
+		$this->assertEquals( $type, RecentChange::parseFromRCType( $rcType ) );
+	}
+
+	/**
+	 * @dataProvider provideRCTypes
+	 * @covers \MediaWiki\RecentChanges\RecentChange::parseToRCType
+	 */
+	public function testParseToRCType( $rcType, $type ) {
+		$this->assertEquals( $rcType, RecentChange::parseToRCType( $type ) );
 	}
 }

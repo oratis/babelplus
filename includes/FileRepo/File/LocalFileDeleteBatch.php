@@ -43,13 +43,13 @@ class LocalFileDeleteBatch {
 	private $user;
 
 	/**
-	 * @param LocalFile $file
+	 * @param File $file
 	 * @param UserIdentity $user
 	 * @param string $reason
 	 * @param bool $suppress
 	 */
 	public function __construct(
-		LocalFile $file,
+		File $file,
 		UserIdentity $user,
 		$reason = '',
 		$suppress = false
@@ -231,7 +231,7 @@ class LocalFileDeleteBatch {
 			$joins = [];
 
 			$fields += array_map(
-				$dbw->addQuotes( ... ),
+				[ $dbw, 'addQuotes' ],
 				$commentStore->insert( $dbw, 'fa_deleted_reason', $this->reason )
 			);
 

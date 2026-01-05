@@ -43,15 +43,23 @@ class ApiManageTags extends ApiBase {
 		$reason = $params['reason'];
 		$ignoreWarnings = $params['ignorewarnings'];
 		$tags = $params['tags'] ?: [];
-		$fn = match ( $params['operation'] ) {
-			'create' => ChangeTags::createTagWithChecks( ... ),
-			'delete' => ChangeTags::deleteTagWithChecks( ... ),
-			'activate' => ChangeTags::activateTagWithChecks( ... ),
-			'deactivate' => ChangeTags::deactivateTagWithChecks( ... ),
-			// unreachable
-			default => throw new UnexpectedValueException( 'invalid operation' )
-		};
-		$status = $fn( $tag, $reason, $authority, $ignoreWarnings, $tags );
+		switch ( $params['operation'] ) {
+			case 'create':
+				$status = ChangeTags::createTagWithChecks( $tag, $reason, $authority, $ignoreWarnings, $tags );
+				break;
+			case 'delete':
+				$status = ChangeTags::deleteTagWithChecks( $tag, $reason, $authority, $ignoreWarnings, $tags );
+				break;
+			case 'activate':
+				$status = ChangeTags::activateTagWithChecks( $tag, $reason, $authority, $ignoreWarnings, $tags );
+				break;
+			case 'deactivate':
+				$status = ChangeTags::deactivateTagWithChecks( $tag, $reason, $authority, $ignoreWarnings, $tags );
+				break;
+			default:
+				// unreachable
+				throw new UnexpectedValueException( 'invalid operation' );
+		}
 		if ( !$status->isOK() ) {
 			$this->dieStatus( $status );
 		}

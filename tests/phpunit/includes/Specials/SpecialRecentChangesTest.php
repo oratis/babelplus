@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\RequestContext;
 use MediaWiki\MainConfigNames;

@@ -35,7 +35,6 @@ use Wikimedia\Rdbms\RawSQLExpression;
 use Wikimedia\Rdbms\RawSQLValue;
 use Wikimedia\Rdbms\ReadOnlyMode;
 use Wikimedia\Rdbms\SelectQueryBuilder;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 use function array_key_exists;
 
 /**
@@ -246,15 +245,18 @@ class DatabaseBlockStore {
 
 		$orConds = [];
 		if ( $userIds ) {
-			$orConds[] = $db->expr( 'bt_user', '=', array_values( array_unique( $userIds ) ) );
+			// @phan-suppress-next-line PhanTypeMismatchArgument -- array_unique() result is non-empty
+			$orConds[] = $db->expr( 'bt_user', '=', array_unique( $userIds ) );
 		}
 		if ( $userNames ) {
 			// Add bt_ip_hex to the condition since it is in the index
 			$orConds[] = $db->expr( 'bt_ip_hex', '=', null )
-				->and( 'bt_user_text', '=', array_values( array_unique( $userNames ) ) );
+				// @phan-suppress-next-line PhanTypeMismatchArgument -- array_unique() result is non-empty
+				->and( 'bt_user_text', '=', array_unique( $userNames ) );
 		}
 		if ( $addresses ) {
-			$orConds[] = $db->expr( 'bt_address', '=', array_values( array_unique( $addresses ) ) );
+			// @phan-suppress-next-line PhanTypeMismatchArgument
+			$orConds[] = $db->expr( 'bt_address', '=', array_unique( $addresses ) );
 		}
 		foreach ( $this->getConditionForRanges( $ranges ) as $cond ) {
 			$orConds[] = new RawSQLExpression( $cond );
@@ -1551,13 +1553,6 @@ class DatabaseBlockStore {
 			throw new RuntimeException( __METHOD__ . ': this block does not have a blocker' );
 		}
 
-		// Acquire a lock on the primary DB for the autoblock to prevent race conditions (T260838)
-		$dbw = $this->getPrimaryDB();
-		$autoblockTargetLockKey = $dbw->getDomainID() . ':autoblock:' . $target;
-		if ( !$dbw->lock( $autoblockTargetLockKey, __METHOD__, 0 ) ) {
-			return false;
-		}
-
 		$timestamp = wfTimestampNow();
 		$expiry = $this->getAutoblockExpiry( $timestamp, $parentBlock->getExpiry() );
 		$autoblock = new DatabaseBlock( [
@@ -1580,9 +1575,6 @@ class DatabaseBlockStore {
 		$this->logger->debug( "Autoblocking {$parentBlock->getTargetName()}@" . $target );
 
 		$status = $this->insertBlock( $autoblock );
-
-		$dbw->unlock( $autoblockTargetLockKey, __METHOD__ );
-
 		return $status
 			? $status['id']
 			: false;
@@ -1639,7 +1631,7 @@ class DatabaseBlockStore {
 	 */
 	public function getAutoblockExpiry( $timestamp, ?string $parentExpiry = null ) {
 		$maxDuration = $this->options->get( MainConfigNames::AutoblockExpiry );
-		$expiry = wfTimestamp( TS::MW, (int)wfTimestamp( TS::UNIX, $timestamp ) + $maxDuration );
+		$expiry = wfTimestamp( TS_MW, (int)wfTimestamp( TS_UNIX, $timestamp ) + $maxDuration );
 		if ( $parentExpiry !== null && $parentExpiry !== 'infinity' ) {
 			$expiry = min( $parentExpiry, $expiry );
 		}

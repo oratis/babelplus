@@ -30,8 +30,6 @@ use MediaWiki\SpecialPage\SpecialPageFactory;
 use MediaWiki\Specials\SpecialVersion;
 use MediaWiki\Title\NamespaceInfo;
 use MediaWiki\Title\Title;
-use MediaWiki\Upload\UploadBase;
-use MediaWiki\Upload\UploadFromUrl;
 use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\TempUser\TempUserConfig;
 use MediaWiki\User\UserGroupManager;
@@ -40,10 +38,11 @@ use MediaWiki\Utils\ExtensionInfo;
 use MediaWiki\Utils\GitInfo;
 use MediaWiki\Utils\UrlUtils;
 use MediaWiki\WikiMap\WikiMap;
+use UploadBase;
+use UploadFromUrl;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Rdbms\ReadOnlyMode;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A query action to return meta information about the wiki site.
@@ -118,40 +117,97 @@ class ApiQuerySiteinfo extends ApiQueryBase {
 		$params = $this->extractRequestParams();
 		$done = [];
 		foreach ( $params['prop'] as $p ) {
-			$fit = match ( $p ) {
-				'general' => $this->appendGeneralInfo( $p ),
-				'namespaces' => $this->appendNamespaces( $p ),
-				'namespacealiases' => $this->appendNamespaceAliases( $p ),
-				'specialpagealiases' => $this->appendSpecialPageAliases( $p ),
-				'magicwords' => $this->appendMagicWords( $p ),
-				'interwikimap' => $this->appendInterwikiMap( $p, $params['filteriw'] ),
-				'dbrepllag' => $this->appendDbReplLagInfo( $p, $params['showalldb'] ),
-				'statistics' => $this->appendStatistics( $p ),
-				'usergroups' => $this->appendUserGroups( $p, $params['numberingroup'] ),
-				'autocreatetempuser' => $this->appendAutoCreateTempUser( $p ),
-				'clientlibraries' => $this->appendInstalledClientLibraries( $p ),
-				'libraries' => $this->appendInstalledLibraries( $p ),
-				'extensions' => $this->appendExtensions( $p ),
-				'fileextensions' => $this->appendFileExtensions( $p ),
-				'rightsinfo' => $this->appendRightsInfo( $p ),
-				'restrictions' => $this->appendRestrictions( $p ),
-				'languages' => $this->appendLanguages( $p ),
-				'languagevariants' => $this->appendLanguageVariants( $p ),
-				'skins' => $this->appendSkins( $p ),
-				'extensiontags' => $this->appendExtensionTags( $p ),
-				'functionhooks' => $this->appendFunctionHooks( $p ),
-				'showhooks' => $this->appendSubscribedHooks( $p ),
-				'variables' => $this->appendVariables( $p ),
-				'doubleunderscores' => $this->appendDoubleUnderscores( $p ),
-				'protocols' => $this->appendProtocols( $p ),
-				'defaultoptions' => $this->appendDefaultOptions( $p ),
-				'uploaddialog' => $this->appendUploadDialog( $p ),
-				'autopromote' => $this->appendAutoPromote( $p ),
-				'autopromoteonce' => $this->appendAutoPromoteOnce( $p ),
-				'copyuploaddomains' => $this->appendCopyUploadDomains( $p ),
-				// @phan-suppress-next-line PhanUseReturnValueOfNever
-				default => ApiBase::dieDebug( __METHOD__, "Unknown prop=$p" ) // @codeCoverageIgnore
-			};
+			switch ( $p ) {
+				case 'general':
+					$fit = $this->appendGeneralInfo( $p );
+					break;
+				case 'namespaces':
+					$fit = $this->appendNamespaces( $p );
+					break;
+				case 'namespacealiases':
+					$fit = $this->appendNamespaceAliases( $p );
+					break;
+				case 'specialpagealiases':
+					$fit = $this->appendSpecialPageAliases( $p );
+					break;
+				case 'magicwords':
+					$fit = $this->appendMagicWords( $p );
+					break;
+				case 'interwikimap':
+					$fit = $this->appendInterwikiMap( $p, $params['filteriw'] );
+					break;
+				case 'dbrepllag':
+					$fit = $this->appendDbReplLagInfo( $p, $params['showalldb'] );
+					break;
+				case 'statistics':
+					$fit = $this->appendStatistics( $p );
+					break;
+				case 'usergroups':
+					$fit = $this->appendUserGroups( $p, $params['numberingroup'] );
+					break;
+				case 'autocreatetempuser':
+					$fit = $this->appendAutoCreateTempUser( $p );
+					break;
+				case 'clientlibraries':
+					$fit = $this->appendInstalledClientLibraries( $p );
+					break;
+				case 'libraries':
+					$fit = $this->appendInstalledLibraries( $p );
+					break;
+				case 'extensions':
+					$fit = $this->appendExtensions( $p );
+					break;
+				case 'fileextensions':
+					$fit = $this->appendFileExtensions( $p );
+					break;
+				case 'rightsinfo':
+					$fit = $this->appendRightsInfo( $p );
+					break;
+				case 'restrictions':
+					$fit = $this->appendRestrictions( $p );
+					break;
+				case 'languages':
+					$fit = $this->appendLanguages( $p );
+					break;
+				case 'languagevariants':
+					$fit = $this->appendLanguageVariants( $p );
+					break;
+				case 'skins':
+					$fit = $this->appendSkins( $p );
+					break;
+				case 'extensiontags':
+					$fit = $this->appendExtensionTags( $p );
+					break;
+				case 'functionhooks':
+					$fit = $this->appendFunctionHooks( $p );
+					break;
+				case 'showhooks':
+					$fit = $this->appendSubscribedHooks( $p );
+					break;
+				case 'variables':
+					$fit = $this->appendVariables( $p );
+					break;
+				case 'protocols':
+					$fit = $this->appendProtocols( $p );
+					break;
+				case 'defaultoptions':
+					$fit = $this->appendDefaultOptions( $p );
+					break;
+				case 'uploaddialog':
+					$fit = $this->appendUploadDialog( $p );
+					break;
+				case 'autopromote':
+					$fit = $this->appendAutoPromote( $p );
+					break;
+				case 'autopromoteonce':
+					$fit = $this->appendAutoPromoteOnce( $p );
+					break;
+				case 'copyuploaddomains':
+					$fit = $this->appendCopyUploadDomains( $p );
+					break;
+				default:
+					ApiBase::dieDebug( __METHOD__, "Unknown prop=$p" ); // @codeCoverageIgnore
+			}
 			if ( !$fit ) {
 				// Abuse siprop as a query-continue parameter
 				// and set it to all unprocessed props
@@ -270,7 +326,7 @@ class ApiQuerySiteinfo extends ApiQueryBase {
 		$data['server'] = $config->get( MainConfigNames::Server );
 		$data['servername'] = $config->get( MainConfigNames::ServerName );
 		$data['wikiid'] = WikiMap::getCurrentWikiId();
-		$data['time'] = wfTimestamp( TS::ISO_8601, time() );
+		$data['time'] = wfTimestamp( TS_ISO_8601, time() );
 
 		$data['misermode'] = (bool)$config->get( MainConfigNames::MiserMode );
 
@@ -675,7 +731,7 @@ class ApiQuerySiteinfo extends ApiQueryBase {
 						$ret['vcs-url'] = $gitInfo->getHeadViewUrl();
 						$vcsDate = $gitInfo->getHeadCommitDate();
 						if ( $vcsDate !== false ) {
-							$ret['vcs-date'] = wfTimestamp( TS::ISO_8601, $vcsDate );
+							$ret['vcs-date'] = wfTimestamp( TS_ISO_8601, $vcsDate );
 						}
 					}
 
@@ -860,14 +916,6 @@ class ApiQuerySiteinfo extends ApiQueryBase {
 		ApiResult::setIndexedTagName( $variables, 'v' );
 
 		return $this->getResult()->addValue( 'query', $property, $variables );
-	}
-
-	public function appendDoubleUnderscores( string $property ): bool {
-		$ids = $this->magicWordFactory->getDoubleUnderscoreArray()->getNames();
-		ApiResult::setArrayType( $ids, 'BCarray' );
-		ApiResult::setIndexedTagName( $ids, 'v' );
-
-		return $this->getResult()->addValue( 'query', $property, $ids );
 	}
 
 	public function appendProtocols( string $property ): bool {
@@ -1056,7 +1104,6 @@ class ApiQuerySiteinfo extends ApiQueryBase {
 					'functionhooks',
 					'showhooks',
 					'variables',
-					'doubleunderscores',
 					'protocols',
 					'defaultoptions',
 					'uploaddialog',

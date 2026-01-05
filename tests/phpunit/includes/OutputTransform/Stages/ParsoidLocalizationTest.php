@@ -5,9 +5,9 @@ namespace MediaWiki\OutputTransform\Stages;
 
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\MainConfigNames;
-use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Parser\Parsoid\PageBundleParserOutputConverter;
 use MediaWiki\Parser\Parsoid\ParsoidParser;
+use MediaWiki\Title\TitleFactory;
 use MediaWikiIntegrationTestCase;
 use Psr\Log\NullLogger;
 use Wikimedia\Bcp47Code\Bcp47CodeValue;
@@ -37,8 +37,7 @@ class ParsoidLocalizationTest extends MediaWikiIntegrationTestCase {
 		return new ParsoidLocalization(
 			new ServiceOptions( [] ),
 			new NullLogger(),
-			$this->getServiceContainer()->getTitleFactory(),
-			$this->getServiceContainer()->getLanguageFactory(),
+			new TitleFactory()
 		);
 	}
 
@@ -54,9 +53,8 @@ class ParsoidLocalizationTest extends MediaWikiIntegrationTestCase {
 		$po = PageBundleParserOutputConverter::parserOutputFromPageBundle( new HtmlPageBundle( $input ) );
 		$po->setLanguage( new Bcp47CodeValue( $pagelang ) );
 		$po->setExtensionData( ParsoidParser::PARSOID_TITLE_KEY, 'Test_page' );
-		$popts = ParserOptions::newFromAnon();
 		$opts = [];
-		$transf = $loc->transform( $po, $popts, $opts );
+		$transf = $loc->transform( $po, null, $opts );
 		$res = $transf->getContentHolderText();
 		self::assertEquals( $expected, TestUtils::stripParsoidIds( $res ), $message );
 	}
@@ -64,24 +62,19 @@ class ParsoidLocalizationTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @dataProvider provideSpans
 	 */
-	public function testTransformGeneratedSpans( string $key, array $params, string $expected, string $message, ?string $lang = null ) {
+	public function testTransformGeneratedSpans( string $key, array $params, string $expected, string $message ) {
 		// one of the messages we use resolves a link
 		$this->overrideConfigValue( MainConfigNames::ArticlePath, '/wiki/$1' );
 		$loc = $this->createStage();
 		$doc = ContentUtils::createAndLoadDocument( '<p>' );
 		$p = DOMCompat::querySelector( $doc, 'p' );
-		$p->appendChild(
-			$lang === null ?
-				WTUtils::createInterfaceI18nFragment( $doc, $key, $params ) :
-				WTUtils::createPageContentI18nFragment( $doc, $key, $params )
-		);
+		$p->appendChild( WTUtils::createInterfaceI18nFragment( $doc, $key, $params ) );
 		$po = PageBundleParserOutputConverter::parserOutputFromPageBundle(
 			new HtmlPageBundle( ContentUtils::ppToXML( $doc ) ) );
-		$po->setLanguage( new Bcp47CodeValue( $lang ?? 'en' ) );
+		$po->setLanguage( new Bcp47CodeValue( 'en' ) );
 		$po->setExtensionData( ParsoidParser::PARSOID_TITLE_KEY, 'Test_page' );
-		$popts = ParserOptions::newFromAnon();
 		$opts = [];
-		$transf = $loc->transform( $po, $popts, $opts );
+		$transf = $loc->transform( $po, null, $opts );
 		$res = $transf->getContentHolderText();
 		$this->assertEquals( $expected, TestUtils::stripParsoidIds( $res ), $message );
 	}
@@ -89,7 +82,7 @@ class ParsoidLocalizationTest extends MediaWikiIntegrationTestCase {
 	/**
 	 * @dataProvider provideAttrs
 	 */
-	public function testTransformGeneratedAttrs( string $key, array $params, string $expected, string $message, string $lang = 'fr' ) {
+	public function testTransformGeneratedAttrs( string $key, array $params, string $expected, string $message ) {
 		$loc = $this->createStage();
 		$doc = ContentUtils::createAndLoadDocument( '<a>' );
 		$a = DOMCompat::querySelector( $doc, 'a' );
@@ -97,11 +90,10 @@ class ParsoidLocalizationTest extends MediaWikiIntegrationTestCase {
 
 		$po = PageBundleParserOutputConverter::parserOutputFromPageBundle(
 			new HtmlPageBundle( ContentUtils::ppToXML( $doc ) ) );
-		$po->setLanguage( new Bcp47CodeValue( $lang ) );
+		$po->setLanguage( new Bcp47CodeValue( 'fr' ) );
 		$po->setExtensionData( ParsoidParser::PARSOID_TITLE_KEY, 'Test_page' );
-		$popts = ParserOptions::newFromAnon();
 		$opts = [];
-		$transf = $loc->transform( $po, $popts, $opts );
+		$transf = $loc->transform( $po, null, $opts );
 		$res = $transf->getContentHolderText();
 		$this->assertEquals( $expected, TestUtils::stripParsoidIds( $res ), $message );
 	}
@@ -137,71 +129,57 @@ class ParsoidLocalizationTest extends MediaWikiIntegrationTestCase {
 			[
 				'testparam',
 				[ '&<' ],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":["&amp;&lt;"]}}\'>english &amp;&lt;</span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":["&amp;&lt;"]}}\'>english &amp;&lt;</span></p>',
 				'Span with &<',
 			],
 			[
 				'testparam',
-				[ 'stuff' ],
-				'<p><span typeof="mw:I18n" lang="ar" dir="rtl" data-mw-i18n=\'{"/":{"lang":"x-page","key":"testparam","params":["stuff"]}}\'>arabic stuff</span></p>',
-				'Span with stuff, in arabic',
-				'ar',
-			],
-			[
-				'testparam',
 				[ "<script>console()</script>" ],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":["&lt;script>console()&lt;/script>"]}}\'>english &lt;script>console()&lt;/script></span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":["&lt;script>console()&lt;/script>"]}}\'>english &lt;script>console()&lt;/script></span></p>',
 				'Span with <script> (gets escaped)'
 			],
 			[
 				'testparam',
 				[ "<b>bold move</b>" ],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":["&lt;b>bold move&lt;/b>"]}}\'>english <b>bold move</b></span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":["&lt;b>bold move&lt;/b>"]}}\'>english <b>bold move</b></span></p>',
 				'Span with <b> (doesn\'t get escaped)'
 			],
 			[
 				'testparam',
 				[ new ScalarParam( ParamType::TEXT, new MessageValue( 'testparam', [ new MessageValue( 'testparam', [ 'hello' ] ) ] ) ) ],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":[{"text":{"key":"testparam","params":[{"text":{"key":"testparam","params":["hello"]}}]}}]}}\'>english english english hello</span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":[{"text":{"key":"testparam","params":[{"text":{"key":"testparam","params":["hello"]}}]}}]}}\'>english english english hello</span></p>',
 				'Span with nested message'
 			],
 			[
 				'testblock',
 				[],
 				// Observe that we're not generating HTML conforming to content types in this specific case
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testblock","params":[]}}\'><p>english </p><div>stuff</div></span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testblock","params":[]}}\'><p>english </p><div>stuff</div></span></p>',
 				'Message with block content in a span'
 			],
 			[
 				'testparam',
 				[ new ScalarParam( ParamType::TEXT, new MessageValue( 'testlink', [] ) ) ],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":[{"text":{"key":"testlink","params":[]}}]}}\'>english english <a href="/index.php?title=Link&amp;action=edit&amp;redlink=1" class="new" title="Link (page does not exist)">link</a></span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testparam","params":[{"text":{"key":"testlink","params":[]}}]}}\'>english english <a href="/index.php?title=Link&amp;action=edit&amp;redlink=1" class="new" title="Link (page does not exist)">link</a></span></p>',
 				'span with link in the parameter'
 			],
 			[
 				'testpagename',
 				[],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testpagename","params":[]}}\'>Test page</span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testpagename","params":[]}}\'>Test page</span></p>',
 				'{{PAGENAME}} should resolve'
 			],
 			[
 				'testblank',
 				[],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testblank","params":[]}}\'></span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testblank","params":[]}}\'></span></p>',
 				'blank message should resolve'
 			],
 			[
 				'testdisabled',
 				[],
-				'<p><span typeof="mw:I18n" lang="en" dir="ltr" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testdisabled","params":[]}}\'></span></p>',
+				'<p><span typeof="mw:I18n" data-mw-i18n=\'{"/":{"lang":"x-user","key":"testdisabled","params":[]}}\'></span></p>',
 				'disabled message should resolve to empty'
-			],
-			[
-				'testdisabled',
-				[],
-				'<p><span typeof="mw:I18n" lang="ar" dir="rtl" data-mw-i18n=\'{"/":{"lang":"x-page","key":"testdisabled","params":[]}}\'></span></p>',
-				'disabled message should resolve to empty (arabic)',
-				'ar'
 			]
 		];
 	}

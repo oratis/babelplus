@@ -29,14 +29,29 @@ use StatusValue;
  */
 class MarkpatrolledAction extends FormAction {
 
+	private LinkRenderer $linkRenderer;
+	private PatrolManager $patrolManager;
+	private RecentChangeLookup $recentChangeLookup;
+
+	/**
+	 * @param Article $article
+	 * @param IContextSource $context
+	 * @param LinkRenderer $linkRenderer
+	 * @param PatrolManager $patrolManager
+	 * @param RecentChangeLookup $recentChangeLookup
+	 */
 	public function __construct(
 		Article $article,
 		IContextSource $context,
-		private readonly LinkRenderer $linkRenderer,
-		private readonly PatrolManager $patrolManager,
-		private readonly RecentChangeLookup $recentChangeLookup,
+		LinkRenderer $linkRenderer,
+		PatrolManager $patrolManager,
+		RecentChangeLookup $recentChangeLookup
 	) {
 		parent::__construct( $article, $context );
+
+		$this->linkRenderer = $linkRenderer;
+		$this->patrolManager = $patrolManager;
+		$this->recentChangeLookup = $recentChangeLookup;
 	}
 
 	/** @inheritDoc */

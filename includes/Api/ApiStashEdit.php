@@ -183,6 +183,7 @@ class ApiStashEdit extends ApiBase {
 
 		$this->stats->getCounter( 'editstash_cache_stores_total' )
 			->setLabel( 'status', $status )
+			->copyToStatsdAt( "editstash.cache_stores.$status" )
 			->increment();
 
 		$ret = [ 'status' => $status ];

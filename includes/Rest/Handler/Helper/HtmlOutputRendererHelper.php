@@ -449,7 +449,7 @@ class HtmlOutputRendererHelper implements HtmlOutputHelper {
 	/**
 	 * Get a target language from an accept header
 	 */
-	public static function getAcceptedTargetLanguage( string $targetLanguage ): string {
+	private function getAcceptedTargetLanguage( string $targetLanguage ): string {
 		// We could try to identify the most desirable language here,
 		// following the rules for Accept-Language headers in RFC9100.
 		// For now, just take the first language code.
@@ -488,6 +488,7 @@ class HtmlOutputRendererHelper implements HtmlOutputHelper {
 			if ( !$stashSuccess ) {
 				$this->statsFactory->getCounter( 'htmloutputrendererhelper_stash_total' )
 					->setLabel( 'status', 'fail' )
+					->copyToStatsdAt( 'htmloutputrendererhelper.stash.fail' )
 					->increment();
 
 				$errorData = [ 'parsoid-stash-key' => $parsoidStashKey ];
@@ -503,6 +504,7 @@ class HtmlOutputRendererHelper implements HtmlOutputHelper {
 			}
 			$this->statsFactory->getCounter( 'htmloutputrendererhelper_stash_total' )
 				->setLabel( 'status', 'save' )
+				->copyToStatsdAt( 'htmloutputrendererhelper.stash.save' )
 				->increment();
 		}
 
@@ -510,10 +512,7 @@ class HtmlOutputRendererHelper implements HtmlOutputHelper {
 			$pb = $this->getPageBundle();
 
 			// Inject data-parsoid and data-mw attributes.
-			$options = [
-				'siteConfig' => $this->parsoidSiteConfig,
-			];
-			$parserOutput->setRawText( $pb->toInlineAttributeHtml( $options ) );
+			$parserOutput->setRawText( $pb->toInlineAttributeHtml() );
 		}
 
 		// Check if variant conversion has to be performed

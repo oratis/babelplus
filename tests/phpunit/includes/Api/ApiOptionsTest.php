@@ -2,6 +2,8 @@
 
 namespace MediaWiki\Tests\Api;
 
+namespace MediaWiki\Tests\Api;
+
 use MediaWiki\Api\ApiMain;
 use MediaWiki\Api\ApiOptions;
 use MediaWiki\Api\ApiUsageException;
@@ -44,6 +46,9 @@ class ApiOptionsTest extends ApiTestCase {
 
 		$this->mUserMock = $this->createMock( User::class );
 
+		// No actual DB data
+		$this->mUserMock->method( 'getInstanceFromPrimary' )->willReturn( $this->mUserMock );
+
 		$this->mUserMock->method( 'isAllowedAny' )->willReturn( true );
 
 		// Create a new context
@@ -62,6 +67,8 @@ class ApiOptionsTest extends ApiTestCase {
 			UserOptionsManager::class,
 			[ 'getOptions', 'resetOptionsByName', 'setOption', 'isOptionGlobal', 'saveOptions' ]
 		);
+		// Needs to return something
+		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 
 		$preferencesFactory = $this->createNoOpMock(
 			DefaultPreferencesFactory::class,
@@ -188,7 +195,6 @@ class ApiOptionsTest extends ApiTestCase {
 	}
 
 	public function testNoToken() {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$request = $this->getSampleRequest( [ 'token' => null ] );
 
 		$this->expectException( ApiUsageException::class );
@@ -196,7 +202,6 @@ class ApiOptionsTest extends ApiTestCase {
 	}
 
 	public function testAnon() {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$this->mUserMock
 			->method( 'isRegistered' )
 			->willReturn( false );
@@ -213,7 +218,6 @@ class ApiOptionsTest extends ApiTestCase {
 	}
 
 	public function testNoOptionname() {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$this->mUserMock->method( 'isRegistered' )->willReturn( true );
 		$this->mUserMock->method( 'isNamed' )->willReturn( true );
 
@@ -229,7 +233,6 @@ class ApiOptionsTest extends ApiTestCase {
 	}
 
 	public function testNoChanges() {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$this->mUserMock->method( 'isRegistered' )->willReturn( true );
 		$this->mUserMock->method( 'isNamed' )->willReturn( true );
 		$this->userOptionsManagerMock->expects( $this->never() )
@@ -263,7 +266,6 @@ class ApiOptionsTest extends ApiTestCase {
 	 * @dataProvider provideUserScenarios
 	 */
 	public function testReset( $isRegistered, $isNamed, $expectException ) {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$this->mUserMock->method( 'isRegistered' )->willReturn( $isRegistered );
 		$this->mUserMock->method( 'isNamed' )->willReturn( $isNamed );
 
@@ -297,7 +299,6 @@ class ApiOptionsTest extends ApiTestCase {
 	 * @dataProvider provideUserScenarios
 	 */
 	public function testResetKinds( $isRegistered, $isNamed, $expectException ) {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$this->mUserMock->method( 'isRegistered' )->willReturn( $isRegistered );
 		$this->mUserMock->method( 'isNamed' )->willReturn( $isNamed );
 		if ( $expectException ) {
@@ -330,7 +331,6 @@ class ApiOptionsTest extends ApiTestCase {
 	 * @dataProvider provideUserScenarios
 	 */
 	public function testResetChangeOption( $isRegistered, $isNamed, $expectException ) {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$this->mUserMock->method( 'isRegistered' )->willReturn( $isRegistered );
 		$this->mUserMock->method( 'isNamed' )->willReturn( $isNamed );
 
@@ -379,37 +379,12 @@ class ApiOptionsTest extends ApiTestCase {
 		}
 	}
 
-	public function testTooManyUserJs() {
-		$this->mUserMock->method( 'isRegistered' )->willReturn( true );
-		$this->mUserMock->method( 'isNamed' )->willReturn( true );
-		$options = [];
-		for ( $i = 0; $i < 100; $i++ ) {
-			$options['userjs-option-' . $i] = 'test-value-' . $i;
-		}
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( $options );
-
-		$request = $this->getSampleRequest( [ 'optionname' => 'userjs-option-101', 'optionvalue' => '1' ] );
-		$actual = $this->executeQuery( $request );
-
-		$expected = [
-			'options' => 'success',
-			'warnings' => [
-				'options' => [
-					'warnings' => 'Validation error for "userjs-option-101": Too many userjs ' .
-						'preference values have been set (no more than 100 allowed).'
-				],
-			],
-		];
-		$this->assertEquals( $expected, $actual );
-	}
-
 	/**
 	 * @dataProvider provideOptionManipulation
 	 */
 	public function testOptionManipulation(
 		array $params, array $setOptions, ?array $result = null, ?bool $isOptionGlobal = false
 	) {
-		$this->userOptionsManagerMock->method( 'getOptions' )->willReturn( [] );
 		$this->mUserMock->method( 'isRegistered' )->willReturn( true );
 		$this->mUserMock->method( 'isNamed' )->willReturn( true );
 		$this->userOptionsManagerMock->expects( $this->never() )

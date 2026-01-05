@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Deferred\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Deferred\UserEditCountInfo;
 
@@ -22,6 +22,3 @@ interface UserEditCountUpdateHook {
 	 */
 	public function onUserEditCountUpdate( $infos ): void;
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UserEditCountUpdateHook::class, 'MediaWiki\\Hook\\UserEditCountUpdateHook' );

@@ -1,9 +1,7 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\MainConfigNames;
 use MediaWiki\Specials\SpecialShortPages;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @covers \MediaWiki\Specials\SpecialShortPages

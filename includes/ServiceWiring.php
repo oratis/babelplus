@@ -60,7 +60,6 @@ use MediaWiki\Cache\LinkCache;
 use MediaWiki\Cache\UserCache;
 use MediaWiki\Category\TrackingCategories;
 use MediaWiki\ChangeTags\ChangeTagsStore;
-use MediaWiki\ChangeTags\ChangeTagsStoreFactory;
 use MediaWiki\Collation\CollationFactory;
 use MediaWiki\CommentFormatter\CommentFormatter;
 use MediaWiki\CommentFormatter\CommentParserFactory;
@@ -78,7 +77,6 @@ use MediaWiki\Content\Renderer\ContentRenderer;
 use MediaWiki\Content\Transform\ContentTransformer;
 use MediaWiki\Context\RequestContext;
 use MediaWiki\DAO\WikiAwareEntity;
-use MediaWiki\DB\MWLBFactory;
 use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\DomainEvent\DomainEventDispatcher;
 use MediaWiki\DomainEvent\DomainEventSource;
@@ -112,7 +110,6 @@ use MediaWiki\Json\RsaJwtCodec;
 use MediaWiki\Language\FormatterFactory;
 use MediaWiki\Language\Language;
 use MediaWiki\Language\LanguageCode;
-use MediaWiki\Language\LanguageNameSearch;
 use MediaWiki\Language\LazyLocalizationContext;
 use MediaWiki\Language\LeximorphFactory;
 use MediaWiki\Language\MessageParser;
@@ -129,8 +126,6 @@ use MediaWiki\Linker\LinkTargetStore;
 use MediaWiki\Linker\UserLinkRenderer;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\Logging\LogFormatterFactory;
-use MediaWiki\Mail\ConfirmEmail\ConfirmEmailBuilderFactory;
-use MediaWiki\Mail\ConfirmEmail\ConfirmEmailSender;
 use MediaWiki\Mail\Emailer;
 use MediaWiki\Mail\EmailUser;
 use MediaWiki\Mail\EmailUserFactory;
@@ -207,7 +202,6 @@ use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\RevisionStoreFactory;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Revision\SlotRoleRegistry;
-use MediaWiki\Search\SearchEngineConfig;
 use MediaWiki\Search\SearchEventIngress;
 use MediaWiki\Search\SearchResultThumbnailProvider;
 use MediaWiki\Search\TitleMatcher;
@@ -263,7 +257,6 @@ use MediaWiki\User\Options\UserOptionsManager;
 use MediaWiki\User\PasswordReset;
 use MediaWiki\User\Registration\LocalUserRegistrationProvider;
 use MediaWiki\User\Registration\UserRegistrationLookup;
-use MediaWiki\User\RestrictedUserGroupChecker;
 use MediaWiki\User\TalkPageNotificationManager;
 use MediaWiki\User\TempUser\RealTempUserConfig;
 use MediaWiki\User\TempUser\TempUserCreator;
@@ -284,7 +277,6 @@ use MediaWiki\Utils\UrlUtils;
 use MediaWiki\Watchlist\NoWriteWatchedItemStore;
 use MediaWiki\Watchlist\WatchedItemQueryService;
 use MediaWiki\Watchlist\WatchedItemStore;
-use MediaWiki\Watchlist\WatchlistLabelStore;
 use MediaWiki\Watchlist\WatchlistManager;
 use MediaWiki\WikiMap\WikiMap;
 use Psr\Http\Client\ClientInterface;
@@ -308,7 +300,6 @@ use Wikimedia\Rdbms\ReadOnlyMode;
 use Wikimedia\RequestTimeout\CriticalSectionProvider;
 use Wikimedia\RequestTimeout\RequestTimeout;
 use Wikimedia\Stats\IBufferingStatsdDataFactory;
-use Wikimedia\Stats\OutputFormats;
 use Wikimedia\Stats\PrefixingStatsdDataFactoryProxy;
 use Wikimedia\Stats\StatsCache;
 use Wikimedia\Stats\StatsFactory;
@@ -378,9 +369,7 @@ return [
 		$authManager = new AuthManager(
 			RequestContext::getMain()->getRequest(),
 			$services->getMainConfig(),
-			$services->getChangeTagsStore(),
 			$services->getObjectFactory(),
-			$services->getObjectCacheFactory(),
 			$services->getHookContainer(),
 			$services->getReadOnlyMode(),
 			$services->getUserNameUtils(),
@@ -392,13 +381,11 @@ return [
 			$services->getBotPasswordStore(),
 			$services->getUserFactory(),
 			$services->getUserIdentityLookup(),
-			$services->getUserIdentityUtils(),
 			$services->getUserOptionsManager(),
 			$services->getNotificationService(),
 			$services->getSessionManager()
 		);
 		$authManager->setLogger( LoggerFactory::getInstance( 'authentication' ) );
-		$authManager->setAuthEventsLogger( LoggerFactory::getInstance( 'authevents' ) );
 		return $authManager;
 	},
 
@@ -426,7 +413,6 @@ return [
 			$services->getMainWANObjectCache(),
 			$services->getHookContainer(),
 			$services->getConnectionProvider(),
-			$services->getRestrictionStore(),
 			LoggerFactory::getInstance( 'BacklinkCache' )
 		);
 	},
@@ -463,7 +449,9 @@ return [
 
 	'BlockErrorFormatter' => static function ( MediaWikiServices $services ): BlockErrorFormatter {
 		return $services->getFormatterFactory()->getBlockErrorFormatter(
-			new LazyLocalizationContext( RequestContext::getMain( ... ) )
+			new LazyLocalizationContext( static function () {
+				return RequestContext::getMain();
+			} )
 		);
 	},
 
@@ -568,13 +556,9 @@ return [
 	},
 
 	'ChangeTagsStore' => static function ( MediaWikiServices $services ): ChangeTagsStore {
-		return $services->getChangeTagsStoreFactory()->getChangeTagsStore();
-	},
-
-	'ChangeTagsStoreFactory' => static function ( MediaWikiServices $services ): ChangeTagsStoreFactory {
-		return new ChangeTagsStoreFactory(
+		return new ChangeTagsStore(
 			$services->getConnectionProvider(),
-			$services->getNameTableStoreFactory(),
+			$services->getChangeTagDefStore(),
 			$services->getMainWANObjectCache(),
 			$services->getHookContainer(),
 			LoggerFactory::getInstance( 'ChangeTags' ),
@@ -685,30 +669,6 @@ return [
 		return new ConfiguredReadOnlyMode(
 			$config->get( MainConfigNames::ReadOnly ),
 			$config->get( MainConfigNames::ReadOnlyFile )
-		);
-	},
-
-	'ConfirmEmailBuilderFactory' => static function ( MediaWikiServices $services ): ConfirmEmailBuilderFactory {
-		return new ConfirmEmailBuilderFactory(
-			new ServiceOptions(
-				ConfirmEmailBuilderFactory::CONSTRUCTOR_OPTIONS,
-				$services->getMainConfig()
-			),
-			$services->getLocalServerObjectCache(),
-			$services->getUrlUtils()
-		);
-	},
-
-	'ConfirmEmailSender' => static function ( MediaWikiServices $services ): ConfirmEmailSender {
-		return new ConfirmEmailSender(
-			new ServiceOptions(
-				ConfirmEmailSender::CONSTRUCTOR_OPTIONS,
-				$services->getMainConfig()
-			),
-			new HookRunner( $services->getHookContainer() ),
-			$services->getUserFactory(),
-			$services->getEmailer(),
-			$services->getConfirmEmailBuilderFactory()
 		);
 	},
 
@@ -1054,10 +1014,13 @@ return [
 		$extHooks = $extRegistry->getAttribute( 'Hooks' );
 		$extDeprecatedHooks = $extRegistry->getAttribute( 'DeprecatedHooks' );
 
-		return new HookContainer(
-			new StaticHookRegistry( $configHooks, $extHooks, $extDeprecatedHooks ),
+		$hookRegistry = new StaticHookRegistry( $configHooks, $extHooks, $extDeprecatedHooks );
+		$hookContainer = new HookContainer(
+			$hookRegistry,
 			$services->getObjectFactory()
 		);
+
+		return $hookContainer;
 	},
 
 	'HtmlCacheUpdater' => static function ( MediaWikiServices $services ): HTMLCacheUpdater {
@@ -1205,12 +1168,6 @@ return [
 		);
 	},
 
-	'LanguageNameSearch' => static function ( MediaWikiServices $services ): LanguageNameSearch {
-		return new LanguageNameSearch(
-			$services->getLanguageNameUtils()
-		);
-	},
-
 	'LanguageNameUtils' => static function ( MediaWikiServices $services ): LanguageNameUtils {
 		return new LanguageNameUtils(
 			new ServiceOptions(
@@ -1268,11 +1225,7 @@ return [
 			$services->getTitleFormatter(),
 			$services->getLinkCache(),
 			$services->getSpecialPageFactory(),
-			$services->getHookContainer(),
-			$services->getTempUserConfig(),
-			$services->getTempUserDetailsLookup(),
-			$services->getUserIdentityLookup(),
-			$services->getUserNameUtils()
+			$services->getHookContainer()
 		);
 	},
 
@@ -1806,8 +1759,7 @@ return [
 			$services->getTrackingCategories(),
 			$services->getReadOnlyMode(),
 			$services->getParserFactory(), // *legacy* parser factory
-			$services->getLinkBatchFactory(),
-			$services->getLinkRenderer()
+			$services->getLinkBatchFactory()
 		);
 	},
 
@@ -1925,7 +1877,9 @@ return [
 			$services->getUserGroupManager(),
 			$services->getBlockManager(),
 			$services->getFormatterFactory()->getBlockErrorFormatter(
-				new LazyLocalizationContext( RequestContext::getMain( ... ) )
+				new LazyLocalizationContext( static function () {
+					return RequestContext::getMain();
+				} )
 			),
 			$services->getHookContainer(),
 			$services->getUserIdentityLookup(),
@@ -2152,15 +2106,6 @@ return [
 		}
 
 		return $rl;
-	},
-
-	'RestrictedUserGroupChecker' => static function ( MediaWikiServices $services ): RestrictedUserGroupChecker {
-		return new RestrictedUserGroupChecker(
-			new ServiceOptions(
-				RestrictedUserGroupChecker::CONSTRUCTOR_OPTIONS, $services->getMainConfig()
-			),
-			$services->getUserRequirementsConditionChecker(),
-		);
 	},
 
 	'RestrictionStore' => static function ( MediaWikiServices $services ): RestrictionStore {
@@ -2409,7 +2354,7 @@ return [
 				[
 					'name' => 'fallback',
 					'styles' => [ 'mediawiki.skinning.interface', 'mediawiki.codex.messagebox.styles' ],
-					'templateDirectory' => dirname( __DIR__ ) . '/resources/templates/skins/fallback',
+					'templateDirectory' => __DIR__ . '/skins/templates/fallback',
 				]
 			]
 		], true );
@@ -2420,7 +2365,7 @@ return [
 				[
 					'name' => 'apioutput',
 					'styles' => [ 'mediawiki.skinning.interface' ],
-					'templateDirectory' => dirname( __DIR__ ) . '/resources/templates/skins/apioutput',
+					'templateDirectory' => __DIR__ . '/skins/templates/apioutput',
 				]
 			]
 		], true );
@@ -2440,7 +2385,7 @@ return [
 						'sitesubtitle',
 						'sitetitle',
 					],
-					'templateDirectory' => dirname( __DIR__ ) . '/resources/templates/skins/authentication-popup',
+					'templateDirectory' => __DIR__ . '/skins/templates/authentication-popup',
 				]
 			]
 		], true );
@@ -2452,7 +2397,7 @@ return [
 					'name' => 'json',
 					'styles' => [],
 					'format' => 'json',
-					'templateDirectory' => dirname( __DIR__ ) . '/resources/templates/skins/apioutput',
+					'templateDirectory' => __DIR__ . '/skins/templates/apioutput',
 				]
 			]
 		], true );
@@ -2513,14 +2458,14 @@ return [
 
 	'StatsFactory' => static function ( MediaWikiServices $services ): StatsFactory {
 		$config = $services->getMainConfig();
-		$format = OutputFormats::getFormatFromString(
+		$format = \Wikimedia\Stats\OutputFormats::getFormatFromString(
 			$config->get( MainConfigNames::StatsFormat ) ?? 'null'
 		);
 		$cache = new StatsCache;
-		$emitter = OutputFormats::getNewEmitter(
+		$emitter = \Wikimedia\Stats\OutputFormats::getNewEmitter(
 			$config->get( MainConfigNames::StatsPrefix ),
 			$cache,
-			OutputFormats::getNewFormatter( $format ),
+			\Wikimedia\Stats\OutputFormats::getNewFormatter( $format ),
 			$config->get( MainConfigNames::StatsTarget )
 		);
 		return new StatsFactory( $cache, $emitter, LoggerFactory::getInstance( 'Stats' ) );
@@ -2732,7 +2677,6 @@ return [
 			$services->getUserGroupManagerFactory(),
 			$services->getUserNameUtils(),
 			$services->getUserFactory(),
-			$services->getRestrictedUserGroupChecker(),
 			new HookRunner( $services->getHookContainer() ),
 			new ServiceOptions(
 				UserGroupAssignmentService::CONSTRUCTOR_OPTIONS, $services->getMainConfig()
@@ -2782,8 +2726,7 @@ return [
 			$services->getSpecialPageFactory(),
 			$services->getLinkRenderer(),
 			$services->getTempUserDetailsLookup(),
-			$services->getUserIdentityLookup(),
-			$services->getUserNameUtils()
+			$services->getUserIdentityLookup()
 		);
 	},
 
@@ -2863,16 +2806,17 @@ return [
 			// TODO: Did anyone use this log group before? Should it be renamed? Or is there a better name we can use?
 			LoggerFactory::getInstance( 'UserGroupManager' ),
 			$services->getUserEditTracker(),
-			$services->getUserRegistrationLookup(),
-			$services->getUserFactory(),
-			RequestContext::getMain(),
 		);
 	},
 
 	'WatchedItemQueryService' => static function ( MediaWikiServices $services ): WatchedItemQueryService {
 		return new WatchedItemQueryService(
 			$services->getConnectionProvider(),
+			$services->getCommentStore(),
 			$services->getWatchedItemStore(),
+			$services->getHookContainer(),
+			$services->getUserOptionsLookup(),
+			$services->getTempUserConfig(),
 			$services->getMainConfig()->get( MainConfigNames::WatchlistExpiry ),
 			$services->getMainConfig()->get( MainConfigNames::MaxExecutionTimeForExpensiveQueries )
 		);
@@ -2890,7 +2834,7 @@ return [
 			$services->getNamespaceInfo(),
 			$services->getRevisionLookup(),
 			$services->getLinkBatchFactory(),
-			$services->getWatchlistLabelStore()
+			$services->getStatsFactory()
 		);
 
 		if ( $services->getMainConfig()->get( MainConfigNames::ReadOnlyWatchedItemStore ) ) {
@@ -2898,14 +2842,6 @@ return [
 		}
 
 		return $store;
-	},
-
-	'WatchlistLabelStore' => static function ( MediaWikiServices $services ): WatchlistLabelStore {
-		return new WatchlistLabelStore(
-			$services->getConnectionProvider(),
-			LoggerFactory::getInstance( 'WatchlistLabels' ),
-			$services->getMainConfig()
-		);
 	},
 
 	'WatchlistManager' => static function ( MediaWikiServices $services ): WatchlistManager {
@@ -2981,6 +2917,7 @@ return [
 	'_ConditionalDefaultsLookup' => static function (
 		MediaWikiServices $services
 	): ConditionalDefaultsLookup {
+		$extraConditions = [];
 		return new ConditionalDefaultsLookup(
 			new HookRunner( $services->getHookContainer() ),
 			new ServiceOptions(

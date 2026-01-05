@@ -1,10 +1,7 @@
 <?php
 
-namespace MediaWiki\Tests\Xml;
-
 use MediaWiki\MainConfigNames;
 use MediaWiki\Xml\Xml;
-use MediaWikiIntegrationTestCase;
 
 /**
  * See also \MediaWiki\Tests\Unit\XmlTest for the pure unit tests

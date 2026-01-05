@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Content\WikitextContent;
 use MediaWiki\Context\RequestContext;
@@ -7,7 +6,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Specials\SpecialMyLanguage;
 use MediaWiki\Specials\SpecialPageLanguage;
 use MediaWiki\Title\Title;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @group Database

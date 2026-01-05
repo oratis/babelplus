@@ -17,13 +17,13 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\User\TempUser\TempUserConfig;
 use MediaWiki\WikiMap\WikiMap;
+use UserGroupExpiryJob;
 use Wikimedia\Assert\Assert;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\ReadOnlyMode;
 use Wikimedia\Rdbms\SelectQueryBuilder;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Manage user group memberships.
@@ -174,7 +174,7 @@ class UserGroupManager {
 			(int)$row->ug_user,
 			$row->ug_group,
 			$row->ug_expiry === null ? null : wfTimestamp(
-				TS::MW,
+				TS_MW,
 				$row->ug_expiry
 			)
 		);
@@ -663,7 +663,7 @@ class UserGroupManager {
 		}
 
 		if ( $expiry ) {
-			$expiry = wfTimestamp( TS::MW, $expiry );
+			$expiry = wfTimestamp( TS_MW, $expiry );
 		}
 
 		// TODO: Deprecate passing out user object in the hook by introducing
@@ -1004,7 +1004,8 @@ class UserGroupManager {
 			'add-self' => [],
 			'remove-self' => []
 		], ...$changeableGroups );
-		return array_map( array_values( ... ), array_map( array_unique( ... ), $groups ) );
+		// @phan-suppress-next-line PhanTypeMismatchReturn
+		return array_map( 'array_unique', $groups );
 	}
 
 	/**

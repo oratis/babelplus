@@ -319,7 +319,8 @@ class TrackBlobs extends Maintenance {
 
 		$dbw = $this->getPrimaryDB();
 		$lbFactory = $this->getServiceContainer()->getDBLoadBalancerFactory();
-		$dbStore = $this->getServiceContainer()->getExternalStoreFactory()->getDatabaseStore();
+		$dbStore = $this->getServiceContainer()->getExternalStoreFactory()->getStore( 'DB' );
+		'@phan-var ExternalStoreDB $dbStore'; /** @var ExternalStoreDB $dbStore */
 
 		foreach ( $this->clusters as $cluster ) {
 			echo "Searching for orphan blobs in $cluster...\n";

@@ -53,11 +53,6 @@ class SitemapFileHandler extends SitemapHandlerBase {
 				ParamValidator::PARAM_TYPE => 'integer',
 				ParamValidator::PARAM_REQUIRED => true,
 			],
-			'include_namespace' => [
-				self::PARAM_SOURCE => 'query',
-				ParamValidator::PARAM_ISMULTI => true,
-				ParamValidator::PARAM_TYPE => 'namespace',
-			],
 		];
 	}
 
@@ -81,12 +76,10 @@ class SitemapFileHandler extends SitemapHandlerBase {
 			$params = $this->getValidatedParams();
 			$startId = $this->getOffset( $params['indexId'], $params['fileId'] );
 			$endId = $startId + $this->sitemapSize;
-			$namespaces = $params['include_namespace'];
-			$namespacesStr = $namespaces ? implode( ',', $namespaces ) : '';
 			$this->data = $this->wanCache->getWithSetCallback(
-				$this->wanCache->makeKey( 'sitemap', $startId, $endId, $namespacesStr ),
+				$this->wanCache->makeKey( 'sitemap', $startId, $endId ),
 				$this->expiry,
-				function () use ( $startId, $endId, $namespaces ) {
+				function () use ( $startId, $endId ) {
 					$generator = new SitemapGenerator(
 						$this->contLang,
 						$this->languageConverterFactory,
@@ -94,7 +87,6 @@ class SitemapFileHandler extends SitemapHandlerBase {
 					);
 					$xml = $generator
 						->namespacesFromConfig( $this->config )
-						->additionalNamespaces( $namespaces )
 						->idRange( $startId, $endId )
 						->getXml( $this->connectionProvider->getReplicaDatabase() );
 					return [

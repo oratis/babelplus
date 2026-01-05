@@ -4,8 +4,6 @@
  * @file
  */
 
-namespace MediaWiki\User\Options;
-
 use MediaWiki\JobQueue\GenericParameterJob;
 use MediaWiki\JobQueue\Job;
 use MediaWiki\MediaWikiServices;
@@ -31,8 +29,7 @@ class UserOptionsUpdateJob extends Job implements GenericParameterJob {
 	/** @inheritDoc */
 	public function run() {
 		if ( !$this->params['options'] ) {
-			// nothing to do
-			return true;
+			return true; // nothing to do
 		}
 
 		$user = User::newFromId( $this->params['userId'] );
@@ -41,7 +38,8 @@ class UserOptionsUpdateJob extends Job implements GenericParameterJob {
 			return true;
 		}
 
-		$userOptionsManager = MediaWikiServices::getInstance()->getUserOptionsManager();
+		$userOptionsManager = MediaWikiServices::getInstance()
+			->getUserOptionsManager();
 		foreach ( $this->params['options'] as $name => $value ) {
 			$userOptionsManager->setOption( $user, $name, $value );
 		}
@@ -51,5 +49,3 @@ class UserOptionsUpdateJob extends Job implements GenericParameterJob {
 		return true;
 	}
 }
-
-class_alias( UserOptionsUpdateJob::class, 'UserOptionsUpdateJob' );

@@ -17,8 +17,6 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Specials\SpecialUpload;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\NamespaceInfo;
-use MediaWiki\Upload\UploadBase;
-use MediaWiki\Upload\UploadFromUrl;
 use Wikimedia\RequestTimeout\TimeoutException;
 
 /**
@@ -52,6 +50,7 @@ class UploadForm extends HTMLForm {
 	protected $mMaxUploadSize = [];
 
 	private LocalRepo $localRepo;
+	private Language $contentLanguage;
 	private NamespaceInfo $nsInfo;
 	private HookRunner $hookRunner;
 
@@ -60,7 +59,7 @@ class UploadForm extends HTMLForm {
 		?IContextSource $context = null,
 		?LinkRenderer $linkRenderer = null,
 		?LocalRepo $localRepo = null,
-		?Language $unused = null,
+		?Language $contentLanguage = null,
 		?NamespaceInfo $nsInfo = null,
 		?HookContainer $hookContainer = null
 	) {
@@ -75,10 +74,14 @@ class UploadForm extends HTMLForm {
 		if ( !$localRepo ) {
 			$localRepo = $services->getRepoGroup()->getLocalRepo();
 		}
+		if ( !$contentLanguage ) {
+			$contentLanguage = $services->getContentLanguage();
+		}
 		if ( !$nsInfo ) {
 			$nsInfo = $services->getNamespaceInfo();
 		}
 		$this->localRepo = $localRepo;
+		$this->contentLanguage = $contentLanguage;
 		$this->nsInfo = $nsInfo;
 		$this->hookRunner = new HookRunner( $hookContainer ?? $services->getHookContainer() );
 
@@ -296,7 +299,8 @@ class UploadForm extends HTMLForm {
 							'figure',
 							[
 								'typeof' => 'mw:File',
-								'class' => 'mw-upload-halign-end',
+								// Uses: mw-halign-right or mw-halign-left
+								'class' => 'mw-halign-' . $this->contentLanguage->alignEnd(),
 							],
 							$mto->toHtml()
 						),

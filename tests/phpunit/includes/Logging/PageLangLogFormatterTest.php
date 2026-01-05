@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Logging;
 
 use MediaWiki\Logging\PageLangLogFormatter;
 use MediaWiki\MainConfigNames;

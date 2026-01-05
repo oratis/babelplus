@@ -28,7 +28,6 @@ use Wikimedia\Message\MessageSpecifier;
 use Wikimedia\ParamValidator\TypeDef\ExpiryDef;
 use Wikimedia\RequestTimeout\RequestTimeout;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Load an extension
@@ -984,10 +983,12 @@ function wfGetCaller( $level = 2 ) {
  * @return string
  */
 function wfGetAllCallers( $limit = 3 ) {
-	$limit = $limit ? $limit + 1 : 0;
-	// Strip the own "wfGetAllCallers" from the list
-	$trace = array_reverse( array_slice( wfDebugBacktrace( $limit ), 1 ) );
-	return implode( '/', array_map( wfFormatStackFrame( ... ), $trace ) );
+	$trace = array_reverse( wfDebugBacktrace() );
+	if ( !$limit || $limit > count( $trace ) - 1 ) {
+		$limit = count( $trace ) - 1;
+	}
+	$trace = array_slice( $trace, -$limit - 1, $limit );
+	return implode( '/', array_map( 'wfFormatStackFrame', $trace ) );
 }
 
 /**
@@ -1287,19 +1288,16 @@ function wfResetOutputBuffers( $resetGzipEncoding = true ) {
 /**
  * Get a timestamp string in one of various formats
  *
- * @param int|TS $outputtype Output format, one of the TS::* constants. Defaults to
+ * @param mixed $outputtype Output format, one of the TS_* constants. Defaults to
  *   Unix timestamp.
  * @param mixed $ts A timestamp in any supported format. The
  *   function will autodetect which format is supplied and act accordingly. Use 0 or
  *   omit to use current time
  * @return string|false The date in the specified format, or false on error.
  */
-function wfTimestamp( $outputtype = TS::UNIX, $ts = 0 ) {
+function wfTimestamp( $outputtype = TS_UNIX, $ts = 0 ) {
 	$ret = ConvertibleTimestamp::convert( $outputtype, $ts );
 	if ( $ret === false ) {
-		if ( $outputtype instanceof TS ) {
-			$outputtype = $outputtype->name;
-		}
 		wfDebug( "wfTimestamp() fed bogus time value: TYPE=$outputtype; VALUE=$ts" );
 	}
 	return $ret;
@@ -1313,7 +1311,7 @@ function wfTimestamp( $outputtype = TS::UNIX, $ts = 0 ) {
  * @param mixed|null $ts
  * @return string|false|null Null if called with null, otherwise the result of wfTimestamp()
  */
-function wfTimestampOrNull( $outputtype = TS::UNIX, $ts = null ) {
+function wfTimestampOrNull( $outputtype = TS_UNIX, $ts = null ) {
 	if ( $ts === null ) {
 		return null;
 	} else {
@@ -1324,10 +1322,10 @@ function wfTimestampOrNull( $outputtype = TS::UNIX, $ts = null ) {
 /**
  * Convenience function; returns MediaWiki timestamp for the present time.
  *
- * @return string TS::MW timestamp
+ * @return string TS_MW timestamp
  */
 function wfTimestampNow() {
-	return ConvertibleTimestamp::now( TS::MW );
+	return ConvertibleTimestamp::now( TS_MW );
 }
 
 /**

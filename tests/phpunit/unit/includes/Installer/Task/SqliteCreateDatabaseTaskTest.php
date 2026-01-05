@@ -1,9 +1,7 @@
 <?php
-namespace MediaWiki\Tests\Unit\Installer\Task;
 
 use MediaWiki\Installer\Task\SqliteCreateDatabaseTask;
 use MediaWiki\Status\Status;
-use MediaWikiUnitTestCase;
 use Wikimedia\TestingAccessWrapper;
 
 class SqliteCreateDatabaseTaskTest extends MediaWikiUnitTestCase {

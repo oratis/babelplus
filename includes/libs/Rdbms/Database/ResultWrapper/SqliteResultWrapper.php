@@ -2,13 +2,14 @@
 
 namespace Wikimedia\Rdbms;
 
+use ArrayIterator;
 use PDO;
 use PDOStatement;
 
 class SqliteResultWrapper extends ResultWrapper {
 	/** @var PDOStatement|null */
 	private $result;
-	/** @var array|null */
+	/** @var ArrayIterator|null */
 	private $rows;
 
 	/**

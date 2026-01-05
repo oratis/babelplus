@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Logging;
 
 use MediaWiki\Cache\GenderCache;
 use MediaWiki\Cache\LinkCache;
@@ -7,14 +6,12 @@ use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\Linker\LinkTarget;
-use MediaWiki\Linker\UserLinkRenderer;
 use MediaWiki\Logging\LogEntryBase;
 use MediaWiki\Logging\LogPage;
 use MediaWiki\Page\ExistingPageRecord;
 use MediaWiki\Page\PageStore;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\User\UserFactory;
-use MediaWikiLangTestCase;
 use Wikimedia\IPUtils;
 use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Stats\StatsFactory;
@@ -47,10 +44,6 @@ abstract class LogFormatterTestCase extends MediaWikiLangTestCase {
 			$this->createMock( LinkCache::class ),
 			$services->getSpecialPageFactory(),
 			$services->getHookContainer(),
-			$services->getTempUserConfig(),
-			$services->getTempUserDetailsLookup(),
-			$services->getUserIdentityLookup(),
-			$services->getUserNameUtils(),
 			new ServiceOptions(
 				LinkRenderer::CONSTRUCTOR_OPTIONS,
 				$services->getMainConfig(),
@@ -64,24 +57,6 @@ abstract class LogFormatterTestCase extends MediaWikiLangTestCase {
 			->willReturnCallback(
 				static function ( $target, $text = null, $extra = [], $query = [] ) use ( $realLinkRenderer ) {
 					return $realLinkRenderer->makeKnownLink( $target, $text, $extra, $query );
-				}
-			);
-		// Proxy 'makeUserLink' as well
-		$userLinkRenderer = new UserLinkRenderer(
-			$services->getHookContainer(),
-			$services->getTempUserConfig(),
-			$services->getSpecialPageFactory(),
-			$linkRenderer,
-			$services->getTempUserDetailsLookup(),
-			$services->getUserIdentityLookup(),
-			$services->getUserNameUtils()
-		);
-		$linkRenderer->method( 'makeUserLink' )
-			->willReturnCallback(
-				static function ( $targetUser, $context, $altUserName = null, $attributes = [] ) use ( $userLinkRenderer ) {
-					return $userLinkRenderer->userLink(
-						$targetUser, $context, $altUserName, $attributes
-					);
 				}
 			);
 		$formatter->setLinkRenderer( $linkRenderer );
@@ -202,6 +177,3 @@ abstract class LogFormatterTestCase extends MediaWikiLangTestCase {
 		return $val;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( LogFormatterTestCase::class, 'LogFormatterTestCase' );

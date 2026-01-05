@@ -2,8 +2,8 @@
 
 namespace MediaWiki\Tests\Search;
 
-use MediaWiki\Search\SearchEngine;
-use MediaWiki\Search\SearchEngineFactory;
+use SearchEngine;
+use SearchEngineFactory;
 
 /**
  * Trait for asserting that the search component is getting notified

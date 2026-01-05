@@ -4,8 +4,6 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 use MediaWiki\Language\Language;
 
 /**
@@ -40,6 +38,3 @@ class IdentityCollation extends Collation {
 		return $this->contentLanguage->firstChar( $string );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( IdentityCollation::class, 'IdentityCollation' );

@@ -639,7 +639,7 @@ interface IDatabase extends IReadableDatabase {
 	 * (if $cancelable is ATOMIC_CANCELABLE), and track the given section name to enforce
 	 * that the transaction is not committed prematurely. The end of the section must be
 	 * signified exactly once, either by endAtomic() or cancelAtomic(). Sections can have
-	 * layers of inner sections (sub-sections), but all sections must be ended in order
+	 * have layers of inner sections (sub-sections), but all sections must be ended in order
 	 * of innermost to outermost. Transactions cannot be started or committed until all
 	 * atomic sections are closed.
 	 *
@@ -935,9 +935,6 @@ interface IDatabase extends IReadableDatabase {
 	 * @return bool
 	 * @throws DBError If an error occurs, {@see query}
 	 * @since 1.20
-	 * @deprecated since 1.46 For non-blocking locks, use IDatabase::lock with timeout 0 instead.
-	 *  For unit testing, use Database::sessionLocksPending or prove that code works
-	 *  under race conditions by asserting the outcome rather than reflecting internals.
 	 */
 	public function lockIsFree( $lockName, $method );
 
@@ -984,11 +981,11 @@ interface IDatabase extends IReadableDatabase {
 	 * @param string $lockKey Name of lock to release
 	 * @param string $fname Name of the calling method
 	 * @param int $timeout Acquisition timeout in seconds
+	 * @return ScopedCallback|null
 	 * @throws DBError If an error occurs, {@see query}
 	 * @since 1.27
 	 */
-	#[\NoDiscard]
-	public function getScopedLockAndFlush( $lockKey, $fname, $timeout ): ?ScopedCallback;
+	public function getScopedLockAndFlush( $lockKey, $fname, $timeout );
 
 	/**
 	 * Check if this DB server is marked as read-only according to load balancer info

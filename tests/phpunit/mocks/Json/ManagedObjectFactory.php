@@ -1,5 +1,5 @@
 <?php
-namespace MediaWiki\Tests\Mocks\Json;
+namespace MediaWiki\Tests\Json;
 
 use Wikimedia\JsonCodec\JsonClassCodec;
 

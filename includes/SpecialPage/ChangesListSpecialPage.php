@@ -37,7 +37,6 @@ use Wikimedia\Rdbms\DBQueryTimeoutError;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\IResultWrapper;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Special page which uses a ChangesList to show query results.
@@ -117,7 +116,7 @@ abstract class ChangesListSpecialPage extends SpecialPage {
 						// wlshowhideliu
 						'showHideSuffix' => 'showhideliu',
 						'default' => false,
-						'action' => [ 'exclude', 'named' ],
+						'action' => [ 'require', 'named' ],
 						'isReplacedInStructuredUi' => true,
 					],
 					[
@@ -126,7 +125,7 @@ abstract class ChangesListSpecialPage extends SpecialPage {
 						// wlshowhideanons
 						'showHideSuffix' => 'showhideanons',
 						'default' => false,
-						'action' => [ 'require', 'named' ],
+						'action' => [ 'exclude', 'named' ],
 						'isReplacedInStructuredUi' => true,
 					]
 				],
@@ -1238,7 +1237,7 @@ abstract class ChangesListSpecialPage extends SpecialPage {
 			$namespaces = $this->expandSymbolicNamespaceFilters( $namespaces );
 
 			$namespaceInfo = MediaWikiServices::getInstance()->getNamespaceInfo();
-			$namespaces = array_filter( $namespaces, $namespaceInfo->exists( ... ) );
+			$namespaces = array_filter( $namespaces, [ $namespaceInfo, 'exists' ] );
 
 			if ( $namespaces !== [] ) {
 				// Namespaces are just ints, use them as int when acting with the database
@@ -1246,8 +1245,8 @@ abstract class ChangesListSpecialPage extends SpecialPage {
 
 				if ( $opts[ 'associated' ] ) {
 					$associatedNamespaces = array_map(
-						$namespaceInfo->getAssociated( ... ),
-						array_filter( $namespaces, $namespaceInfo->hasTalkNamespace( ... ) )
+						[ $namespaceInfo, 'getAssociated' ],
+						array_filter( $namespaces, [ $namespaceInfo, 'hasTalkNamespace' ] )
 					);
 					$namespaces = array_unique( array_merge( $namespaces, $associatedNamespaces ) );
 				}
@@ -1293,7 +1292,7 @@ abstract class ChangesListSpecialPage extends SpecialPage {
 		$cutoff = $dbr->timestamp( $cutoff_unixtime );
 
 		$fromValid = preg_match( '/^[0-9]{14}$/', $opts['from'] );
-		if ( $fromValid && $opts['from'] > wfTimestamp( TS::MW, $cutoff ) ) {
+		if ( $fromValid && $opts['from'] > wfTimestamp( TS_MW, $cutoff ) ) {
 			$cutoff = $dbr->timestamp( $opts['from'] );
 		} else {
 			$opts->reset( 'from' );
@@ -1493,7 +1492,7 @@ abstract class ChangesListSpecialPage extends SpecialPage {
 			$legend .= Html::rawElement(
 				'dt',
 				[ 'class' => 'mw-changeslist-legend-watchlistexpiry' ],
-				$widget->toString()
+				$widget
 			);
 			$legend .= Html::element(
 				'dd',

@@ -529,7 +529,6 @@ $specialPageAliases = [
 	'RemoveCredentials'          => [ 'RemoveCredentials' ],
 	'Renameuser'                 => [ 'RenameUser' ],
 	'ResetTokens'                => [ 'ResetTokens' ],
-	'RestSandbox'                => [ 'RestSandbox' ],
 	'Revisiondelete'             => [ 'RevisionDelete' ],
 	'RunJobs'                    => [ 'RunJobs' ],
 	'Search'                     => [ 'Search' ],
@@ -562,7 +561,6 @@ $specialPageAliases = [
 	'Wantedpages'                => [ 'WantedPages', 'BrokenLinks' ],
 	'Wantedtemplates'            => [ 'WantedTemplates' ],
 	'Watchlist'                  => [ 'Watchlist' ],
-	'WatchlistLabels'            => [ 'WatchlistLabels' ],
 	'Whatlinkshere'              => [ 'WhatLinksHere' ],
 	'Withoutinterwiki'           => [ 'WithoutInterwiki' ],
 ];

@@ -32,7 +32,6 @@ use Psr\Log\LogLevel;
 use Wikimedia\IPUtils;
 use Wikimedia\ObjectCache\BagOStuff;
 use Wikimedia\ObjectFactory\ObjectFactory;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This serves as the entry point to the MediaWiki session handling system.
@@ -582,7 +581,7 @@ class SessionManager implements SessionManagerInterface {
 		// Sort the SessionInfos. Then find the first one that can be
 		// successfully loaded, and then all the ones after it with the same
 		// priority.
-		usort( $infos, SessionInfo::compare( ... ) );
+		usort( $infos, [ SessionInfo::class, 'compare' ] );
 		$retInfos = [];
 		while ( $infos ) {
 			$info = array_pop( $infos );
@@ -1095,7 +1094,7 @@ class SessionManager implements SessionManagerInterface {
 			return;
 		}
 		$mwuser = $session->getRequest()->getCookie( 'mwuser-sessionId' );
-		$now = (int)\MediaWiki\Utils\MWTimestamp::now( TS::UNIX );
+		$now = (int)\MediaWiki\Utils\MWTimestamp::now( TS_UNIX );
 
 		// Record (and possibly log) that the IP is using the current session.
 		// Don't touch the stored data unless we are changing the IP or re-adding an expired one.

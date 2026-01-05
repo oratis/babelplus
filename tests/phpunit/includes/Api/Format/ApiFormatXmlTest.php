@@ -25,20 +25,6 @@ class ApiFormatXmlTest extends ApiFormatTestBase {
 			NS_MAIN,
 			$performer
 		);
-		$this->editPage(
-			Title::makeTitle( NS_MEDIAWIKI, 'ApiFormatXmlTest' ),
-			'Bogus',
-			'Summary',
-			NS_MAIN,
-			$performer
-		);
-		$this->editPage(
-			Title::makeTitle( NS_MAIN, 'ApiFormatXmlTest' ),
-			'Bogus',
-			'Summary',
-			NS_MAIN,
-			$performer
-		);
 	}
 
 	public static function provideGeneralEncoding() {
@@ -120,6 +106,10 @@ class ApiFormatXmlTest extends ApiFormatTestBase {
 			// includenamespace param
 			[ [ 'x' => 'foo' ], '<?xml version="1.0"?><api x="foo" xmlns="http://www.mediawiki.org/xml/api/" />',
 				[ 'includexmlnamespace' => 1 ] ],
+
+			// xslt param (deprecated and disabled by default due to T401995)
+			[ [], '<?xml version="1.0"?><api><warnings><xml xml:space="preserve">The xslt option is disabled on this wiki.</xml></warnings></api>',
+				[ 'xslt' => 'MediaWiki:ApiFormatXmlTest.xml' ] ],
 		];
 	}
 

@@ -61,21 +61,6 @@ class SelectWithInputWidget extends Widget {
 		$this
 			->addClasses( [ 'mw-widget-selectWithInputWidget' ] )
 			->appendContent( $this->dropdowninput, $this->textinput );
-
-		if ( $config['or'] && $this->dropdowninput->getValue() !== 'other' ) {
-			$this->addClasses( [ 'mw-widget-selectWithInputWidget-hideTextInput' ] );
-		}
-	}
-
-	/** @inheritDoc */
-	public function setLabelledBy( $id ) {
-		if ( $id ) {
-			$this->dropdowninput->setLabelledBy( $id );
-			$this->textinput->setLabelledBy( $id );
-		} else {
-			$this->dropdowninput->removeAttributes( [ 'aria-labelledby' ] );
-			$this->textinput->removeAttributes( [ 'aria-labelledby' ] );
-		}
 	}
 
 	/** @inheritDoc */

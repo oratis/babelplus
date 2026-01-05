@@ -2,7 +2,6 @@
  * JavaScript for diff views
  */
 const inlineFormatToggle = require( './inlineFormatToggle.js' );
-const undoButtonToggle = require( './undoButtonToggle.js' );
 
 ( function () {
 	$( () => {
@@ -131,9 +130,5 @@ const undoButtonToggle = require( './undoButtonToggle.js' );
 		mw.loader.using( 'oojs-ui' ).then( () => {
 			inlineFormatToggle( $inlineToggleSwitchLayout );
 		} );
-	}
-	const $undoButton = $( '.mw-diff-undo' );
-	if ( $undoButton.length ) {
-		undoButtonToggle( $undoButton );
 	}
 }() );

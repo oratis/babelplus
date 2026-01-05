@@ -3,11 +3,7 @@
  * @license GPL-2.0-or-later
  * @file
  */
-namespace Wikimedia\LockManager;
 
-use Exception;
-use RedisException;
-use StatusValue;
 use Wikimedia\ObjectCache\RedisConnectionPool;
 
 /**
@@ -251,7 +247,7 @@ LUA;
 	 */
 	protected function recordKeyForPath( $path, $type ) {
 		return implode( ':',
-			[ __CLASS__, 'locks', $type, $this->sha1Base36Absolute( $path ) ] );
+			[ __CLASS__, 'locks', "$type:" . $this->sha1Base36Absolute( $path ) ] );
 	}
 
 	/**
@@ -269,5 +265,3 @@ LUA;
 		}
 	}
 }
-/** @deprecated class alias since 1.46 */
-class_alias( RedisLockManager::class, 'RedisLockManager' );

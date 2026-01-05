@@ -40,7 +40,6 @@ use Wikimedia\Rdbms\IResultWrapper;
 use Wikimedia\Rdbms\LikeValue;
 use Wikimedia\RequestTimeout\TimeoutException;
 use Wikimedia\ScopedCallback;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Cache messages that are defined by MediaWiki-namespace pages or by hooks.
@@ -615,7 +614,7 @@ class MessageCache implements LoggerAwareInterface {
 		// messages larger than $wgMaxMsgCacheEntrySize, since those are only
 		// stored and fetched from memcache.
 		$cache['HASH'] = md5( serialize( $cache ) );
-		$cache['EXPIRY'] = wfTimestamp( TS::MW, time() + self::WAN_TTL );
+		$cache['EXPIRY'] = wfTimestamp( TS_MW, time() + self::WAN_TTL );
 		unset( $cache['EXCESSIVE'] ); // only needed for hash
 
 		return $cache;
@@ -1569,7 +1568,7 @@ class MessageCache implements LoggerAwareInterface {
 		$cache = array_diff( $cache, [ '!NONEXISTENT' ] );
 
 		// Keys may appear with a capital first letter. lcfirst them.
-		return array_map( $this->contLang->lcfirst( ... ), array_keys( $cache ) );
+		return array_map( [ $this->contLang, 'lcfirst' ], array_keys( $cache ) );
 	}
 
 	/**

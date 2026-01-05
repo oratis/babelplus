@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Mocks\Json;
+namespace MediaWiki\Tests\Json;
 
 use MediaWiki\Json\JsonDeserializableTrait;
 use MediaWiki\Json\JsonDeserializer;
@@ -40,11 +40,7 @@ class JsonDeserializableSubClass extends JsonDeserializableSuperClass {
 		];
 	}
 }
-// This class_alias exists for backward compatibility with pre-1.46
-// serialization test data
-// @deprecated since 1.46
-class_alias( JsonDeserializableSubClass::class, 'MediaWiki\\Tests\\Json\\JsonDeserializableSubClass' );
 
 // This class_alias exists for testing alias support in JsonCodec and
 // should not be removed.
-class_alias( JsonDeserializableSubClass::class, 'MediaWiki\\Tests\\Mocks\\Json\\JsonDeserializableSubClassAlias' );
+class_alias( JsonDeserializableSubClass::class, 'MediaWiki\\Tests\\Json\\JsonDeserializableSubClassAlias' );

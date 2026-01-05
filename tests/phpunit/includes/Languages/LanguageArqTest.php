@@ -4,9 +4,6 @@
  * @copyright Copyright © 2014, Joel Sahleen
  * @file
  */
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
 
 /**
  * @group Language

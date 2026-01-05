@@ -10,11 +10,9 @@ namespace MediaWiki\Api;
 
 use MediaWiki\HTMLForm\HTMLForm;
 use MediaWiki\Logger\LoggerFactory;
-use MediaWiki\MainConfigNames;
 use MediaWiki\Message\Message;
 use MediaWiki\Preferences\DefaultPreferencesFactory;
 use MediaWiki\Preferences\PreferencesFactory;
-use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\Options\UserOptionsManager;
 use MediaWiki\User\User;
 use Wikimedia\ParamValidator\ParamValidator;
@@ -40,7 +38,6 @@ abstract class ApiOptionsBase extends ApiBase {
 
 	/** @var string[]|null */
 	private $prefsKinds;
-	private int $userJsLimit;
 
 	public function __construct(
 		ApiMain $main,
@@ -51,15 +48,14 @@ abstract class ApiOptionsBase extends ApiBase {
 		parent::__construct( $main, $action );
 		$this->userOptionsManager = $userOptionsManager;
 		$this->preferencesFactory = $preferencesFactory;
-		$this->userJsLimit = $this->getConfig()->get( MainConfigNames::UserJsPrefLimit );
 	}
 
 	/**
 	 * Changes preferences of the current user.
 	 */
 	public function execute() {
-		$user = $this->getUser();
-		if ( !$user->isNamed() ) {
+		$user = $this->getUserFromPrimaryOrNull();
+		if ( !$user || !$user->isNamed() ) {
 			$this->dieWithError(
 				[ 'apierror-mustbeloggedin', $this->msg( 'action-editmyoptions' ) ], 'notloggedin'
 			);
@@ -190,7 +186,7 @@ abstract class ApiOptionsBase extends ApiBase {
 					$field = $this->getHtmlForm()->getField( $key );
 					$validation = $field->validate(
 						$value,
-						$this->userOptionsManager->getOptions( $this->getUser() )
+						$this->userOptionsManager->getOptions( $this->getUserFromPrimary() )
 					);
 				}
 				break;
@@ -207,11 +203,6 @@ abstract class ApiOptionsBase extends ApiBase {
 					$validation = $this->msg( 'apiwarn-validationfailed-keytoolong', Message::numParam( 255 ) );
 				} elseif ( preg_match( '/[^a-zA-Z0-9_-]/', $key ) !== 0 ) {
 					$validation = $this->msg( 'apiwarn-validationfailed-badchars' );
-				} elseif ( $this->countUserJsOptions() >= $this->userJsLimit ) {
-					$validation = $this->msg(
-						'apiwarn-validationfailed-toomanyuserjs',
-						Message::numParam( $this->userJsLimit )
-					);
 				} else {
 					$validation = true;
 				}
@@ -224,7 +215,7 @@ abstract class ApiOptionsBase extends ApiBase {
 						'OptionValue' => substr( $value ?? '', 0, 255 ),
 						'OptionSize' => strlen( $value ?? '' ),
 						'OptionValidation' => $validation,
-						'UserId' => $this->getUser()->getId(),
+						'UserId' => $this->getUserFromPrimary()->getId(),
 						'RequestIP' => $this->getRequest()->getIP(),
 						'RequestUA' => $this->getRequest()->getHeader( 'User-Agent' )
 					]
@@ -247,20 +238,6 @@ abstract class ApiOptionsBase extends ApiBase {
 			);
 		}
 		return $validation;
-	}
-
-	private function countUserJsOptions(): int {
-		$options = $this->userOptionsManager->getOptions(
-			$this->getUser(),
-			UserOptionsLookup::EXCLUDE_DEFAULTS
-		);
-		$userJsCount = 0;
-		foreach ( $options as $prefName => $value ) {
-			if ( str_starts_with( $prefName, 'userjs-' ) ) {
-				$userJsCount += 1;
-			}
-		}
-		return $userJsCount;
 	}
 
 	/**
@@ -290,7 +267,7 @@ abstract class ApiOptionsBase extends ApiBase {
 	protected function getPreferences() {
 		if ( !$this->preferences ) {
 			$this->preferences = $this->preferencesFactory->getFormDescriptor(
-				$this->getUser(),
+				$this->getUserFromPrimary(),
 				$this->getContext()
 			);
 		}

@@ -11,7 +11,6 @@ use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWiki\Utils\MWTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\Api\ApiQueryImageInfo
@@ -171,7 +170,7 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 			'iiend' => self::NEW_IMAGE_TIMESTAMP,
 		] );
 		$image = $this->getImageInfoFromResult( $result );
-		$this->assertSame( MWTimestamp::convert( TS::ISO_8601, self::NEW_IMAGE_TIMESTAMP ), $image['timestamp'] );
+		$this->assertSame( MWTimestamp::convert( TS_ISO_8601, self::NEW_IMAGE_TIMESTAMP ), $image['timestamp'] );
 		$this->assertSame( "'''comment'''", $image['comment'] );
 		$this->assertSame( $this->testUser->getName(), $image['user'] );
 		$this->assertSame( $this->testUser->getId(), $image['userid'] );
@@ -199,7 +198,7 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 			'iiend' => self::NO_COMMENT_TIMESTAMP,
 		] );
 		$image = $this->getImageInfoFromResult( $result );
-		$this->assertSame( MWTimestamp::convert( TS::ISO_8601, self::NO_COMMENT_TIMESTAMP ), $image['timestamp'] );
+		$this->assertSame( MWTimestamp::convert( TS_ISO_8601, self::NO_COMMENT_TIMESTAMP ), $image['timestamp'] );
 		$this->assertSame( '', $image['comment'] );
 		$this->assertArrayNotHasKey( 'commenthidden', $image );
 	}
@@ -218,7 +217,7 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 			$this->getTestUser()->getAuthority()
 		);
 		$image = $this->getImageInfoFromResult( $result );
-		$this->assertSame( MWTimestamp::convert( TS::ISO_8601, self::OLD_IMAGE_TIMESTAMP ), $image['timestamp'] );
+		$this->assertSame( MWTimestamp::convert( TS_ISO_8601, self::OLD_IMAGE_TIMESTAMP ), $image['timestamp'] );
 		$this->assertTrue( $image['commenthidden'] );
 		$this->assertArrayNotHasKey( "comment", $image );
 		$this->assertTrue( $image['userhidden'] );
@@ -242,7 +241,7 @@ class ApiQueryImageInfoTest extends ApiTestCase {
 			$this->mockRegisteredUltimateAuthority()
 		);
 		$image = $this->getImageInfoFromResult( $result );
-		$this->assertSame( MWTimestamp::convert( TS::ISO_8601, self::OLD_IMAGE_TIMESTAMP ), $image['timestamp'] );
+		$this->assertSame( MWTimestamp::convert( TS_ISO_8601, self::OLD_IMAGE_TIMESTAMP ), $image['timestamp'] );
 		$this->assertTrue( $image['commenthidden'] );
 		$this->assertSame( 'deleted comment', $image['comment'] );
 		$this->assertTrue( $image['userhidden'] );

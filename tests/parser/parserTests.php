@@ -109,11 +109,19 @@ class ParserTestsMaintenance extends Maintenance {
 		$version = SpecialVersion::getVersion( 'nodb' );
 		echo "This is MediaWiki version {$version}.\n\n";
 
+		// Only colorize output if stdout is a terminal.
+		$color = !wfIsWindows() && Maintenance::posix_isatty( 1 );
+
 		if ( $this->hasOption( 'color' ) ) {
-			$color = $this->getOption( 'color' ) !== 'no';
-		} else {
-			// Only colorize output if stdout is a terminal.
-			$color = !wfIsWindows() && Maintenance::posix_isatty( 1 );
+			switch ( $this->getOption( 'color' ) ) {
+				case 'no':
+					$color = false;
+					break;
+				case 'yes':
+				default:
+					$color = true;
+					break;
+			}
 		}
 
 		$record = $this->hasOption( 'record' );

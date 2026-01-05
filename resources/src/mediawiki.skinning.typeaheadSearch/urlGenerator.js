@@ -21,10 +21,9 @@
  * Generates URLs for suggestions like those in MediaWiki's mediawiki.searchSuggest implementation.
  *
  * @param {string} articlePath
- * @param {string} searchPageTitle
  * @return {UrlGenerator}
  */
-function urlGenerator( articlePath, searchPageTitle = 'Special:Search' ) {
+function urlGenerator( articlePath ) {
 	return {
 		/**
 		 * @param {RestResult|SearchResult|string} suggestion
@@ -34,7 +33,7 @@ function urlGenerator( articlePath, searchPageTitle = 'Special:Search' ) {
 		generateUrl(
 			suggestion,
 			params = {
-				title: searchPageTitle
+				title: 'Special:Search'
 			}
 		) {
 			if ( typeof suggestion !== 'string' ) {

@@ -2,10 +2,8 @@
 
 namespace MediaWiki\User\Registration;
 
-use InvalidArgumentException;
 use MediaWiki\User\UserIdentity;
 use Wikimedia\Rdbms\IConnectionProvider;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 class LocalUserRegistrationProvider implements IUserRegistrationProvider {
 
@@ -20,13 +18,13 @@ class LocalUserRegistrationProvider implements IUserRegistrationProvider {
 	 * @inheritDoc
 	 */
 	public function fetchRegistration( UserIdentity $user ) {
-		$id = $user->getId( $user->getWikiId() );
+		$id = $user->getId();
 
 		if ( $id === 0 ) {
 			return false;
 		}
 
-		$userRegistration = $this->connectionProvider->getReplicaDatabase( $user->getWikiId() )
+		$userRegistration = $this->connectionProvider->getReplicaDatabase()
 				->newSelectQueryBuilder()
 				->select( 'user_registration' )
 				->from( 'user' )
@@ -34,7 +32,7 @@ class LocalUserRegistrationProvider implements IUserRegistrationProvider {
 				->caller( __METHOD__ )
 				->fetchField();
 
-		return wfTimestampOrNull( TS::MW, $userRegistration );
+		return wfTimestampOrNull( TS_MW, $userRegistration );
 	}
 
 	/**
@@ -42,32 +40,15 @@ class LocalUserRegistrationProvider implements IUserRegistrationProvider {
 	 */
 	public function fetchRegistrationBatch( iterable $users ): array {
 		$timestampsById = [];
-		// The output format doesn't allow us to return the wiki ID, so we need to ensure all the input users come
-		// from the same wiki. If wikiToQuery is null, it means we haven't set it yet, so we can accept any wiki ID
-		// for the first user.
-		$wikiToQuery = null;
 
 		foreach ( $users as $user ) {
-			$wikiId = $user->getWikiId();
-
-			if ( $wikiToQuery === null ) {
-				$wikiToQuery = $wikiId;
-			} elseif ( $wikiToQuery !== $wikiId ) {
-				throw new InvalidArgumentException( 'All queried users must belong to the same wiki.' );
-			}
-
 			// Make the list of user IDs unique.
-			$timestampsById[$user->getId( $wikiId )] = null;
-		}
-
-		if ( $wikiToQuery === null ) {
-			// No users to query.
-			return [];
+			$timestampsById[$user->getId()] = null;
 		}
 
 		$batches = array_chunk( array_keys( $timestampsById ), 1_000 );
 
-		$dbr = $this->connectionProvider->getReplicaDatabase( $wikiToQuery );
+		$dbr = $this->connectionProvider->getReplicaDatabase();
 
 		foreach ( $batches as $userIdBatch ) {
 			$res = $dbr->newSelectQueryBuilder()
@@ -78,7 +59,7 @@ class LocalUserRegistrationProvider implements IUserRegistrationProvider {
 				->fetchResultSet();
 
 			foreach ( $res as $row ) {
-				$timestampsById[$row->user_id] = wfTimestampOrNull( TS::MW, $row->user_registration );
+				$timestampsById[$row->user_id] = wfTimestampOrNull( TS_MW, $row->user_registration );
 			}
 		}
 

@@ -21,13 +21,13 @@ use MediaWiki\FileRepo\File\OldLocalFile;
 use MediaWiki\FileRepo\RepoGroup;
 use MediaWiki\HTMLForm\HTMLForm;
 use MediaWiki\Language\Language;
+use MediaWiki\MediaWikiServices;
 use MediaWiki\Output\OutputPage;
 use MediaWiki\Page\Article;
 use MediaWiki\Page\WikiFilePage;
 use MediaWiki\Status\Status;
 use MediaWiki\User\User;
 use MediaWiki\Utils\MWTimestamp;
-use MediaWiki\Utils\UrlUtils;
 
 /**
  * File reversion user interface
@@ -38,14 +38,24 @@ use MediaWiki\Utils\UrlUtils;
  */
 class RevertAction extends FormAction {
 
+	private Language $contentLanguage;
+	private RepoGroup $repoGroup;
+
+	/**
+	 * @param Article $article
+	 * @param IContextSource $context
+	 * @param Language $contentLanguage
+	 * @param RepoGroup $repoGroup
+	 */
 	public function __construct(
 		Article $article,
 		IContextSource $context,
-		private readonly Language $contentLanguage,
-		private readonly RepoGroup $repoGroup,
-		private readonly UrlUtils $urlUtils,
+		Language $contentLanguage,
+		RepoGroup $repoGroup
 	) {
 		parent::__construct( $article, $context );
+		$this->contentLanguage = $contentLanguage;
+		$this->repoGroup = $repoGroup;
 	}
 
 	/**
@@ -130,7 +140,7 @@ class RevertAction extends FormAction {
 				'raw' => true,
 				'default' => $this->msg( 'filerevert-intro',
 					$this->getTitle()->getText(), $userDate, $userTime,
-					(string)$this->urlUtils->expand(
+					(string)MediaWikiServices::getInstance()->getUrlUtils()->expand(
 						$this->getFile()
 							->getArchiveUrl(
 								$this->getRequest()->getText( 'oldimage' )
@@ -189,7 +199,7 @@ class RevertAction extends FormAction {
 
 		$this->getOutput()->addWikiMsg( 'filerevert-success', $this->getTitle()->getText(),
 			$userDate, $userTime,
-			(string)$this->urlUtils->expand(
+			(string)MediaWikiServices::getInstance()->getUrlUtils()->expand(
 				$this->getFile()
 					->getArchiveUrl(
 						$this->getRequest()->getText( 'oldimage' )

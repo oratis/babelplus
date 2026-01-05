@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Language;
-
 use MediaWiki\CommentStore\CommentStoreComment;
 use MediaWiki\Content\ContentHandler;
 use MediaWiki\Deferred\DeferredUpdates;
@@ -10,9 +8,7 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Title\Title;
-use MediaWikiLangTestCase;
 use Wikimedia\TestingAccessWrapper;
-use WikiRevision;
 
 /**
  * @group Language

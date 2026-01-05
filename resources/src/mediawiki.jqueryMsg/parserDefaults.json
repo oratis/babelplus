@@ -6,7 +6,5 @@
 		"i",
 		"em"
 	],
-	"magic": {
-		"SITENAME": "MediaWiki"
-	}
+	"magic": [ "SITENAME" ]
 }

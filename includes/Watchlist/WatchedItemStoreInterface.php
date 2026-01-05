@@ -7,7 +7,8 @@
 
 namespace MediaWiki\Watchlist;
 
-use MediaWiki\Page\PageReference;
+use MediaWiki\Linker\LinkTarget;
+use MediaWiki\Page\PageIdentity;
 use MediaWiki\User\UserIdentity;
 
 /**
@@ -41,28 +42,28 @@ interface WatchedItemStoreInterface {
 	/**
 	 * @since 1.31
 	 *
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 *
 	 * @return int
 	 */
-	public function countWatchers( PageReference $target );
+	public function countWatchers( $target );
 
 	/**
 	 * Number of page watchers who also visited a "recent" edit
 	 *
 	 * @since 1.31
 	 *
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 * @param mixed $threshold timestamp accepted by wfTimestamp
 	 *
 	 * @return int
 	 */
-	public function countVisitingWatchers( PageReference $target, $threshold );
+	public function countVisitingWatchers( $target, $threshold );
 
 	/**
 	 * @since 1.31
 	 *
-	 * @param PageReference[] $targets
+	 * @param LinkTarget[]|PageIdentity[] $targets deprecated passing LinkTarget[] since 1.36
 	 * @param array $options Allowed keys:
 	 *        'minimumWatchers' => int
 	 *
@@ -77,11 +78,12 @@ interface WatchedItemStoreInterface {
 	 *
 	 * @since 1.31
 	 *
-	 * @param array $targetsWithVisitThresholds array of pairs (PageReference $target,
+	 * @param array $targetsWithVisitThresholds array of pairs (LinkTarget|PageIdentity $target,
 	 *     mixed $threshold),
 	 *        $threshold is:
 	 *        - a timestamp of the recent edit if $target exists (format accepted by wfTimestamp)
 	 *        - null if $target doesn't exist
+	 *      deprecated passing LinkTarget since 1.36
 	 * @param int|null $minimumWatchers
 	 *
 	 * @return array multi-dimensional like $return[$namespaceId][$titleString] = $watchers,
@@ -103,11 +105,11 @@ interface WatchedItemStoreInterface {
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 *
 	 * @return WatchedItem|false
 	 */
-	public function getWatchedItem( UserIdentity $user, PageReference $target );
+	public function getWatchedItem( UserIdentity $user, $target );
 
 	/**
 	 * Loads an item from the db
@@ -115,11 +117,11 @@ interface WatchedItemStoreInterface {
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 *
 	 * @return WatchedItem|false
 	 */
-	public function loadWatchedItem( UserIdentity $user, PageReference $target );
+	public function loadWatchedItem( UserIdentity $user, $target );
 
 	/**
 	 * Loads a set of WatchedItems from the db.
@@ -127,9 +129,9 @@ interface WatchedItemStoreInterface {
 	 * @since 1.36
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference[] $targets
+	 * @param LinkTarget[]|PageIdentity[] $targets deprecated passing LinkTarget[] since 1.36
 	 *
-	 * @return WatchedItem[]
+	 * @return WatchedItem[]|false
 	 */
 	public function loadWatchedItemsBatch( UserIdentity $user, array $targets );
 
@@ -154,11 +156,11 @@ interface WatchedItemStoreInterface {
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 *
 	 * @return bool
 	 */
-	public function isWatched( UserIdentity $user, PageReference $target );
+	public function isWatched( UserIdentity $user, $target );
 
 	/**
 	 * Whether the page is only being watched temporarily (has expiry).
@@ -167,17 +169,17 @@ interface WatchedItemStoreInterface {
 	 * @since 1.35
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 *
 	 * @return bool
 	 */
-	public function isTempWatched( UserIdentity $user, PageReference $target ): bool;
+	public function isTempWatched( UserIdentity $user, $target ): bool;
 
 	/**
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference[] $targets
+	 * @param LinkTarget[]|PageIdentity[] $targets deprecated passing LinkTarget[] since 1.36
 	 *
 	 * @return array multi-dimensional like $return[$namespaceId][$titleString] = $timestamp,
 	 *         where $timestamp is:
@@ -193,18 +195,18 @@ interface WatchedItemStoreInterface {
 	 * @since 1.35 Accepts $expiry parameter.
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 * @param string|null $expiry Optional expiry timestamp in any format acceptable to wfTimestamp().
 	 *   null will not create an expiry, or leave it unchanged should one already exist.
 	 */
-	public function addWatch( UserIdentity $user, PageReference $target, ?string $expiry = null );
+	public function addWatch( UserIdentity $user, $target, ?string $expiry = null );
 
 	/**
 	 * @since 1.31 Method added.
 	 * @since 1.35 Accepts $expiry parameter.
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference[] $targets
+	 * @param LinkTarget[]|PageIdentity[] $targets deprecated passing LinkTarget[] since 1.36
 	 * @param string|null $expiry Optional expiry timestamp in any format acceptable to wfTimestamp(),
 	 *   null will not create expiries, or leave them unchanged should they already exist.
 	 *
@@ -213,24 +215,25 @@ interface WatchedItemStoreInterface {
 	public function addWatchBatchForUser( UserIdentity $user, array $targets, ?string $expiry = null );
 
 	/**
-	 * Removes an entry for the UserIdentity watching the target
+	 * Removes an entry for the UserIdentity watching the target (LinkTarget or PageIdentity)
 	 * Must be called separately for Subject & Talk namespaces
 	 *
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference $target
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
 	 *
 	 * @return bool success
 	 */
-	public function removeWatch( UserIdentity $user, PageReference $target );
+	public function removeWatch( UserIdentity $user, $target );
 
 	/**
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user The user to set the timestamps for
 	 * @param string|null $timestamp Set the update timestamp to this value
-	 * @param PageReference[] $targets List of targets to update. Default to all targets.
+	 * @param LinkTarget[]|PageIdentity[] $targets List of targets to update. Default to all targets.
+	 *        deprecated passing LinkTarget[] since 1.36
 	 *
 	 * @return bool success
 	 */
@@ -255,13 +258,14 @@ interface WatchedItemStoreInterface {
 	 *
 	 * @param UserIdentity $editor The editor that triggered the update. Their notification
 	 *  timestamp will not be updated(they have already seen it)
-	 * @param PageReference $target The target to update timestamps for
+	 * @param LinkTarget|PageIdentity $target The target to update timestamps for
+	 *        deprecated passing LinkTarget since 1.36
 	 * @param string $timestamp Set the update (first unseen revision) timestamp to this value
 	 *
 	 * @return int[] Array of user IDs the timestamp has been updated for
 	 */
 	public function updateNotificationTimestamp(
-		UserIdentity $editor, PageReference $target, $timestamp );
+		UserIdentity $editor, $target, $timestamp );
 
 	/**
 	 * Reset the notification timestamp of this entry
@@ -269,7 +273,7 @@ interface WatchedItemStoreInterface {
 	 * @since 1.31
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference $title
+	 * @param LinkTarget|PageIdentity $title deprecated passing LinkTarget since 1.36
 	 * @param string $force Whether to force the write query to be executed even if the
 	 *    page is not watched or the notification timestamp is already NULL.
 	 *    'force' in order to force
@@ -279,7 +283,7 @@ interface WatchedItemStoreInterface {
 	 * @return bool success Whether a job was enqueued
 	 */
 	public function resetNotificationTimestamp(
-		UserIdentity $user, PageReference $title, $force = '', $oldid = 0 );
+		UserIdentity $user, $title, $force = '', $oldid = 0 );
 
 	/**
 	 * @since 1.31
@@ -300,10 +304,10 @@ interface WatchedItemStoreInterface {
 	 *
 	 * @since 1.31
 	 *
-	 * @param PageReference $oldTarget
-	 * @param PageReference $newTarget
+	 * @param LinkTarget|PageIdentity $oldTarget deprecated passing LinkTarget since 1.36
+	 * @param LinkTarget|PageIdentity $newTarget deprecated passing LinkTarget since 1.36
 	 */
-	public function duplicateAllAssociatedEntries( PageReference $oldTarget, PageReference $newTarget );
+	public function duplicateAllAssociatedEntries( $oldTarget, $newTarget );
 
 	/**
 	 * Check if the given title already is watched by the user, and if so
@@ -314,10 +318,10 @@ interface WatchedItemStoreInterface {
 	 *
 	 * @since 1.31
 	 *
-	 * @param PageReference $oldTarget
-	 * @param PageReference $newTarget
+	 * @param LinkTarget|PageIdentity $oldTarget deprecated passing LinkTarget since 1.36
+	 * @param LinkTarget|PageIdentity $newTarget deprecated passing LinkTarget since 1.36
 	 */
-	public function duplicateEntry( PageReference $oldTarget, PageReference $newTarget );
+	public function duplicateEntry( $oldTarget, $newTarget );
 
 	/**
 	 * Synchronously clear the users watchlist.
@@ -362,14 +366,14 @@ interface WatchedItemStoreInterface {
 	 * @since 1.32
 	 *
 	 * @param UserIdentity $user
-	 * @param PageReference[] $targets
+	 * @param LinkTarget[]|PageIdentity[] $targets deprecated passing LinkTarget[] since 1.36
 	 *
-	 * @return bool Whether any watched items were removed
+	 * @return bool success
 	 */
 	public function removeWatchBatchForUser( UserIdentity $user, array $targets );
 
 	/**
-	 * Convert $timestamp to TS::MW or return null if the page was visited since then by $user
+	 * Convert $timestamp to TS_MW or return null if the page was visited since then by $user
 	 *
 	 * Use this only on single-user methods (having higher read-after-write expectations)
 	 * and not in places involving arbitrary batches of different users
@@ -378,11 +382,11 @@ interface WatchedItemStoreInterface {
 	 *
 	 * @param string|null $timestamp Value of wl_notificationtimestamp from the DB
 	 * @param UserIdentity $user
-	 * @param PageReference $target
-	 * @return string|null TS::MW timestamp of first unseen revision or null if there isn't one
+	 * @param LinkTarget|PageIdentity $target deprecated passing LinkTarget since 1.36
+	 * @return string|null TS_MW timestamp of first unseen revision or null if there isn't one
 	 */
 	public function getLatestNotificationTimestamp(
-		$timestamp, UserIdentity $user, PageReference $target );
+		$timestamp, UserIdentity $user, $target );
 
 	/**
 	 * Get the number of watchlist items that expire before the current time.
@@ -404,28 +408,6 @@ interface WatchedItemStoreInterface {
 	 * two extra queries, so is only done from the purgeExpiredWatchlistItems.php maintenance script.
 	 */
 	public function removeExpired( int $limit, bool $deleteOrphans = false ): void;
-
-	/**
-	 * Add a labels to a set of watchlist items. The same labels are applied to
-	 * each item. Ignore existing labels.
-	 *
-	 * @since 1.46
-	 * @param UserIdentity $user
-	 * @param PageReference[] $targets
-	 * @param (WatchlistLabel|int)[] $labels The label objects or IDs
-	 */
-	public function addLabels( UserIdentity $user, array $targets, array $labels ): void;
-
-	/**
-	 * Remove labels from a set of watchlist items. The same labels are removed
-	 * from each item. Ignore missing label members.
-	 *
-	 * @since 1.46
-	 * @param UserIdentity $user
-	 * @param PageReference[] $targets
-	 * @param (WatchlistLabel|int)[] $labels
-	 */
-	public function removeLabels( UserIdentity $user, array $targets, array $labels ): void;
 }
 /** @deprecated class alias since 1.43 */
 class_alias( WatchedItemStoreInterface::class, 'WatchedItemStoreInterface' );

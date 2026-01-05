@@ -65,7 +65,6 @@ use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\SelectQueryBuilder;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @defgroup Page Page
@@ -490,11 +489,11 @@ class WikiPage implements Stringable, Page, PageRecord {
 
 			$this->mTitle->loadFromRow( $data );
 			$this->mId = intval( $data->page_id );
-			$this->mTouched = MWTimestamp::convert( TS::MW, $data->page_touched );
+			$this->mTouched = MWTimestamp::convert( TS_MW, $data->page_touched );
 			$this->mLanguage = $data->page_lang ?? null;
 			$this->mLinksUpdated = $data->page_links_updated === null
 				? null
-				: MWTimestamp::convert( TS::MW, $data->page_links_updated );
+				: MWTimestamp::convert( TS_MW, $data->page_links_updated );
 			$this->mPageIsRedirectField = (bool)$data->page_is_redirect;
 			$this->mIsNew = (bool)( $data->page_is_new ?? 0 );
 			$this->mLatest = intval( $data->page_latest );
@@ -641,7 +640,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 
 	/**
 	 * Get the page_touched field
-	 * @return string Timestamp in TS::MW format
+	 * @return string Timestamp in TS_MW format
 	 */
 	public function getTouched() {
 		if ( !$this->mDataLoaded ) {
@@ -663,7 +662,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 
 	/**
 	 * Get the page_links_updated field
-	 * @return string|null Timestamp in TS::MW format
+	 * @return string|null Timestamp in TS_MW format
 	 */
 	public function getLinksTimestamp() {
 		if ( !$this->mDataLoaded ) {
@@ -775,7 +774,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 			$this->loadLastEdit();
 		}
 
-		return MWTimestamp::convert( TS::MW, $this->mTimestamp );
+		return MWTimestamp::convert( TS_MW, $this->mTimestamp );
 	}
 
 	/**
@@ -784,7 +783,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 	 * @return void
 	 */
 	public function setTimestamp( $ts ) {
-		$this->mTimestamp = MWTimestamp::convert( TS::MW, $ts );
+		$this->mTimestamp = MWTimestamp::convert( TS_MW, $ts );
 	}
 
 	/**
@@ -1995,7 +1994,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 		$logParamsDetails = [];
 
 		// Null revision (used for change tag insertion)
-		$dummyRevisionRecord = null;
+		$nullRevisionRecord = null;
 
 		$legacyUser = $services->getUserFactory()->newFromUserIdentity( $user );
 		if ( !$this->getHookRunner()->onArticleProtect( $this, $legacyUser, $limit, $reason ) ) {
@@ -2030,7 +2029,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 			}
 
 			// insert dummy revision to identify the page protection change as edit summary
-			$dummyRevisionRecord = $this->insertNullProtectionRevision(
+			$nullRevisionRecord = $this->insertNullProtectionRevision(
 				$revCommentMsg,
 				$limit,
 				$expiry,
@@ -2039,7 +2038,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 				$user
 			);
 
-			if ( $dummyRevisionRecord === null ) {
+			if ( $nullRevisionRecord === null ) {
 				return Status::newFatal( 'no-null-revision', $this->mTitle->getPrefixedText() );
 			}
 
@@ -2122,7 +2121,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 
 		$this->getHookRunner()->onArticleProtectComplete( $this, $legacyUser, $limit, $reason );
 
-		$restrictionStore->flushRestrictions( $this->mTitle );
+		$services->getRestrictionStore()->flushRestrictions( $this->mTitle );
 
 		InfoAction::invalidateCache( $this->mTitle );
 
@@ -2143,8 +2142,8 @@ class WikiPage implements Stringable, Page, PageRecord {
 		$logEntry->setComment( $reason );
 		$logEntry->setPerformer( $user );
 		$logEntry->setParameters( $params );
-		if ( $dummyRevisionRecord !== null ) {
-			$logEntry->setAssociatedRevId( $dummyRevisionRecord->getId() );
+		if ( $nullRevisionRecord !== null ) {
+			$logEntry->setAssociatedRevId( $nullRevisionRecord->getId() );
 		}
 		$logEntry->addTags( $tags );
 		if ( $logRelationsField !== null && count( $logRelationsValues ) ) {
@@ -2221,7 +2220,7 @@ class WikiPage implements Stringable, Page, PageRecord {
 		string $reason,
 		UserIdentity $user
 	): ?RevisionRecord {
-		// Prepare a dummy revision to be added to the history
+		// Prepare a null revision to be added to the history
 		$editComment = wfMessage(
 			$revCommentMsg,
 			$this->mTitle->getPrefixedText(),

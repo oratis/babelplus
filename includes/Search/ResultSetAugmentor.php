@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 /**
  * Augment search results.
  * @stable to implement
@@ -14,6 +12,3 @@ interface ResultSetAugmentor {
 	 */
 	public function augmentAll( ISearchResultSet $resultSet );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ResultSetAugmentor::class, 'ResultSetAugmentor' );

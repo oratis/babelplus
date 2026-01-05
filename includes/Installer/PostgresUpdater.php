@@ -12,11 +12,11 @@ namespace MediaWiki\Installer;
 use FixInconsistentRedirects;
 use FixWrongPasswordPrefixes;
 use MediaWiki\Maintenance\FixAutoblockLogTitles;
-use MediaWiki\Maintenance\UpdateRestrictions;
 use MigrateExternallinks;
 use MigrateRevisionActorTemp;
 use MigrateRevisionCommentTemp;
 use PopulateUserIsTemp;
+use UpdateRestrictions;
 use Wikimedia\Rdbms\DatabasePostgres;
 
 /**
@@ -123,14 +123,6 @@ class PostgresUpdater extends DatabaseUpdater {
 				'patch-recentchanges-rc_name_source_patrolled_timestamp.sql' ],
 			[ 'dropField', 'recentchanges', 'rc_new', 'patch-recentchanges-drop-rc_new.sql' ],
 			[ 'dropField', 'categorylinks', 'cl_to', 'patch-categorylinks-drop-cl_to-cl_collation.sql' ],
-
-			// 1.46
-			[ 'addTable', 'watchlist_label', 'patch-watchlist_label.sql' ],
-			[ 'dropField', 'recentchanges', 'rc_type', 'patch-recentchanges-drop-rc_type.sql' ],
-			[ 'dropField', 'archive', 'ar_sha1', 'patch-archive-drop-ar_sha1.sql' ],
-			[ 'dropField', 'revision', 'rev_sha1', 'patch-revision-drop-rev_sha1.sql' ],
-			[ 'dropField', 'objectcache', 'modtoken', 'patch-objectcache-drop-modtoken.sql' ],
-			[ 'addField', 'imagelinks', 'il_target_id', 'patch-imagelinks-add-il_target_id.sql' ],
 		];
 	}
 
@@ -787,9 +779,9 @@ END;
 			return;
 		}
 
-		$primaryIndexExists = $this->db->indexExists( 'searchindex', 'searchindex_pkey', __METHOD__ );
+		$primaryIndexExists = $this->db->indexExists( 'searchindex', 'searchindex_pkey' );
 		if ( $this->updateRowExists( $updateKey ) || ( $primaryIndexExists ) ) {
-			$this->outputApplied( "...searchindex table has already been migrated.\n" );
+			$this->output( "...searchindex table has already been migrated.\n" );
 			if ( !$this->updateRowExists( $updateKey ) ) {
 				$this->insertUpdateRow( $updateKey );
 			}

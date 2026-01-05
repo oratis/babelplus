@@ -6,7 +6,6 @@ namespace MediaWiki\Tests\OutputTransform\Stages;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\OutputTransform\OutputTransformStage;
 use MediaWiki\OutputTransform\Stages\HardenNFC;
-use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Tests\OutputTransform\OutputTransformStageTestBase;
 use Psr\Log\NullLogger;
@@ -25,7 +24,7 @@ class HardenNFCTest extends OutputTransformStageTestBase {
 
 	public static function provideShouldRun(): array {
 		return [
-			[ new ParserOutput(), ParserOptions::newFromAnon(), [] ]
+			[ new ParserOutput(), null, [] ]
 		];
 	}
 
@@ -37,7 +36,7 @@ class HardenNFCTest extends OutputTransformStageTestBase {
 		$text = "<h1>\u{0338}</h1>";
 		$expectedText = "<h1>&#x338;</h1>";
 		return [
-			[ new ParserOutput( $text ), ParserOptions::newFromAnon(), [], new ParserOutput( $expectedText ) ],
+			[ new ParserOutput( $text ), null, [], new ParserOutput( $expectedText ) ],
 		];
 	}
 }

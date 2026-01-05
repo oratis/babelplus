@@ -156,9 +156,7 @@ class ConfirmLinkSecondaryAuthenticationProviderTest extends MediaWikiIntegratio
 			->setConstructorArgs( [
 				$request,
 				$mwServices->getMainConfig(),
-				$mwServices->getChangeTagsStore(),
 				$mwServices->getObjectFactory(),
-				$mwServices->getObjectCacheFactory(),
 				$mwServices->getHookContainer(),
 				$mwServices->getReadOnlyMode(),
 				$this->createNoOpMock( UserNameUtils::class ),
@@ -170,7 +168,6 @@ class ConfirmLinkSecondaryAuthenticationProviderTest extends MediaWikiIntegratio
 				$mwServices->getBotPasswordStore(),
 				$mwServices->getUserFactory(),
 				$mwServices->getUserIdentityLookup(),
-				$mwServices->getUserIdentityUtils(),
 				$mwServices->getUserOptionsManager(),
 				$mwServices->getNotificationService(),
 				$mwServices->getSessionManager()
@@ -268,9 +265,7 @@ class ConfirmLinkSecondaryAuthenticationProviderTest extends MediaWikiIntegratio
 		$manager = new AuthManager(
 			$request,
 			$config,
-			$mwServices->getChangeTagsStore(),
 			$this->getDummyObjectFactory(),
-			$mwServices->getObjectCacheFactory(),
 			$mwServices->getHookContainer(),
 			$mwServices->getReadOnlyMode(),
 			$mwServices->getUserNameUtils(),
@@ -282,7 +277,6 @@ class ConfirmLinkSecondaryAuthenticationProviderTest extends MediaWikiIntegratio
 			$mwServices->getBotPasswordStore(),
 			$mwServices->getUserFactory(),
 			$mwServices->getUserIdentityLookup(),
-			$mwServices->getUserIdentityUtils(),
 			$mwServices->getUserOptionsManager(),
 			$mwServices->getNotificationService(),
 			$mwServices->getSessionManager()

@@ -22,7 +22,7 @@ use InvalidArgumentException;
 class LBFactorySimple extends LBFactory {
 	/** @var LoadBalancer */
 	private $mainLB;
-	/** @var ILoadBalancerForOwner[] */
+	/** @var LoadBalancer[] */
 	private $externalLBs = [];
 
 	/** @var array Configuration for the LoadMonitor to use within LoadBalancer instances */

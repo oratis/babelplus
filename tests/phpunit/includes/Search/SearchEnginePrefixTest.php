@@ -345,7 +345,7 @@ class SearchEnginePrefixTest extends MediaWikiLangTestCase {
 
 	/**
 	 * @dataProvider provideSearchBackend
-	 * @covers \MediaWiki\Search\PrefixSearch::searchBackend
+	 * @covers \PrefixSearch::searchBackend
 	 */
 	public function testSearchBackend( array $case ) {
 		$search = $this->mockSearchWithResults( $case['provision'] );

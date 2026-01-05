@@ -11,6 +11,7 @@
 namespace Wikimedia\FileBackend;
 
 use Exception;
+use LockManager;
 use Psr\Log\LoggerInterface;
 use Shellbox\Command\BoxedCommand;
 use StatusValue;
@@ -21,13 +22,11 @@ use Wikimedia\FileBackend\FileIteration\SwiftFileBackendFileList;
 use Wikimedia\FileBackend\FileOpHandle\SwiftFileOpHandle;
 use Wikimedia\FileBackend\FSFile\TempFSFile;
 use Wikimedia\Http\MultiHttpClient;
-use Wikimedia\LockManager\LockManager;
 use Wikimedia\MapCacheLRU\MapCacheLRU;
 use Wikimedia\ObjectCache\BagOStuff;
 use Wikimedia\ObjectCache\EmptyBagOStuff;
 use Wikimedia\RequestTimeout\TimeoutException;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @brief Class for an OpenStack Swift (or Ceph RGW) based file backend.
@@ -789,11 +788,11 @@ class SwiftFileBackend extends FileBackendStore {
 	 * missing the timezone suffix (though Ceph RGW does not appear to have this bug).
 	 *
 	 * @param string $ts
-	 * @param int|TS $format Output format (TS::* constant)
+	 * @param int $format Output format (TS_* constant)
 	 * @return string
 	 * @throws FileBackendError
 	 */
-	protected function convertSwiftDate( $ts, $format = TS::MW ) {
+	protected function convertSwiftDate( $ts, $format = TS_MW ) {
 		try {
 			$timestamp = new ConvertibleTimestamp( $ts );
 
@@ -1107,8 +1106,8 @@ class SwiftFileBackend extends FileBackendStore {
 					continue; // virtual directory entry; ignore
 				}
 				$stat = [
-					// Convert various random Swift dates to TS::MW
-					'mtime'  => $this->convertSwiftDate( $object->last_modified, TS::MW ),
+					// Convert various random Swift dates to TS_MW
+					'mtime'  => $this->convertSwiftDate( $object->last_modified, TS_MW ),
 					'size'   => (int)$object->bytes,
 					'sha1'   => null,
 					// Note: manifest ETags are not an MD5 of the file
@@ -1759,8 +1758,8 @@ class SwiftFileBackend extends FileBackendStore {
 		$headers = $this->extractMutableContentHeaders( $rhdrs );
 
 		return [
-			// Convert various random Swift dates to TS::MW
-			'mtime' => $this->convertSwiftDate( $rhdrs['last-modified'], TS::MW ),
+			// Convert various random Swift dates to TS_MW
+			'mtime' => $this->convertSwiftDate( $rhdrs['last-modified'], TS_MW ),
 			// Empty objects actually return no content-length header in Ceph
 			'size'  => isset( $rhdrs['content-length'] ) ? (int)$rhdrs['content-length'] : 0,
 			'sha1'  => $metadata['sha1base36'] ?? null,

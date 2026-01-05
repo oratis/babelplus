@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\JobQueue;
 
 use MediaWiki\JobQueue\Job;
 use MediaWiki\JobQueue\JobQueue;
@@ -8,7 +7,6 @@ use MediaWiki\JobQueue\JobSpecification;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Title\Title;
 use MediaWiki\WikiMap\WikiMap;
-use MediaWikiCoversValidator;
 
 /**
  * @covers \MediaWiki\JobQueue\JobQueueMemory
@@ -18,7 +16,7 @@ use MediaWikiCoversValidator;
  * @license GPL-2.0-or-later
  * @author Thiemo Kreuz
  */
-class JobQueueMemoryTest extends \PHPUnit\Framework\TestCase {
+class JobQueueMemoryTest extends PHPUnit\Framework\TestCase {
 
 	use MediaWikiCoversValidator;
 

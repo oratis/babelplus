@@ -1,9 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Json;
-
 use MediaWiki\Json\FormatJson;
-use MediaWikiUnitTestCase;
 
 /**
  * @covers \MediaWiki\Json\FormatJson

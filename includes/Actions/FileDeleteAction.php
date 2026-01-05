@@ -206,10 +206,13 @@ class FileDeleteAction extends DeleteAction {
 	}
 
 	protected function getFormAction(): string {
-		$q = [ 'action' => 'delete' ];
+		$q = [];
+		$q['action'] = 'delete';
+
 		if ( $this->oldImage ) {
 			$q['oldimage'] = $this->oldImage;
 		}
+
 		return $this->getTitle()->getLocalURL( $q );
 	}
 

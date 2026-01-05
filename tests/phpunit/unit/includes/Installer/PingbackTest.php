@@ -1,13 +1,10 @@
 <?php
-namespace MediaWiki\Tests\Unit\Installer;
 
 use MediaWiki\Config\HashConfig;
 use MediaWiki\Http\HttpRequestFactory;
 use MediaWiki\Installer\Pingback;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Status\Status;
-use MediaWikiUnitTestCase;
-use MWHttpRequest;
 use Psr\Log\NullLogger;
 use Wikimedia\ObjectCache\BagOStuff;
 use Wikimedia\ObjectCache\HashBagOStuff;
@@ -16,7 +13,6 @@ use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\InsertQueryBuilder;
 use Wikimedia\Rdbms\SelectQueryBuilder;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\Installer\Pingback
@@ -167,7 +163,7 @@ class PingbackTest extends MediaWikiUnitTestCase {
 	public static function provideMakePing() {
 		yield 'No prior ping' => [ false ];
 		yield 'Prior ping from over a month ago' => [
-			ConvertibleTimestamp::convert( TS::UNIX, '20110301080000' )
+			ConvertibleTimestamp::convert( TS_UNIX, '20110301080000' )
 		];
 	}
 
@@ -178,7 +174,7 @@ class PingbackTest extends MediaWikiUnitTestCase {
 		// - cache lock and db lock are available
 		$database = $this->createNoOpMock( IDatabase::class, [ 'selectField', 'newSelectQueryBuilder' ] );
 		$database->expects( $this->once() )->method( 'selectField' )->willReturn(
-			ConvertibleTimestamp::convert( TS::UNIX, '20110401080000' )
+			ConvertibleTimestamp::convert( TS_UNIX, '20110401080000' )
 		);
 		$database->method( 'newSelectQueryBuilder' )->willReturnCallback( static fn () => new SelectQueryBuilder( $database ) );
 

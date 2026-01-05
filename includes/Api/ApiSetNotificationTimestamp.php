@@ -19,7 +19,6 @@ use MediaWiki\Watchlist\WatchedItemStoreInterface;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDBAccessObject;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * API interface for setting the wl_notificationtimestamp field
@@ -141,7 +140,7 @@ class ApiSetNotificationTimestamp extends ApiBase {
 
 			$result['notificationtimestamp'] = $timestamp === null
 				? ''
-				: wfTimestamp( TS::ISO_8601, $timestamp );
+				: wfTimestamp( TS_ISO_8601, $timestamp );
 		} else {
 			// First, log the invalid titles
 			foreach ( $pageSet->getInvalidTitlesAndReasons() as $r ) {
@@ -149,18 +148,18 @@ class ApiSetNotificationTimestamp extends ApiBase {
 				$result[] = $r;
 			}
 			foreach ( $pageSet->getMissingPageIDs() as $p ) {
-				$result[] = [
-					'pageid' => $p,
-					'missing' => true,
-					'notwatched' => true,
-				];
+				$page = [];
+				$page['pageid'] = $p;
+				$page['missing'] = true;
+				$page['notwatched'] = true;
+				$result[] = $page;
 			}
 			foreach ( $pageSet->getMissingRevisionIDs() as $r ) {
-				$result[] = [
-					'revid' => $r,
-					'missing' => true,
-					'notwatched' => true,
-				];
+				$rev = [];
+				$rev['revid'] = $r;
+				$rev['missing'] = true;
+				$rev['notwatched'] = true;
+				$result[] = $rev;
 			}
 
 			$pages = $pageSet->getPages();
@@ -199,7 +198,7 @@ class ApiSetNotificationTimestamp extends ApiBase {
 					) {
 						$r['notificationtimestamp'] = '';
 						if ( $timestamps[$ns][$dbkey] !== null ) {
-							$r['notificationtimestamp'] = wfTimestamp( TS::ISO_8601, $timestamps[$ns][$dbkey] );
+							$r['notificationtimestamp'] = wfTimestamp( TS_ISO_8601, $timestamps[$ns][$dbkey] );
 						}
 					} else {
 						$r['notwatched'] = true;

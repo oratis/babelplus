@@ -12,7 +12,6 @@ use LogicException;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Maintenance\FakeMaintenance;
-use MediaWiki\Maintenance\LoggedUpdateMaintenance;
 use MediaWiki\Maintenance\Maintenance;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\ResourceLoader\MessageBlobStore;
@@ -113,20 +112,6 @@ abstract class DatabaseUpdater {
 	private $currentVirtualDomain = null;
 
 	/**
-	 * Flag specifying whether to output notes about updates that were already applied.
-	 *
-	 * @var bool
-	 */
-	public $logApplied = false;
-
-	/**
-	 * When not outputting notes about already applied updates, their number if stored here.
-	 *
-	 * @var int
-	 */
-	public $appliedUpdateCount = 0;
-
-	/**
 	 * @param IMaintainableDatabase &$db To perform updates on
 	 * @param bool $shared Whether to perform updates on shared tables
 	 * @param Maintenance|null $maintenance Maintenance object which created us
@@ -220,30 +205,6 @@ abstract class DatabaseUpdater {
 	 */
 	public function getDB() {
 		return $this->db;
-	}
-
-	/**
-	 * Output a note about an update that has already been applied.
-	 * These updates may instead be silenced and merely counted.
-	 *
-	 * @param string $str Text to output
-	 */
-	public function outputApplied( string $str ): void {
-		if ( $this->logApplied ) {
-			$this->output( $str );
-		} else {
-			$this->appliedUpdateCount++;
-		}
-	}
-
-	/**
-	 * If notes about updates that have already been applied are silenced,
-	 * output a message with the count of skipped updates.
-	 */
-	public function outputAppliedSummary(): void {
-		if ( $this->appliedUpdateCount ) {
-			$this->output( "Skipped {$this->appliedUpdateCount} updates that were already applied.\n" );
-		}
 	}
 
 	/**
@@ -725,7 +686,9 @@ abstract class DatabaseUpdater {
 			null,
 			null,
 			__METHOD__,
-			$this->appendLine( ... )
+			function ( $line ) {
+				return $this->appendLine( $line );
+			}
 		);
 	}
 
@@ -820,7 +783,7 @@ abstract class DatabaseUpdater {
 		}
 
 		if ( $this->db->tableExists( $name, __METHOD__ ) ) {
-			$this->outputApplied( "...$name table already exists.\n" );
+			$this->output( "...$name table already exists.\n" );
 			return true;
 		}
 
@@ -845,9 +808,9 @@ abstract class DatabaseUpdater {
 		}
 
 		if ( !$this->db->tableExists( $table, __METHOD__ ) ) {
-			$this->outputApplied( "...$table table does not exist, skipping new field patch.\n" );
+			$this->output( "...$table table does not exist, skipping new field patch.\n" );
 		} elseif ( $this->db->fieldExists( $table, $field, __METHOD__ ) ) {
-			$this->outputApplied( "...have $field field in $table table.\n" );
+			$this->output( "...have $field field in $table table.\n" );
 		} else {
 			return $this->applyPatch( $patch, $fullpath, "Adding $field field to table $table" );
 		}
@@ -875,7 +838,7 @@ abstract class DatabaseUpdater {
 		if ( !$this->db->tableExists( $table, __METHOD__ ) ) {
 			$this->output( "...skipping: '$table' table doesn't exist yet.\n" );
 		} elseif ( $this->db->indexExists( $table, $index, __METHOD__ ) ) {
-			$this->outputApplied( "...index $index already set on $table table.\n" );
+			$this->output( "...index $index already set on $table table.\n" );
 		} else {
 			return $this->applyPatch( $patch, $fullpath, "Adding index $index to table $table" );
 		}
@@ -904,7 +867,7 @@ abstract class DatabaseUpdater {
 			return $this->applyPatch( $patch, $fullpath, "Table $table contains $field field. Dropping" );
 		}
 
-		$this->outputApplied( "...$table table does not contain $field field.\n" );
+		$this->output( "...$table table does not contain $field field.\n" );
 		return true;
 	}
 
@@ -929,7 +892,7 @@ abstract class DatabaseUpdater {
 			return $this->applyPatch( $patch, $fullpath, "Dropping $index index from table $table" );
 		}
 
-		$this->outputApplied( "...$index key doesn't exist.\n" );
+		$this->output( "...$index key doesn't exist.\n" );
 		return true;
 	}
 
@@ -956,14 +919,14 @@ abstract class DatabaseUpdater {
 
 		// First requirement: the table must exist
 		if ( !$this->db->tableExists( $table, __METHOD__ ) ) {
-			$this->outputApplied( "...skipping: '$table' table doesn't exist yet.\n" );
+			$this->output( "...skipping: '$table' table doesn't exist yet.\n" );
 
 			return true;
 		}
 
 		// Second requirement: the new index must be missing
 		if ( $this->db->indexExists( $table, $newIndex, __METHOD__ ) ) {
-			$this->outputApplied( "...index $newIndex already set on $table table.\n" );
+			$this->output( "...index $newIndex already set on $table table.\n" );
 			if ( !$skipBothIndexExistWarning &&
 				$this->db->indexExists( $table, $oldIndex, __METHOD__ )
 			) {
@@ -977,7 +940,7 @@ abstract class DatabaseUpdater {
 
 		// Third requirement: the old index must exist
 		if ( !$this->db->indexExists( $table, $oldIndex, __METHOD__ ) ) {
-			$this->outputApplied( "...skipping: index $oldIndex doesn't exist.\n" );
+			$this->output( "...skipping: index $oldIndex doesn't exist.\n" );
 
 			return true;
 		}
@@ -1020,7 +983,7 @@ abstract class DatabaseUpdater {
 				return $this->applyPatch( $patch, $fullpath, $msg );
 			}
 		} else {
-			$this->outputApplied( "...$table doesn't exist.\n" );
+			$this->output( "...$table doesn't exist.\n" );
 		}
 
 		return true;
@@ -1069,14 +1032,14 @@ abstract class DatabaseUpdater {
 		}
 
 		if ( !$this->db->tableExists( $table, __METHOD__ ) ) {
-			$this->outputApplied( "...skipping: '$table' table doesn't exist yet.\n" );
+			$this->output( "...skipping: '$table' table doesn't exist yet.\n" );
 			return true;
 		}
 
 		// Compare desired PK to current PK columns from the DB layer
 		$current = $this->db->getPrimaryKeyColumns( $table, __METHOD__ );
 		if ( $current === array_values( $columns ) ) {
-			$this->outputApplied( "...primary key already set on $table table.\n" );
+			$this->output( "...primary key already set on $table table.\n" );
 			return true;
 		}
 
@@ -1104,9 +1067,9 @@ abstract class DatabaseUpdater {
 
 		$updateKey = "$table-$patch";
 		if ( !$this->db->tableExists( $table, __METHOD__ ) ) {
-			$this->outputApplied( "...$table table does not exist, skipping modify table patch.\n" );
+			$this->output( "...$table table does not exist, skipping modify table patch.\n" );
 		} elseif ( $this->updateRowExists( $updateKey ) ) {
-			$this->outputApplied( "...table $table already modified by patch $patch.\n" );
+			$this->output( "...table $table already modified by patch $patch.\n" );
 		} else {
 			$apply = $this->applyPatch( $patch, $fullpath, "Modifying table $table with patch $patch" );
 			if ( $apply ) {
@@ -1149,16 +1112,16 @@ abstract class DatabaseUpdater {
 		}
 
 		if ( !$this->db->tableExists( $table, __METHOD__ ) ) {
-			$this->outputApplied( "...$table table does not exist, skipping patch $patch.\n" );
+			$this->output( "...$table table does not exist, skipping patch $patch.\n" );
 		} elseif ( $this->db->fieldExists( $table, $field, __METHOD__ ) ) {
-			$this->outputApplied( "...$field field exists in $table table, skipping obsolete patch $patch.\n" );
+			$this->output( "...$field field exists in $table table, skipping obsolete patch $patch.\n" );
 		} elseif ( $fieldBeingModified !== null
 			&& !$this->db->fieldExists( $table, $fieldBeingModified, __METHOD__ )
 		) {
-			$this->outputApplied( "...$fieldBeingModified field does not exist in $table table, " .
+			$this->output( "...$fieldBeingModified field does not exist in $table table, " .
 				"skipping patch $patch.\n" );
 		} elseif ( $this->updateRowExists( $updateKey ) ) {
-			$this->outputApplied( "...table $table already modified by patch $patch.\n" );
+			$this->output( "...table $table already modified by patch $patch.\n" );
 		} else {
 			$apply = $this->applyPatch( $patch, $fullpath, "Modifying table $table with patch $patch" );
 			if ( $apply ) {
@@ -1213,21 +1176,21 @@ abstract class DatabaseUpdater {
 
 		$updateKey = "$table-$field-$patch";
 		if ( !$this->db->tableExists( $table, __METHOD__ ) ) {
-			$this->outputApplied( "...$table table does not exist, skipping modify field patch.\n" );
+			$this->output( "...$table table does not exist, skipping modify field patch.\n" );
 			return true;
 		}
 		$fieldInfo = $this->db->fieldInfo( $table, $field );
 		if ( !$fieldInfo ) {
-			$this->outputApplied( "...$field field does not exist in $table table, " .
+			$this->output( "...$field field does not exist in $table table, " .
 				"skipping modify field patch.\n" );
 			return true;
 		}
 		if ( $this->updateRowExists( $updateKey ) ) {
-			$this->outputApplied( "...$field in table $table already modified by patch $patch.\n" );
+			$this->output( "...$field in table $table already modified by patch $patch.\n" );
 			return true;
 		}
 		if ( !$condCallback( $fieldInfo ) ) {
-			$this->outputApplied( "...$field in table $table already has the required properties.\n" );
+			$this->output( "...$field in table $table already has the required properties.\n" );
 			return true;
 		}
 
@@ -1255,16 +1218,12 @@ abstract class DatabaseUpdater {
 	 * @note protected since 1.35
 	 *
 	 * @since 1.32
-	 * @param class-string<Maintenance> $class Maintenance subclass
+	 * @param string $class Maintenance subclass
 	 * @param string $unused Unused, kept for compatibility
 	 */
 	protected function runMaintenance( $class, $unused = '' ) {
-		$task = $this->maintenance->createChild( $class );
-		if ( $task instanceof LoggedUpdateMaintenance && $task->isAlreadyCompleted() ) {
-			$this->outputApplied( "..." . $task->updateSkippedMessage() . "\n" );
-			return;
-		}
 		$this->output( "Running $class...\n" );
+		$task = $this->maintenance->runChild( $class );
 		$ok = $task->execute();
 		if ( !$ok ) {
 			throw new RuntimeException( "Execution of $class did not complete successfully." );
@@ -1353,11 +1312,11 @@ abstract class DatabaseUpdater {
 	protected function doCollationUpdate() {
 		global $wgCategoryCollation;
 		if ( $this->updateRowExists( 'UpdateCollation::' . $wgCategoryCollation ) ) {
-			$this->outputApplied( "...collations up-to-date.\n" );
+			$this->output( "...collations up-to-date.\n" );
 			return;
 		}
 		$this->output( "Updating category collations...\n" );
-		$task = $this->maintenance->createChild( UpdateCollation::class );
+		$task = $this->maintenance->runChild( UpdateCollation::class );
 		$ok = $task->execute();
 		if ( $ok !== false ) {
 			$this->output( "...done.\n" );
@@ -1370,7 +1329,7 @@ abstract class DatabaseUpdater {
 			return;
 		}
 		$this->output( "Converting djvu metadata..." );
-		$task = $this->maintenance->createChild( RefreshImageMetadata::class );
+		$task = $this->maintenance->runChild( RefreshImageMetadata::class );
 		'@phan-var RefreshImageMetadata $task';
 		$task->loadParamsAndArgs( RefreshImageMetadata::class, [
 			'force' => true,
@@ -1393,7 +1352,7 @@ abstract class DatabaseUpdater {
 		/**
 		 * @var RebuildLocalisationCache $cl
 		 */
-		$cl = $this->maintenance->createChild(
+		$cl = $this->maintenance->runChild(
 			RebuildLocalisationCache::class, 'rebuildLocalisationCache.php'
 		);
 		'@phan-var RebuildLocalisationCache $cl';
@@ -1405,13 +1364,13 @@ abstract class DatabaseUpdater {
 
 	protected function migrateTemplatelinks() {
 		if ( $this->updateRowExists( MigrateLinksTable::class . 'templatelinks' ) ) {
-			$this->outputApplied( "...templatelinks table has already been migrated.\n" );
+			$this->output( "...templatelinks table has already been migrated.\n" );
 			return;
 		}
 		/**
 		 * @var MigrateLinksTable $task
 		 */
-		$task = $this->maintenance->createChild(
+		$task = $this->maintenance->runChild(
 			MigrateLinksTable::class, 'migrateLinksTable.php'
 		);
 		'@phan-var MigrateLinksTable $task';
@@ -1426,13 +1385,13 @@ abstract class DatabaseUpdater {
 
 	protected function migratePagelinks() {
 		if ( $this->updateRowExists( MigrateLinksTable::class . 'pagelinks' ) ) {
-			$this->outputApplied( "...pagelinks table has already been migrated.\n" );
+			$this->output( "...pagelinks table has already been migrated.\n" );
 			return;
 		}
 		/**
 		 * @var MigrateLinksTable $task
 		 */
-		$task = $this->maintenance->createChild(
+		$task = $this->maintenance->runChild(
 			MigrateLinksTable::class, 'migrateLinksTable.php'
 		);
 		'@phan-var MigrateLinksTable $task';
@@ -1447,13 +1406,13 @@ abstract class DatabaseUpdater {
 
 	protected function migrateCategorylinks() {
 		if ( $this->updateRowExists( MigrateLinksTable::class . 'categorylinks' ) ) {
-			$this->outputApplied( "...categorylinks table has already been migrated.\n" );
+			$this->output( "...categorylinks table has already been migrated.\n" );
 			return;
 		}
 		/**
 		 * @var MigrateLinksTable $task
 		 */
-		$task = $this->maintenance->createChild(
+		$task = $this->maintenance->runChild(
 			MigrateLinksTable::class, 'migrateLinksTable.php'
 		);
 		'@phan-var MigrateLinksTable $task';
@@ -1468,13 +1427,13 @@ abstract class DatabaseUpdater {
 
 	protected function normalizeCollation() {
 		if ( $this->updateRowExists( 'normalizeCollation' ) ) {
-			$this->outputApplied( "...collation table has already been normalized.\n" );
+			$this->output( "...collation table has already been normalized.\n" );
 			return;
 		}
 		/**
 		 * @var UpdateCollation $task
 		 */
-		$task = $this->maintenance->createChild(
+		$task = $this->maintenance->runChild(
 			UpdateCollation::class, 'updateCollation.php'
 		);
 		'@phan-var UpdateCollation $task';

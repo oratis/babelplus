@@ -635,7 +635,7 @@ class SiteConfig extends ISiteConfig {
 		return [
 			'base' => $this->languageFactory->getLanguage( $tuple['base'] ),
 			'fallbacks' => array_map(
-				$this->languageFactory->getLanguage( ... ),
+				[ $this->languageFactory, 'getLanguage' ],
 				$tuple['fallbacks']
 			),
 		];
@@ -648,21 +648,9 @@ class SiteConfig extends ISiteConfig {
 		return $this->config->get( MainConfigNames::ThumbLimits )[$thumbsize];
 	}
 
-	/**
-	 * Return list of magic word IDs used for magic variables
-	 * (memoized zero-argument parser functions).
-	 * @return list<string>
-	 */
+	/** @inheritDoc */
 	protected function getVariableIDs(): array {
 		return $this->magicWordFactory->getVariableIDs();
-	}
-
-	/**
-	 * Return list of magic word IDs used for behavior switches.
-	 * @return list<string>
-	 */
-	protected function getDoubleUnderscoreIDs(): array {
-		return $this->magicWordFactory->getDoubleUnderscoreArray()->getNames();
 	}
 
 	/** @inheritDoc */

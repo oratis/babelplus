@@ -14,8 +14,6 @@ use MediaWiki\Page\PageIdentity;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Tests\ExpectCallbackTrait;
 use MediaWiki\Tests\Language\LocalizationUpdateSpyTrait;
-use MediaWiki\Tests\Mocks\Content\DummyContentForTesting;
-use MediaWiki\Tests\Mocks\Content\DummyContentHandlerForTesting;
 use MediaWiki\Tests\Recentchanges\ChangeTrackingUpdateSpyTrait;
 use MediaWiki\Tests\ResourceLoader\ResourceLoaderUpdateSpyTrait;
 use MediaWiki\Tests\Search\SearchUpdateSpyTrait;
@@ -24,7 +22,6 @@ use MediaWiki\Title\Title;
 use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\TestingAccessWrapper;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -459,7 +456,7 @@ class MergeHistoryTest extends MediaWikiIntegrationTestCase {
 		// Create the source page with two revisions with the same timestamp
 		$user = static::getTestSysop()->getUser();
 		$title1 = $this->insertPage( "Merge7" )["title"];
-		$timestamp = MWTimestamp::now( TS::MW );
+		$timestamp = MWTimestamp::now( TS_MW );
 		$store = $this->getServiceContainer()->getRevisionStore();
 		$revision = MutableRevisionRecord::newFromParentRevision( $store->getFirstRevision( $title1 ) );
 		$revision->setTimestamp( $timestamp );

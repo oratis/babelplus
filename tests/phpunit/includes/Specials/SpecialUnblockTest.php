@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Exception\ReadOnlyError;

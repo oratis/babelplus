@@ -4,8 +4,6 @@ namespace Wikimedia\Rdbms;
 
 use InvalidArgumentException;
 use Stringable;
-use Wikimedia\ScopedCallback;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Helper class used for automatically re-using IDatabase connections and lazily
@@ -39,7 +37,7 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
 class DBConnRef implements Stringable, IMaintainableDatabase, IDatabaseForOwner {
 	/** @var ILoadBalancer */
 	private $lb;
-	/** @var IDatabase|null Live connection handle */
+	/** @var Database|null Live connection handle */
 	private $conn;
 	/**
 	 * @var array Map of (DBConnRef::FLD_* constant => connection parameter)
@@ -100,7 +98,7 @@ class DBConnRef implements Stringable, IMaintainableDatabase, IDatabaseForOwner 
 			// to take effect. The primary use case are replica servers being taken out of
 			// rotation, or the primary database changing.
 			if ( $this->conn && !$this->conn->trxLevel() ) {
-				$this->conn->close( wfGetCaller() );
+				$this->conn->close();
 				$this->conn = null;
 			}
 		}
@@ -860,8 +858,7 @@ class DBConnRef implements Stringable, IMaintainableDatabase, IDatabaseForOwner 
 	}
 
 	/** @inheritDoc */
-	#[\NoDiscard]
-	public function getScopedLockAndFlush( $lockKey, $fname, $timeout ): ?ScopedCallback {
+	public function getScopedLockAndFlush( $lockKey, $fname, $timeout ) {
 		$this->assertRoleAllowsWrites();
 
 		return $this->__call( __FUNCTION__, func_get_args() );
@@ -878,7 +875,7 @@ class DBConnRef implements Stringable, IMaintainableDatabase, IDatabaseForOwner 
 	}
 
 	/** @inheritDoc */
-	public function decodeExpiry( $expiry, $format = TS::MW ) {
+	public function decodeExpiry( $expiry, $format = TS_MW ) {
 		return $this->__call( __FUNCTION__, func_get_args() );
 	}
 

@@ -6,6 +6,7 @@
 
 namespace MediaWiki\Language;
 
+use InvalidArgumentException;
 use LocalisationCache;
 
 /**
@@ -16,16 +17,14 @@ class LanguageFallback {
 	/**
 	 * Return a fallback chain for messages in getAll
 	 * @since 1.35
-	 * @deprecated since 1.46; use LanguageFallbackMode::MESSAGES
 	 */
-	public const MESSAGES = LanguageFallbackMode::MESSAGES;
+	public const MESSAGES = 0;
 
 	/**
 	 * Return a strict fallback chain in getAll
 	 * @since 1.35
-	 * @deprecated since 1.46; use LanguageFallbackMode::STRICT
 	 */
-	public const STRICT = LanguageFallbackMode::STRICT;
+	public const STRICT = 1;
 
 	/** @var string */
 	private $siteLangCode;
@@ -73,33 +72,36 @@ class LanguageFallback {
 	 *
 	 * @since 1.35
 	 * @param string $code Language code
-	 * @param int|LanguageFallbackMode $mode Fallback mode, either MESSAGES (which always falls back to 'en'), or STRICT
+	 * @param int $mode Fallback mode, either MESSAGES (which always falls back to 'en'), or STRICT
 	 *   (which only falls back to 'en' when explicitly defined)
 	 * @return string[] List of language codes
-	 * @note Using an `int` for $mode was deprecated in MW 1.46
 	 */
-	public function getAll( $code, $mode = LanguageFallbackMode::MESSAGES ) {
+	public function getAll( $code, $mode = self::MESSAGES ) {
 		// XXX The LanguageNameUtils dependency is just because of this line, is it needed?
 		// Especially because isValidBuiltInCode() is just a one-line regex anyway, maybe it should
 		// actually be static?
 		if ( $code === 'en' || !$this->langNameUtils->isValidBuiltInCode( $code ) ) {
 			return [];
 		}
-		if ( is_int( $mode ) ) {
-			$mode = LanguageFallbackMode::from( $mode );
-		}
-		return match ( $mode ) {
-			LanguageFallbackMode::MESSAGES =>
+		switch ( $mode ) {
+			case self::MESSAGES:
 				// For unknown languages, fallbackSequence returns an empty array. Hardcode fallback
 				// to 'en' in that case, as English messages are always defined.
-				$this->localisationCache->getItem( $code, 'fallbackSequence' ) ?: [ 'en' ],
+				$ret = $this->localisationCache->getItem( $code, 'fallbackSequence' ) ?: [ 'en' ];
+				break;
 
-			LanguageFallbackMode::STRICT =>
+			case self::STRICT:
 				// Use this mode when you don't want to fall back to English unless explicitly
 				// defined, for example, when you have language-variant icons and an international
 				// language-independent fallback.
-				$this->localisationCache->getItem( $code, 'originalFallbackSequence' ),
-		};
+				$ret = $this->localisationCache->getItem( $code, 'originalFallbackSequence' );
+				break;
+
+			default:
+				throw new InvalidArgumentException( "Invalid fallback mode \"$mode\"" );
+		}
+
+		return $ret;
 	}
 
 	/**

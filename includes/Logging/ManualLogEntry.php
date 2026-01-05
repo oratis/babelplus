@@ -27,7 +27,6 @@ use RuntimeException;
 use UnexpectedValueException;
 use Wikimedia\Assert\Assert;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Class for creating new log entries and inserting them into the database.
@@ -499,12 +498,12 @@ class ManualLogEntry extends LogEntryBase implements Taggable {
 	}
 
 	/**
-	 * @return string|false TS::MW timestamp, a string with 14 digits
+	 * @return string|false TS_MW timestamp, a string with 14 digits
 	 */
 	public function getTimestamp() {
 		$ts = $this->timestamp ?? wfTimestampNow();
 
-		return wfTimestamp( TS::MW, $ts );
+		return wfTimestamp( TS_MW, $ts );
 	}
 
 	/**
@@ -544,7 +543,7 @@ class ManualLogEntry extends LogEntryBase implements Taggable {
 	 * @since 1.25
 	 * @return bool
 	 */
-	public function isLegacy(): bool {
+	public function isLegacy() {
 		return $this->legacy;
 	}
 

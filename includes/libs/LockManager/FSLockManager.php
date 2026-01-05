@@ -3,9 +3,6 @@
  * @license GPL-2.0-or-later
  * @file
  */
-namespace Wikimedia\LockManager;
-
-use StatusValue;
 
 /**
  * Simple lock management based on server-local temporary files.
@@ -243,5 +240,3 @@ class FSLockManager extends LockManager {
 		}
 	}
 }
-/** @deprecated class alias since 1.46 */
-class_alias( FSLockManager::class, 'FSLockManager' );

@@ -18,7 +18,6 @@ use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWikiIntegrationTestCase;
 use Wikimedia\TestingAccessWrapper;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group AuthManager
@@ -83,7 +82,7 @@ class AbstractPasswordPrimaryAuthenticationProviderTest extends MediaWikiIntegra
 		$config->set( MainConfigNames::PasswordExpirationDays, 5 );
 		$this->assertEqualsWithDelta(
 			time() + 5 * 86400,
-			wfTimestamp( TS::UNIX, $providerPriv->getNewPasswordExpiry( $userName ) ),
+			wfTimestamp( TS_UNIX, $providerPriv->getNewPasswordExpiry( $userName ) ),
 			2 /* Fuzz */
 		);
 
@@ -151,9 +150,7 @@ class AbstractPasswordPrimaryAuthenticationProviderTest extends MediaWikiIntegra
 		$manager = new AuthManager(
 			new FauxRequest(),
 			$services->getMainConfig(),
-			$services->getChangeTagsStore(),
 			$services->getObjectFactory(),
-			$services->getObjectCacheFactory(),
 			$services->getHookContainer(),
 			$services->getReadOnlyMode(),
 			$services->getUserNameUtils(),
@@ -165,7 +162,6 @@ class AbstractPasswordPrimaryAuthenticationProviderTest extends MediaWikiIntegra
 			$services->getBotPasswordStore(),
 			$services->getUserFactory(),
 			$services->getUserIdentityLookup(),
-			$services->getUserIdentityUtils(),
 			$services->getUserOptionsManager(),
 			$services->getNotificationService(),
 			$services->getSessionManager()

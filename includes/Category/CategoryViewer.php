@@ -9,13 +9,13 @@
 namespace MediaWiki\Category;
 
 use Collation;
+use ImageGalleryBase;
+use ImageGalleryClassNotFoundException;
 use InvalidArgumentException;
 use MediaWiki\Cache\LinkCache;
 use MediaWiki\Context\ContextSource;
 use MediaWiki\Context\IContextSource;
 use MediaWiki\Debug\DeprecationHelper;
-use MediaWiki\Gallery\Exception\ImageGalleryClassNotFoundException;
-use MediaWiki\Gallery\ImageGalleryBase;
 use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
 use MediaWiki\Html\Html;
 use MediaWiki\Language\ILanguageConverter;
@@ -735,13 +735,23 @@ class CategoryViewer extends ContextSource {
 	 * @return LinkTarget
 	 */
 	private function addFragmentToTitle( PageReference $page, string $section ): LinkTarget {
-		$fragment = match ( $section ) {
-			'page' => 'mw-pages',
-			'subcat' => 'mw-subcategories',
-			'file' => 'mw-category-media',
-			default => throw new InvalidArgumentException( __METHOD__ . " Invalid section $section." )
-		};
-		return new TitleValue( $page->getNamespace(), $page->getDBkey(), $fragment );
+		switch ( $section ) {
+			case 'page':
+				$fragment = 'mw-pages';
+				break;
+			case 'subcat':
+				$fragment = 'mw-subcategories';
+				break;
+			case 'file':
+				$fragment = 'mw-category-media';
+				break;
+			default:
+				throw new InvalidArgumentException( __METHOD__ .
+					" Invalid section $section." );
+		}
+
+		return new TitleValue( $page->getNamespace(),
+			$page->getDBkey(), $fragment );
 	}
 
 	/**

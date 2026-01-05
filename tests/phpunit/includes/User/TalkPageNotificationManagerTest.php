@@ -13,7 +13,6 @@ use MediaWiki\User\TalkPageNotificationManager;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use MediaWiki\Utils\MWTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\User\TalkPageNotificationManager
@@ -133,7 +132,7 @@ class TalkPageNotificationManagerTest extends MediaWikiIntegrationTestCase {
 		$firstRev = $this->editUserTalk( $user, __METHOD__ . ' 1' );
 		$secondRev = $this->editUserTalk( $user, __METHOD__ . ' 2' );
 		$thirdRev = $this->editUserTalk( $user, __METHOD__ . ' 3' );
-		$veryOldTimestamp = MWTimestamp::convert( TS::MW, 1 );
+		$veryOldTimestamp = MWTimestamp::convert( TS_MW, 1 );
 		$mockOldRev = $this->createMock( RevisionRecord::class );
 		$mockOldRev->method( 'getTimestamp' )
 			->willReturn( $veryOldTimestamp );

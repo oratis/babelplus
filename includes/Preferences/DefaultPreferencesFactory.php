@@ -50,7 +50,6 @@ use MediaWiki\User\UserTimeCorrection;
 use MessageLocalizer;
 use OOUI\ButtonWidget;
 use OOUI\FieldLayout;
-use OOUI\HorizontalLayout;
 use OOUI\HtmlSnippet;
 use OOUI\LabelWidget;
 use OOUI\MessageWidget;
@@ -1360,7 +1359,7 @@ class DefaultPreferencesFactory implements PreferencesFactory {
 		$watchlistdaysMax = ceil( $this->options->get( MainConfigNames::RCMaxAge ) / ( 3600 * 24 ) );
 
 		if ( $user->isAllowed( 'editmywatchlist' ) ) {
-			$editWatchlistLinks = [];
+			$editWatchlistLinks = '';
 			$editWatchlistModes = [
 				'edit' => [ 'subpage' => false, 'flags' => [] ],
 				'raw' => [ 'subpage' => 'raw', 'flags' => [] ],
@@ -1368,7 +1367,7 @@ class DefaultPreferencesFactory implements PreferencesFactory {
 			];
 			foreach ( $editWatchlistModes as $mode => $options ) {
 				// Messages: prefs-editwatchlist-edit, prefs-editwatchlist-raw, prefs-editwatchlist-clear
-				$editWatchlistLinks[] =
+				$editWatchlistLinks .=
 					new ButtonWidget( [
 						'href' => SpecialPage::getTitleFor( 'EditWatchlist', $options['subpage'] )->getLinkURL(),
 						'flags' => $options[ 'flags' ],
@@ -1381,8 +1380,7 @@ class DefaultPreferencesFactory implements PreferencesFactory {
 			$defaultPreferences['editwatchlist'] = [
 				'type' => 'info',
 				'raw' => true,
-				// Improve button spacing when they are wrapped (T353365)
-				'default' => (string)new HorizontalLayout( [ 'items' => $editWatchlistLinks ] ),
+				'default' => $editWatchlistLinks,
 				'label-message' => 'prefs-editwatchlist-label',
 				'section' => 'watchlist/editwatchlist',
 			];
@@ -1519,11 +1517,6 @@ class DefaultPreferencesFactory implements PreferencesFactory {
 		}
 
 		$defaultPreferences['watchlisttoken'] = [
-			'type' => 'api',
-		];
-
-		// T408235
-		$defaultPreferences['watchlistlabelonboarding'] = [
 			'type' => 'api',
 		];
 

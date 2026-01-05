@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -24,6 +24,3 @@ interface SpecialResetTokensTokensHook {
 	 */
 	public function onSpecialResetTokensTokens( &$tokens );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialResetTokensTokensHook::class, 'MediaWiki\\Hook\\SpecialResetTokensTokensHook' );

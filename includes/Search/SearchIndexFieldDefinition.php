@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 /**
  * Basic infrastructure of the field definition.
  *
@@ -155,6 +153,3 @@ abstract class SearchIndexFieldDefinition implements SearchIndexField {
 		return [];
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchIndexFieldDefinition::class, 'SearchIndexFieldDefinition' );

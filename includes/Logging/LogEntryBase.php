@@ -28,8 +28,13 @@ abstract class LogEntryBase implements LogEntry {
 		return ( $this->getDeleted() & $field ) === $field;
 	}
 
-	/** @inheritDoc */
-	public function isLegacy(): bool {
+	/**
+	 * Whether the parameters for this log are stored in new or
+	 * old format.
+	 *
+	 * @return bool
+	 */
+	public function isLegacy() {
 		return false;
 	}
 

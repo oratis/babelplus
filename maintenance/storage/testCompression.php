@@ -11,7 +11,6 @@ use MediaWiki\Maintenance\Maintenance;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Title\Title;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/../Maintenance.php';
@@ -33,7 +32,7 @@ class TestCompression extends Maintenance {
 		$title = Title::newFromText( $this->getArg( 0 ) );
 
 		if ( $this->hasOption( 'start' ) ) {
-			$start = wfTimestamp( TS::MW, strtotime( $this->getOption( 'start' ) ) );
+			$start = wfTimestamp( TS_MW, strtotime( $this->getOption( 'start' ) ) );
 			echo "Starting from " . $lang->timeanddate( $start ) . "\n";
 		} else {
 			$start = '19700101000000';

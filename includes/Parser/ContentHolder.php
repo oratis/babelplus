@@ -245,10 +245,7 @@ class ContentHolder {
 			// the page bundle.
 			$this->convertDomToHtml();
 		}
-		$pb = $this->pageBundle;
-		// Parsoid content implies page bundle is non-null
-		'@phan-var BasePageBundle $pb';
-		return $pb;
+		return $this->pageBundle;
 	}
 
 	private function convertHtmlToDom() {
@@ -289,11 +286,8 @@ class ContentHolder {
 			$siteConfig = MediaWikiServices::getInstance()->getParsoidSiteConfig();
 			$body = $this->domMap[ self::BODY_FRAGMENT ] ?? null;
 			unset( $this->domMap[ self::BODY_FRAGMENT ] );
-			if ( $body !== null ) {
-				DOMCompat::appendChild(
-					DOMCompat::getBody( $this->ownerDocument ),
-					$body
-				);
+			if ( $body !== null && $body->hasChildNodes() ) {
+				DOMCompat::getBody( $this->ownerDocument )->appendChild( $body );
 			}
 			$pb = HtmlPageBundle::fromDomPageBundle(
 				DomPageBundle::fromLoadedDocument( $this->ownerDocument, [

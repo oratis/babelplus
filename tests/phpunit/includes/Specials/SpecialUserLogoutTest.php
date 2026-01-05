@@ -1,12 +1,10 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Specials\SpecialUserLogout;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
-use TestUser;
 
 /**
  * @covers \MediaWiki\Specials\SpecialUserLogout

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\HTMLForm\HTMLForm;
 use MediaWiki\Page\Article;
@@ -25,6 +25,3 @@ interface ActionBeforeFormDisplayHook {
 	 */
 	public function onActionBeforeFormDisplay( $name, $form, $article );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ActionBeforeFormDisplayHook::class, 'MediaWiki\\Hook\\ActionBeforeFormDisplayHook' );

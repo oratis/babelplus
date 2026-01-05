@@ -1635,12 +1635,6 @@ config-schema:
     UserEmailConfirmationTokenExpiry:
         default: 604800
         description: 'The time, in seconds, when an email confirmation email expires'
-    UserEmailConfirmationUseHTML:
-        default: false
-        type: boolean
-        description: |-
-            Whether the modern email confirmation message is used
-            @since 1.46
     PasswordExpirationDays:
         default: false
         description: |-
@@ -1901,6 +1895,8 @@ config-schema:
                              If this is zero for any given server, no normal query traffic will be
                              sent to it. It will be excluded from lag checks in maintenance scripts.
                              The only way it can receive traffic is if groupLoads is used.
+              - groupLoads:  (optional) Array of load ratios, the key is the query group name. A query
+                             may belong to several groups, the most specific group defined here is used.
               - flags:       (optional) Bit field of properties:
                              - DBO_DEFAULT:    Transactional-ize web requests and use autocommit otherwise
                              - DBO_DEBUG:      Equivalent of $wgDebugDumpSql
@@ -2044,16 +2040,6 @@ config-schema:
               - SCHEMA_COMPAT_WRITE_BOTH | SCHEMA_COMPAT_READ_OLD
             History:
               - 1.44: Added
-    ImageLinksSchemaMigrationStage:
-        default: 3
-        type: integer
-        description: |-
-            Migration stage for imagelinks tables
-            Use the SCHEMA_COMPAT_XXX flags. Supported values:
-              - SCHEMA_COMPAT_WRITE_OLD | SCHEMA_COMPAT_READ_OLD (SCHEMA_COMPAT_OLD)
-              - SCHEMA_COMPAT_WRITE_BOTH | SCHEMA_COMPAT_READ_OLD
-            History:
-              - 1.46: Added
     ExternalLinksDomainGaps:
         default: {  }
         type: object
@@ -2622,8 +2608,6 @@ config-schema:
         default:
             pcache: { default: { minCpuTime: 0 } }
             parsoid-pcache: { default: { minCpuTime: 0 } }
-            postproc-pcache: { default: { minCpuTime: 9223372036854775807 } }
-            postproc-parsoid-pcache: { default: { minCpuTime: 9223372036854775807 } }
         additionalProperties:
             type: object
             description: 'A map of namespace IDs to filter definitions.'
@@ -3009,7 +2993,7 @@ config-schema:
     LanguageCode:
         default: en
         description: |-
-            Site language code. See includes/Languages/Data/Names.php for languages
+            Site language code. See includes/languages/data/Names.php for languages
             supported by MediaWiki out of the box. Not all languages listed there have
             translations, see languages/messages/ for the list of languages with some
             localisation.
@@ -4343,13 +4327,6 @@ config-schema:
         description: |-
             By default MediaWiki does not register links pointing to same server in
             externallinks dataset, use this value to override:
-    ExternalLinksIgnoreDomains:
-        default: []
-        type: array
-        description: |-
-            List of domains that will be ignored in being tracked into externallinks table.
-            Subdomains will be also ignored. So 'wikipedia.org' means 'fa.wikipedia.org'
-            will be also ignored.
     AllowDisplayTitle:
         default: true
         description: 'Allow DISPLAYTITLE to change title display'
@@ -4546,7 +4523,8 @@ config-schema:
             every check should have a corresponding passwordpolicies-policy-<check> message,
             and every settings field other than 'value' should have a corresponding
             passwordpolicies-policyflag-<flag> message (<check> and <flag> are in lowercase).
-            The check message receives the policy value as a parameter.
+            The check message receives the policy value as a parameter, the flag message
+            receives the flag value (or values if it's an array).
             @since 1.26
             @see \MediaWiki\Password\PasswordPolicyChecks
             @see \MediaWiki\User\User::checkPasswordValidity()
@@ -4888,10 +4866,6 @@ config-schema:
         default: []
         type: array
         description: 'An array of preferences to not show for the user'
-    UserJsPrefLimit:
-        default: 100
-        type: integer
-        description: 'Maximum number of userjs preferences allowed for each user'
     InvalidUsernameCharacters:
         default: '@:>='
         description: |-
@@ -5229,26 +5203,6 @@ config-schema:
         default: {  }
         type: object
         description: '@see self::GroupsAddToSelf'
-    RestrictedGroups:
-        default: {  }
-        type: object
-        description: |-
-            A map of group names to the conditions under which the group can be granted.
-            The requirements are specified in the same way as for autopromotion.
-            If `canBeIgnored` is set to true, these restrictions can be bypassed by users
-            who have the `ignore-restricted-groups` permission.
-            If either of the `memberConditions` or `updaterConditions` keys are omitted,
-            they default to an empty array (i.e. no conditions). The default value for
-            `canBeIgnored` is false.
-            ```
-            $wgRestrictedGroups = [
-                'sysop' => [
-                    'memberConditions' => [ APCOND_EDITCOUNT, 1000 ],
-                    'updaterConditions' => [ !, APCOND_ISBOT ],
-                    'canBeIgnored' => false,
-                ]
-            ]
-            ```
     RestrictionTypes:
         default:
             - create
@@ -6058,6 +6012,12 @@ config-schema:
             This should be set in LocalSettings.php, otherwise $wgSecretKey will
             be used.
             @since 1.27
+    EnableUnsafeXsltOption:
+        default: false
+        description: |-
+            Enable the deprecated xslt option in the Action API.
+            This is unsafe and allows users with the editinterface right to perform XSS.
+            @see https://phabricator.wikimedia.org/T401995
     CookieExpiration:
         default: 2592000
         description: 'Default cookie lifetime, in seconds. Setting to 0 makes all cookies session-only.'
@@ -6929,7 +6889,6 @@ config-schema:
             mw-manual-revert: true
             mw-reverted: true
             mw-server-side-upload: true
-            mw-ipblock-appeal: true
         type: object
         additionalProperties:
             type: boolean
@@ -6949,7 +6908,6 @@ config-schema:
             @see \MediaWiki\ChangeTags\ChangeTags::TAG_MANUAL_REVERT
             @see \MediaWiki\ChangeTags\ChangeTags::TAG_REVERTED
             @see \MediaWiki\ChangeTags\ChangeTags::TAG_SERVER_SIDE_UPLOAD
-            @see \MediaWiki\ChangeTags\ChangeTags::TAG_IPBLOCK_APPEAL
     UnwatchedPageThreshold:
         default: false
         description: |-
@@ -6991,18 +6949,6 @@ config-schema:
         description: |-
             Whether to enable the watchlist expiry feature.
             @since 1.35
-    EnableWatchlistLabels:
-        default: false
-        type: boolean
-        description: |-
-            Whether to enable the watchlist labels feature.
-            @since 1.46
-    WatchlistLabelsMaxPerUser:
-        default: 100
-        type: integer
-        description: |-
-            Maximum number of labels a user can create for their watchlist.
-            @since 1.46
     WatchlistPurgeRate:
         default: 0.1
         type: number
@@ -7025,6 +6971,12 @@ config-schema:
             Only has effect if $wgWatchlistExpiry is true.
             Set to null to allow expiries of any duration.
             @since 1.35
+    EditWatchlistPaginate:
+        default: false
+        type: boolean
+        description: |-
+            Whether to enable pagination on Special:EditWatchlist (feature flag)
+            @since 1.45
     EnableChangesListQueryPartitioning:
         default: false
         type: boolean
@@ -7384,12 +7336,12 @@ config-schema:
             clearUserWatchlist: MediaWiki\Watchlist\ClearUserWatchlistJob
             watchlistExpiry: MediaWiki\Watchlist\WatchlistExpiryJob
             cdnPurge: MediaWiki\JobQueue\Jobs\CdnPurgeJob
-            userGroupExpiry: MediaWiki\User\UserGroupExpiryJob
+            userGroupExpiry: UserGroupExpiryJob
             clearWatchlistNotifications: MediaWiki\Watchlist\ClearWatchlistNotificationsJob
-            userOptionsUpdate: MediaWiki\User\Options\UserOptionsUpdateJob
+            userOptionsUpdate: UserOptionsUpdateJob
             revertedTagUpdate: MediaWiki\JobQueue\Jobs\RevertedTagUpdateJob
             'null': MediaWiki\JobQueue\Jobs\NullJob
-            userEditCountInit: MediaWiki\User\UserEditCountInitJob
+            userEditCountInit: UserEditCountInitJob
             parsoidCachePrewarm: { class: MediaWiki\JobQueue\Jobs\ParsoidCachePrewarmJob, services: [ParserOutputAccess, PageStore, RevisionLookup, ParsoidSiteConfig], needsPage: false }
             renameUserTable: { class: MediaWiki\RenameUser\Job\RenameUserTableJob, services: [MainConfig, DBLoadBalancerFactory] }
             renameUserDerived: { class: MediaWiki\RenameUser\Job\RenameUserDerivedJob, services: [RenameUserFactory, UserFactory] }
@@ -7915,6 +7867,12 @@ config-schema:
             Maximum amount of DB lag on a majority of DB replica DBs to tolerate
             before forcing bots to retry any write requests via API errors.
             This should be lower than the 'max lag' value in $wgLBFactoryConf.
+    APIRequestLog:
+        default: false
+        deprecated: 'since 1.43; use api or api-request $wgDebugLogGroups channel'
+        description: |-
+            Log file or URL (TCP or UDP) to log API requests to, or false to disable
+            API request logging
     APICacheHelpTimeout:
         default: 3600
         description: 'Set the timeout for the API help text cache. If set to 0, caching disabled'
@@ -7977,26 +7935,6 @@ config-schema:
         description: |-
             Additional REST API Route files.
             A common usage is to enable development/experimental endpoints only on test wikis.
-    RestSandboxSpecs:
-        default: {  }
-        type: object
-        additionalProperties:
-            type: object
-            properties: { url: { type: string, format: url }, name: { type: string }, msg: { type: string, description: 'a message key' } }
-            required: [url]
-        description: |-
-            A list of OpenAPI specs to be made available for exploration on
-            Special:RestSandbox. If none are given, Special:RestSandbox is disabled.
-            This is an associative array, arbitrary spec IDs to spec descriptions.
-            Each spec description is an array with the following keys:
-            - url: the URL that will return the OpenAPI spec.
-            - name: the name of the API, to be shown on Special:RestSandbox.
-              Ignored if msg is given.
-            - msg: a message key for the name of the API, to be shown on
-              Special:RestSandbox.
-            @unstable Introduced in 1.43. We may want to rename or change this to
-            accommodate the need to list external APIs in a central discovery
-            document.
     MaxShellMemory:
         default: 307200
         description: 'Maximum amount of virtual memory available to shell processes under linux, in KiB.'
@@ -8365,13 +8303,6 @@ config-schema:
             ];
             @encdode
             @since 1.44
-    CloneArticleParserOutput:
-        default: true
-        type: boolean
-        description: |-
-            Whether Article should clone the ParserOutput before postprocessing.
-            @unstable Temporary feature flag, T410923
-            @since 1.45
     UseLeximorph:
         default: false
         type: boolean
@@ -8379,10 +8310,3 @@ config-schema:
             Whether parser functions should use Leximorph handlers instead of Language methods.
             @unstable Temporary feature flag, T389281
             @since 1.45
-    UsePostprocCache:
-        default: false
-        type: boolean
-        description: |-
-            Whether to use the post-OutputTransform cache
-            @unstable Temporary feature flag, T348255
-            @since 1.46

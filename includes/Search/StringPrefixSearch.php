@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Search;
-
 use MediaWiki\Title\Title;
 
 /**
@@ -35,6 +33,3 @@ class StringPrefixSearch extends PrefixSearch {
 		return $strings;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( StringPrefixSearch::class, 'StringPrefixSearch' );

@@ -493,6 +493,7 @@ abstract class File implements MediaHandlerState {
 		if ( !$this->fsFile ) {
 			$timer = MediaWikiServices::getInstance()->getStatsFactory()
 				->getTiming( 'media_thumbnail_generate_fetchoriginal_seconds' )
+				->copyToStatsdAt( 'media.thumbnail.generate.fetchoriginal' )
 				->start();
 
 			$this->fsFile = $this->repo->getLocalReference( $this->getPath() );
@@ -1134,12 +1135,6 @@ abstract class File implements MediaHandlerState {
 		return $thumbName;
 	}
 
-	/**
-	 * Adjust the thumbnail size to fit the width steps defined in config via
-	 * $wgThumbnailSteps, according to whether $wgThumbnailStepsRatio is set.
-	 *
-	 * This logic is duplicated client-side in mw.util.adjustThumbWidthForSteps.
-	 */
 	private function adjustThumbWidthForSteps( array $params ): array {
 		$thumbnailSteps = MediaWikiServices::getInstance()
 			->getMainConfig()->get( MainConfigNames::ThumbnailSteps );
@@ -1168,11 +1163,8 @@ abstract class File implements MediaHandlerState {
 
 		$newThumbSize = null;
 		foreach ( $thumbnailSteps as $widthStep ) {
-			if ( ( $widthStep > $this->getWidth() ) && !$this->isVectorized() ) {
-				// Round up to original width if there is no step between
-				// desired thumb width & original file width
-				$newThumbSize = $this->getWidth();
-				break;
+			if ( $widthStep > $this->getWidth() ) {
+				return $params;
 			}
 			if ( $widthStep == $params['physicalWidth'] ) {
 				return $params;
@@ -1422,6 +1414,7 @@ abstract class File implements MediaHandlerState {
 			// Copy the thumbnail from the file system into storage...
 
 			$timer = $statsFactory->getTiming( 'media_thumbnail_generate_store_seconds' )
+				->copyToStatsdAt( 'media.thumbnail.generate.store' )
 				->start();
 
 			wfDebug( __METHOD__ . ": copying $tmpThumbPath to $thumbPath" );
@@ -1469,7 +1462,8 @@ abstract class File implements MediaHandlerState {
 		}
 
 		$timer = MediaWikiServices::getInstance()->getStatsFactory()
-			->getTiming( 'media_thumbnail_generate_bucket_seconds' );
+			->getTiming( 'media_thumbnail_generate_bucket_seconds' )
+			->copyToStatsdAt( 'media.thumbnail.generate.bucket' );
 		$timer->start();
 
 		$params['physicalWidth'] = $bucket;
@@ -1550,7 +1544,11 @@ abstract class File implements MediaHandlerState {
 		// everyone does it at once.
 		if ( $this->getSize() >= 1e7 ) { // 10 MB
 			$work = new PoolCounterWorkViaCallback( 'GetLocalFileCopy', sha1( $this->getName() ),
-				[ 'doWork' => $this->getLocalRefPath( ... ) ]
+				[
+					'doWork' => function () {
+						return $this->getLocalRefPath();
+					}
+				]
 			);
 			$srcPath = $work->execute();
 		} else {
@@ -2370,7 +2368,7 @@ abstract class File implements MediaHandlerState {
 	 * Get the 14-character timestamp of the file upload
 	 *
 	 * @stable to override
-	 * @return string|false TS::MW timestamp or false on failure
+	 * @return string|false TS_MW timestamp or false on failure
 	 */
 	public function getTimestamp() {
 		$this->assertRepoDefined();
@@ -2379,7 +2377,7 @@ abstract class File implements MediaHandlerState {
 	}
 
 	/**
-	 * Returns the timestamp (in TS::MW format) of the last change of the description page.
+	 * Returns the timestamp (in TS_MW format) of the last change of the description page.
 	 * Returns false if the file does not have a description page, or retrieving the timestamp
 	 * would be expensive.
 	 * @since 1.25

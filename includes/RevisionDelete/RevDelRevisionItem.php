@@ -13,7 +13,6 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\RecentChanges\RecentChange;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\RevisionList\RevisionListBase;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Item class for a live revision table row
@@ -235,7 +234,7 @@ class RevDelRevisionItem extends RevDelItem {
 		$authority = $this->list->getAuthority();
 		$ret = [
 			'id' => $revRecord->getId(),
-			'timestamp' => wfTimestamp( TS::ISO_8601, $revRecord->getTimestamp() ),
+			'timestamp' => wfTimestamp( TS_ISO_8601, $revRecord->getTimestamp() ),
 			'userhidden' => (bool)$revRecord->isDeleted( RevisionRecord::DELETED_USER ),
 			'commenthidden' => (bool)$revRecord->isDeleted( RevisionRecord::DELETED_COMMENT ),
 			'texthidden' => (bool)$revRecord->isDeleted( RevisionRecord::DELETED_TEXT ),

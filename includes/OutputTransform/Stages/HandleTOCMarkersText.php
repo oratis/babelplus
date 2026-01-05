@@ -33,11 +33,11 @@ class HandleTOCMarkersText extends ContentTextTransformStage {
 		$this->tidy = $tidy;
 	}
 
-	public function shouldRun( ParserOutput $po, ParserOptions $popts, array $options = [] ): bool {
+	public function shouldRun( ParserOutput $po, ?ParserOptions $popts, array $options = [] ): bool {
 		return !( $options['allowTOC'] ?? true ) || ( $options['injectTOC'] ?? true );
 	}
 
-	protected function transformText( string $text, ParserOutput $po, ParserOptions $popts, array &$options ): string {
+	protected function transformText( string $text, ParserOutput $po, ?ParserOptions $popts, array &$options ): string {
 		if ( ( $options['allowTOC'] ?? true ) && ( $options['injectTOC'] ?? true ) ) {
 			return $this->injectTOC( $text, $po, $options );
 		}
@@ -56,7 +56,7 @@ class HandleTOCMarkersText extends ContentTextTransformStage {
 		} else {
 			$toc = self::generateTOC( $tocData, $lang );
 			// TODO: This may no longer be needed since Ic0a805f29c928d0c2edf266ea045b0d29bb45a28
-			$toc = $this->tidy->tidy( $toc, Sanitizer::armorFrenchSpaces( ... ) );
+			$toc = $this->tidy->tidy( $toc, [ Sanitizer::class, 'armorFrenchSpaces' ] );
 		}
 
 		return Parser::replaceTableOfContentsMarker( $text, $toc );

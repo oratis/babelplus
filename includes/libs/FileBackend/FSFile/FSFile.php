@@ -11,7 +11,6 @@ namespace Wikimedia\FileBackend\FSFile;
 
 use Wikimedia\AtEase\AtEase;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Class representing a non-directory file on the file system
@@ -68,14 +67,14 @@ class FSFile {
 	/**
 	 * Get the file's last-modified timestamp
 	 *
-	 * @return string|bool TS::MW timestamp or false on failure
+	 * @return string|bool TS_MW timestamp or false on failure
 	 */
 	public function getTimestamp() {
 		AtEase::suppressWarnings();
 		$timestamp = filemtime( $this->path );
 		AtEase::restoreWarnings();
 		if ( $timestamp !== false ) {
-			$timestamp = ConvertibleTimestamp::convert( TS::MW, $timestamp );
+			$timestamp = ConvertibleTimestamp::convert( TS_MW, $timestamp );
 		}
 
 		return $timestamp;
@@ -137,15 +136,16 @@ class FSFile {
 	 * @return array
 	 */
 	public static function placeholderProps() {
-		return [
-			'fileExists' => false,
-			'size' => 0,
-			'file-mime' => null,
-			'major_mime' => null,
-			'minor_mime' => null,
-			'mime' => null,
-			'sha1' => '',
-		];
+		$info = [];
+		$info['fileExists'] = false;
+		$info['size'] = 0;
+		$info['file-mime'] = null;
+		$info['major_mime'] = null;
+		$info['minor_mime'] = null;
+		$info['mime'] = null;
+		$info['sha1'] = '';
+
+		return $info;
 	}
 
 	/**

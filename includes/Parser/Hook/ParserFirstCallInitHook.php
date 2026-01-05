@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Parser\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Parser\Parser;
 
@@ -22,6 +22,3 @@ interface ParserFirstCallInitHook {
 	 */
 	public function onParserFirstCallInit( $parser );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ParserFirstCallInitHook::class, 'MediaWiki\\Hook\\ParserFirstCallInitHook' );

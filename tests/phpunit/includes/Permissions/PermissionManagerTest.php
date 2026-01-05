@@ -12,10 +12,10 @@ use MediaWiki\Block\Restriction\ActionRestriction;
 use MediaWiki\Block\Restriction\NamespaceRestriction;
 use MediaWiki\Block\Restriction\PageRestriction;
 use MediaWiki\Block\SystemBlock;
+use MediaWiki\Cache\CacheKeyHelper;
 use MediaWiki\Context\RequestContext;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Message\Message;
-use MediaWiki\Page\CacheKeyHelper;
 use MediaWiki\Permissions\PermissionManager;
 use MediaWiki\Permissions\PermissionStatus;
 use MediaWiki\Request\FauxRequest;
@@ -33,7 +33,6 @@ use stdClass;
 use TestAllServiceOptionsUsed;
 use Wikimedia\ScopedCallback;
 use Wikimedia\TestingAccessWrapper;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * For the pure unit tests, see \MediaWiki\Tests\Unit\Permissions\PermissionManagerTest.
@@ -1067,7 +1066,7 @@ class PermissionManagerTest extends MediaWikiLangTestCase {
 		$blockStore = $this->getServiceContainer()->getDatabaseBlockStore();
 		$block = $blockStore->newUnsaved( [
 			'targetUser' => $user,
-			'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+			'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 			'allowUsertalk' => $options['allowUsertalk'] ?? false,
 			'sitewide' => !$restrictions,
 		] );

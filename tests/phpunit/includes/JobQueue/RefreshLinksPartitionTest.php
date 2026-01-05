@@ -1,11 +1,9 @@
 <?php
-namespace MediaWiki\Tests\JobQueue;
 
 use MediaWiki\JobQueue\Job;
 use MediaWiki\JobQueue\Jobs\RefreshLinksJob;
 use MediaWiki\JobQueue\Utils\BacklinkJobUtils;
 use MediaWiki\Title\Title;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @group JobQueue

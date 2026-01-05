@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Specials\SpecialBookSources;
 use MediaWiki\Title\TitleFactory;

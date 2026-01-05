@@ -5,8 +5,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Page\File\FileDeleteForm;
 use MediaWiki\Tests\Api\ApiTestCase;
 use MediaWiki\Title\Title;
-use MediaWiki\Upload\UploadBase;
-use MediaWiki\Upload\UploadFromUrl;
 use MediaWiki\User\User;
 use Wikimedia\TestingAccessWrapper;
 
@@ -15,7 +13,7 @@ use Wikimedia\TestingAccessWrapper;
  * @group Upload
  * @group Database
  *
- * @covers \MediaWiki\Upload\UploadFromUrl
+ * @covers \UploadFromUrl
  */
 class UploadFromUrlTest extends ApiTestCase {
 	use MockHttpTrait;

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Page\PageArchive;
 use MediaWiki\Title\Title;
@@ -25,6 +25,3 @@ interface UndeleteForm__showHistoryHook {
 	 */
 	public function onUndeleteForm__showHistory( &$archive, $title );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UndeleteForm__showHistoryHook::class, 'MediaWiki\\Hook\\UndeleteForm__showHistoryHook' );

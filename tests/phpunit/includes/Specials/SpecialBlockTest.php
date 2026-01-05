@@ -1,7 +1,5 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
-use Generator;
 use MediaWiki\Block\BlockRestrictionStore;
 use MediaWiki\Block\DatabaseBlockStore;
 use MediaWiki\Block\Restriction\ActionRestriction;

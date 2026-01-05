@@ -3,17 +3,15 @@
 namespace MediaWiki\Tests\Api\Query;
 
 use MediaWiki\CommentStore\CommentStoreComment;
-use MediaWiki\Page\PageReference;
-use MediaWiki\Page\PageReferenceValue;
+use MediaWiki\Linker\LinkTarget;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\RecentChanges\RecentChange;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Tests\Api\ApiTestCase;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\User;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group medium
@@ -47,10 +45,6 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		return $this->notLoggedInUser;
 	}
 
-	private static function makeTitle( int $ns, string $dbKey ): PageReferenceValue {
-		return PageReferenceValue::localReference( $ns, $dbKey );
-	}
-
 	private function doPageEdit( Authority $performer, $target, $content, $summary ) {
 		$this->editPage(
 			$target,
@@ -61,8 +55,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		);
 	}
 
-	private function doMinorPageEdit( User $user, PageReference $target, $content, $summary ) {
-		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $target );
+	private function doMinorPageEdit( User $user, LinkTarget $target, $content, $summary ) {
+		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromLinkTarget( $target );
 		$page->doUserEditContent(
 			$page->getContentHandler()->unserializeContent( $content ),
 			$user,
@@ -71,8 +65,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		);
 	}
 
-	private function doBotPageEdit( User $user, PageReference $target, $content, $summary ) {
-		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $target );
+	private function doBotPageEdit( User $user, LinkTarget $target, $content, $summary ) {
+		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromLinkTarget( $target );
 		$page->doUserEditContent(
 			$page->getContentHandler()->unserializeContent( $content ),
 			$user,
@@ -81,7 +75,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		);
 	}
 
-	private function doAnonPageEdit( PageReference $target, $content, $summary ) {
+	private function doAnonPageEdit( LinkTarget $target, $content, $summary ) {
 		$this->disableAutoCreateTempUser();
 		$this->editPage(
 			$target,
@@ -92,7 +86,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		);
 	}
 
-	private function doTempPageEdit( PageReference $target, $content, $summary ) {
+	private function doTempPageEdit( LinkTarget $target, $content, $summary ) {
 		$this->enableAutoCreateTempUser();
 		$this->editPage(
 			$target,
@@ -105,13 +99,13 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	private function doPatrolledPageEdit(
 		User $user,
-		PageReference $target,
+		LinkTarget $target,
 		$content,
 		$summary,
 		User $patrollingUser
 	) {
 		$summary = CommentStoreComment::newUnsavedComment( trim( $summary ) );
-		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $target );
+		$page = $this->getServiceContainer()->getWikiPageFactory()->newFromLinkTarget( $target );
 
 		$updater = $page->newPageUpdater( $user );
 		$updater->setContent( SlotRecord::MAIN, $page->getContentHandler()->unserializeContent( $content ) );
@@ -125,7 +119,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 	 * Performs a batch of page edits as a specified user
 	 * @param User $user
 	 * @param array $editData associative array, keys:
-	 *                        - target    => PageReference page to edit
+	 *                        - target    => LinkTarget page to edit
 	 *                        - content   => string new content
 	 *                        - summary   => string edit summary
 	 *                        - minorEdit => bool mark as minor edit if true (defaults to false)
@@ -166,7 +160,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	/**
 	 * @param User $user
-	 * @param PageReference[] $targets
+	 * @param LinkTarget[] $targets
 	 */
 	private function watchPages( User $user, array $targets ) {
 		$store = $this->getWatchedItemStore();
@@ -241,7 +235,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		}
 	}
 
-	private function getPrefixedText( PageReference $target ) {
+	private function getPrefixedText( LinkTarget $target ) {
 		return $this->getServiceContainer()->getTitleFormatter()->getPrefixedText( $target );
 	}
 
@@ -260,7 +254,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		$this->cleanTestUsersWatchlist();
 
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -293,7 +287,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testIdsPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -314,8 +308,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testTitlePropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -354,9 +348,9 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testFlagsPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$normalEditTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$minorEditTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageM' );
-		$botEditTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageB' );
+		$normalEditTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$minorEditTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageM' );
+		$botEditTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageB' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -415,8 +409,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testUserPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$userEditTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$anonEditTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageA' );
+		$userEditTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$anonEditTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageA' );
 		$this->doPageEdit(
 			$user,
 			$userEditTarget,
@@ -453,8 +447,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testUserIdPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$userEditTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$anonEditTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageA' );
+		$userEditTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$anonEditTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPageA' );
 		$this->doPageEdit(
 			$user,
 			$userEditTarget,
@@ -491,7 +485,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testCommentPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -515,7 +509,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testParsedCommentPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -539,7 +533,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testTimestampPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -558,7 +552,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testSizesPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -583,7 +577,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testNotificationTimestampPropParameter() {
 		$otherUser = $this->getNonLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$otherUser,
 			$target,
@@ -612,7 +606,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 	}
 
 	private function setupPatrolledSpecificFixtures( User $user ) {
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 
 		$this->doPatrolledPageEdit(
 			$user,
@@ -645,8 +639,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		);
 	}
 
-	private function createPageAndDeleteIt( PageReference $target ) {
-		$wikiPage = $this->getServiceContainer()->getWikiPageFactory()->newFromTitle( $target );
+	private function createPageAndDeleteIt( LinkTarget $target ) {
+		$wikiPage = $this->getServiceContainer()->getWikiPageFactory()->newFromLinkTarget( $target );
 		$this->doPageEdit(
 			$this->getLoggedInTestUser(),
 			$wikiPage,
@@ -657,7 +651,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 	}
 
 	public function testLoginfoPropParameter() {
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->createPageAndDeleteIt( $target );
 
 		$this->watchPages( $this->getLoggedInTestUser(), [ $target ] );
@@ -681,7 +675,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testEmptyPropParameter() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -704,8 +698,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testNamespaceParam() {
 		$user = $this->getLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -740,8 +734,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 	public function testUserParam() {
 		$user = $this->getLoggedInTestUser();
 		$otherUser = $this->getNonLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$subjectTarget,
@@ -779,8 +773,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 	public function testExcludeUserParam() {
 		$user = $this->getLoggedInTestUser();
 		$otherUser = $this->getNonLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$subjectTarget,
@@ -817,7 +811,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testShowMinorParams() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -856,7 +850,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testShowBotParams() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doBotPageEdit(
 			$user,
 			$target,
@@ -884,7 +878,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testShowAnonParams() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doAnonPageEdit(
 			$target,
 			'Some Content',
@@ -916,7 +910,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testShowAnonParamsTemp() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doTempPageEdit(
 			$target,
 			'Some more content',
@@ -949,8 +943,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 	public function testShowUnreadParams() {
 		$user = $this->getLoggedInTestUser();
 		$otherUser = $this->getNonLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$subjectTarget,
@@ -1033,8 +1027,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testNewAndEditTypeParameters() {
 		$user = $this->getLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -1084,8 +1078,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testLogTypeParameters() {
 		$user = $this->getLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->createPageAndDeleteIt( $subjectTarget );
 		$this->doPageEdit(
 			$user,
@@ -1109,17 +1103,18 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		);
 	}
 
-	private function getExternalRC( PageReference $target ) {
+	private function getExternalRC( LinkTarget $target ) {
 		$this->getServiceContainer()->getRecentChangeStore()
 			->addSourceForTest( 'external', [] );
 
-		$title = $this->getServiceContainer()->getTitleFactory()->newFromPageReference( $target );
+		$title = $this->getServiceContainer()->getTitleFactory()->newFromLinkTarget( $target );
 
 		$rc = new RecentChange;
 		$rc->mAttribs = [
-			'rc_timestamp' => ConvertibleTimestamp::now( TS::MW ),
+			'rc_timestamp' => wfTimestamp( TS_MW ),
 			'rc_namespace' => $title->getNamespace(),
 			'rc_title' => $title->getDBkey(),
+			'rc_type' => RC_EXTERNAL,
 			'rc_source' => 'external',
 			'rc_minor' => 0,
 			'rc_cur_id' => $title->getArticleID(),
@@ -1154,8 +1149,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testExternalTypeParameters() {
 		$user = $this->getLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$subjectTarget,
@@ -1190,8 +1185,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testCategorizeTypeParameter() {
 		$user = $this->getLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$categoryTarget = self::makeTitle( NS_CATEGORY, 'ApiQueryWatchlistIntegrationTestCategory' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$categoryTarget = new TitleValue( NS_CATEGORY, 'ApiQueryWatchlistIntegrationTestCategory' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -1207,7 +1202,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 				],
 			]
 		);
-		$title = $this->getServiceContainer()->getTitleFactory()->newFromPageReference( $subjectTarget );
+		$title = $this->getServiceContainer()->getTitleFactory()->newFromLinkTarget( $subjectTarget );
 		$revision = $this->getServiceContainer()
 			->getRevisionLookup()
 			->getRevisionByTitle( $title );
@@ -1216,7 +1211,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 		$recentChangeStore = $this->getServiceContainer()->getRecentChangeStore();
 		$rc = $recentChangeStore->createCategorizationRecentChange(
 			$revision->getTimestamp(),
-			$this->getServiceContainer()->getTitleFactory()->newFromPageReference( $categoryTarget ),
+			$this->getServiceContainer()->getTitleFactory()->newFromLinkTarget( $categoryTarget ),
 			$user,
 			$comment ? $comment->text : '',
 			$title,
@@ -1244,9 +1239,9 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testLimitParam() {
 		$user = $this->getLoggedInTestUser();
-		$target1 = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$target2 = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
-		$target3 = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage2' );
+		$target1 = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target2 = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target3 = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage2' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -1313,7 +1308,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testAllRevParam() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -1363,8 +1358,8 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testDirParams() {
 		$user = $this->getLoggedInTestUser();
-		$subjectTarget = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$talkTarget = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$subjectTarget = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$talkTarget = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -1419,7 +1414,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testStartEndParams() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -1454,9 +1449,9 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testContinueParam() {
 		$user = $this->getLoggedInTestUser();
-		$target1 = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
-		$target2 = self::makeTitle( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
-		$target3 = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage2' );
+		$target1 = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target2 = new TitleValue( NS_TALK, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target3 = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage2' );
 		$this->doPageEdits(
 			$user,
 			[
@@ -1517,7 +1512,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 	}
 
 	public function testOwnerAndTokenParams() {
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$this->getLoggedInTestUser(),
 			$target,
@@ -1581,7 +1576,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testGeneratorWatchlistPropInfo_returnsWatchedPages() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdit(
 			$user,
 			$target,
@@ -1613,7 +1608,7 @@ class ApiQueryWatchlistIntegrationTest extends ApiTestCase {
 
 	public function testGeneratorWatchlistPropRevisions_returnsWatchedItemsRevisions() {
 		$user = $this->getLoggedInTestUser();
-		$target = self::makeTitle( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
+		$target = new TitleValue( NS_MAIN, 'ApiQueryWatchlistIntegrationTestPage' );
 		$this->doPageEdits(
 			$user,
 			[

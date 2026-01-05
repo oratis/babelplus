@@ -48,12 +48,12 @@ class AddWikiTaskContext implements ITaskContext {
 
 	/** @inheritDoc */
 	public function getConnection( $type = self::CONN_DONT_KNOW ): ConnectionStatus {
-		$localDomainID = $this->getDomain()->getId();
-		$lb = $this->lbFactory->getLoadBalancer( $localDomainID );
+		$localDomain = $this->getDomain();
+		$lb = $this->lbFactory->getLoadBalancer( $localDomain );
 		if ( $type === self::CONN_CREATE_DATABASE || $type === self::CONN_CREATE_SCHEMA ) {
 			$connectDomain = '';
 		} else {
-			$connectDomain = $localDomainID;
+			$connectDomain = $localDomain->getId();
 		}
 
 		$status = new ConnectionStatus;

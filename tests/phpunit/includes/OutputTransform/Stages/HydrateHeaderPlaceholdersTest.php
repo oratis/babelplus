@@ -6,7 +6,6 @@ namespace MediaWiki\Tests\OutputTransform\Stages;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\OutputTransform\OutputTransformStage;
 use MediaWiki\OutputTransform\Stages\HydrateHeaderPlaceholders;
-use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Tests\OutputTransform\OutputTransformStageTestBase;
 use Psr\Log\NullLogger;
@@ -25,7 +24,7 @@ class HydrateHeaderPlaceholdersTest extends OutputTransformStageTestBase {
 
 	public static function provideShouldRun(): array {
 		return [
-			[ new ParserOutput(), ParserOptions::newFromAnon(), [] ]
+			[ new ParserOutput(), null, [] ]
 		];
 	}
 
@@ -37,7 +36,7 @@ class HydrateHeaderPlaceholdersTest extends OutputTransformStageTestBase {
 		$text = "<h1><mw:slotheader>Header&amp;1</mw:slotheader></h1><h2><mw:slotheader>Header 2</mw:slotheader></h2>";
 		$expectedText = "<h1>Header&1</h1><h2>Header 2</h2>";
 		return [
-			[ new ParserOutput( $text ), ParserOptions::newFromAnon(), [], new ParserOutput( $expectedText ) ],
+			[ new ParserOutput( $text ), null, [], new ParserOutput( $expectedText ) ],
 		];
 	}
 }

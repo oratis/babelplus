@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Actions;
+namespace MediaWiki\Tests\Action;
 
 use MediaWiki\Actions\RollbackAction;
 use MediaWiki\Context\DerivativeContext;
@@ -46,7 +46,6 @@ class RollbackActionTest extends MediaWikiIntegrationTestCase {
 			$context,
 			$mwServices->getContentHandlerFactory(),
 			$mwServices->getRollbackPageFactory(),
-			$mwServices->getUserFactory(),
 			$mwServices->getUserOptionsLookup(),
 			$mwServices->getWatchlistManager(),
 			$mwServices->getCommentFormatter()

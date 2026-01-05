@@ -24,7 +24,6 @@ use MWCryptHash;
 use Psr\Log\LoggerInterface;
 use Wikimedia\IPSet;
 use Wikimedia\IPUtils;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A service class for checking blocks.
@@ -374,24 +373,6 @@ class BlockManager {
 		);
 
 		return $this->createGetBlockResult( $ip, $blocks );
-	}
-
-	/**
-	 * Given an IP range, check if a block applies to that range specifically
-	 *
-	 * @since 1.46
-	 * @param string $ipRange
-	 * @param bool $fromReplica
-	 * @return DatabaseBlock|null
-	 */
-	public function getIpRangeBlock( string $ipRange, bool $fromReplica = true ): ?DatabaseBlock {
-		if ( !IPUtils::isValidRange( $ipRange ) ) {
-			return null;
-		}
-
-		return $this->blockStore->newFromTarget(
-			$ipRange, null, !$fromReplica
-		);
 	}
 
 	/**
@@ -793,7 +774,7 @@ class BlockManager {
 	 */
 	private function setBlockCookie( DatabaseBlock $block, WebResponse $response ) {
 		// Calculate the default expiry time.
-		$maxExpiryTime = wfTimestamp( TS::MW, (int)wfTimestamp() + ( 24 * 60 * 60 ) );
+		$maxExpiryTime = wfTimestamp( TS_MW, (int)wfTimestamp() + ( 24 * 60 * 60 ) );
 
 		// Use the block's expiry time only if it's less than the default.
 		$expiryTime = $block->getExpiry();
@@ -802,7 +783,7 @@ class BlockManager {
 		}
 
 		// Set the cookie
-		$expiryValue = (int)wfTimestamp( TS::UNIX, $expiryTime );
+		$expiryValue = (int)wfTimestamp( TS_UNIX, $expiryTime );
 		$cookieOptions = [ 'httpOnly' => false ];
 		$cookieValue = $this->getCookieValue( $block );
 		$response->setCookie( 'BlockID', $cookieValue, $expiryValue, $cookieOptions );

@@ -14,7 +14,6 @@ use Wikimedia\Rdbms\IResultWrapper;
  * Extension mechanism for WatchedItemQueryService
  *
  * @since 1.29
- * @deprecated since 1.46 use ApiQueryBaseBeforeQueryHook
  *
  * @ingroup Watchlist
  */

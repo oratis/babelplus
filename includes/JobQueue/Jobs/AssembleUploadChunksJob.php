@@ -15,10 +15,9 @@ use MediaWiki\JobQueue\Job;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\Request\WebRequestUpload;
 use MediaWiki\Status\Status;
-use MediaWiki\Upload\Exception\UploadStashException;
-use MediaWiki\Upload\UploadBase;
-use MediaWiki\Upload\UploadFromChunks;
 use UnexpectedValueException;
+use UploadBase;
+use UploadFromChunks;
 use Wikimedia\ScopedCallback;
 
 /**
@@ -140,7 +139,6 @@ class AssembleUploadChunksJob extends Job implements GenericParameterJob {
 			$upload->stash->removeFileNoAuth( $this->params['filekey'] );
 
 			// Build the image info array while we have the local reference handy
-			// Deprecated, kept for backward compatibility on deployment
 			$apiUpload = ApiUpload::getDummyInstance();
 			$imageInfo = $apiUpload->getUploadImageInfo( $upload );
 
@@ -168,18 +166,6 @@ class AssembleUploadChunksJob extends Job implements GenericParameterJob {
 					'status' => (string)$status
 				]
 			);
-		} catch ( UploadStashException $e ) {
-			UploadBase::setSessionStatus(
-				$user,
-				$this->params['filekey'],
-				[
-					'result' => 'Failure',
-					'stage' => 'assembling',
-					'status' => Status::newFatal( $e->getMessageObject() ),
-				]
-			);
-			$this->setLastError( get_class( $e ) . ": " . $e->getMessage() );
-			return false;
 		} catch ( Exception $e ) {
 			UploadBase::setSessionStatus(
 				$user,

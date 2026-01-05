@@ -3,6 +3,7 @@
 namespace MediaWiki\Tests\Storage;
 
 use ArrayUtils;
+use DummyContentHandlerForTesting;
 use MediaWiki\CommentStore\CommentStoreComment;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Content\Content;
@@ -38,7 +39,6 @@ use MediaWiki\Storage\EditResult;
 use MediaWiki\Storage\EditResultCache;
 use MediaWiki\Storage\RevisionSlotsUpdate;
 use MediaWiki\Tests\ExpectCallbackTrait;
-use MediaWiki\Tests\Mocks\Content\DummyContentHandlerForTesting;
 use MediaWiki\Title\Title;
 use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
@@ -52,7 +52,6 @@ use Wikimedia\ObjectCache\BagOStuff;
 use Wikimedia\Rdbms\Platform\ISQLPlatform;
 use Wikimedia\TestingAccessWrapper;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -599,7 +598,7 @@ class DerivedPageDataUpdaterTest extends MediaWikiIntegrationTestCase {
 	 * @covers \MediaWiki\Storage\DerivedPageDataUpdater::getPreparedEdit()
 	 */
 	public function testGetPreparedEditAfterPrepareUpdate() {
-		$clock = MWTimestamp::convert( TS::UNIX, '20100101000000' );
+		$clock = MWTimestamp::convert( TS_UNIX, '20100101000000' );
 		MWTimestamp::setFakeTime( static function () use ( &$clock ) {
 			return $clock++;
 		} );
@@ -747,7 +746,7 @@ class DerivedPageDataUpdaterTest extends MediaWikiIntegrationTestCase {
 
 		$this->mergeMwGlobalArrayValue(
 			'wgContentHandlers', [
-				$name => static function () use ( $handler ) {
+				$name => static function () use ( $handler ){
 					return $handler;
 				}
 			]
@@ -1121,10 +1120,10 @@ class DerivedPageDataUpdaterTest extends MediaWikiIntegrationTestCase {
 		$page = $this->getPage( __METHOD__ );
 		$content = [ SlotRecord::MAIN => new WikitextContent( '[[Test]]' ) ];
 		$rev = $this->createRevision( $page, 'first', $content );
-		$dummyRevision = MutableRevisionRecord::newFromParentRevision( $rev );
-		$dummyRevision->setId( 14 );
-		$updater = $this->getDerivedPageDataUpdater( $page, $dummyRevision );
-		$updater->prepareUpdate( $dummyRevision );
+		$nullRevision = MutableRevisionRecord::newFromParentRevision( $rev );
+		$nullRevision->setId( 14 );
+		$updater = $this->getDerivedPageDataUpdater( $page, $nullRevision );
+		$updater->prepareUpdate( $nullRevision );
 		$this->assertTrue( $updater->isCountable() );
 	}
 
@@ -1755,7 +1754,7 @@ class DerivedPageDataUpdaterTest extends MediaWikiIntegrationTestCase {
 	 * Regression test for T368006
 	 */
 	public function testTemplateUpdate() {
-		$clock = MWTimestamp::convert( TS::UNIX, '20100101000000' );
+		$clock = MWTimestamp::convert( TS_UNIX, '20100101000000' );
 		MWTimestamp::setFakeTime( static function () use ( &$clock ) {
 			return $clock++;
 		} );

@@ -1,10 +1,5 @@
 <?php
-
-namespace MediaWiki\Tests\Unit\Utils;
-
-use InvalidArgumentException;
 use MediaWiki\Utils\UrlUtils;
-use MediaWikiUnitTestCase;
 
 /**
  * @covers \MediaWiki\Utils\UrlUtils
@@ -18,7 +13,7 @@ class UrlUtilsTest extends MediaWikiUnitTestCase {
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideExpandException
+	 * @dataProvider UrlUtilsProviders::provideExpandException
 	 * @param array $options
 	 * @param string|int|null $defaultProto
 	 * @param string $expectedClass Expected class of exception
@@ -35,7 +30,7 @@ class UrlUtilsTest extends MediaWikiUnitTestCase {
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideExpand
+	 * @dataProvider UrlUtilsProviders::provideExpand
 	 * @param string $input
 	 * @param array $options
 	 * @param string|int|null $defaultProto
@@ -49,7 +44,7 @@ class UrlUtilsTest extends MediaWikiUnitTestCase {
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideGetServer
+	 * @dataProvider UrlUtilsProviders::provideGetServer
 	 * @param array $options
 	 * @param string|int|null $defaultProto
 	 * @param string $expected
@@ -60,21 +55,21 @@ class UrlUtilsTest extends MediaWikiUnitTestCase {
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideAssemble
+	 * @dataProvider UrlUtilsProviders::provideAssemble
 	 */
 	public function testAssemble( array $bits, string $expected ): void {
 		$this->assertSame( $expected, UrlUtils::assemble( $bits ) );
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideRemoveDotSegments
+	 * @dataProvider UrlUtilsProviders::provideRemoveDotSegments
 	 */
 	public function testRemoveDotSegments( string $input, string $expected ): void {
 		$this->assertSame( $expected, UrlUtils::removeDotSegments( $input ) );
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideValidProtocols
+	 * @dataProvider UrlUtilsProviders::provideValidProtocols
 	 * @param string $method 'validProtocols' or 'validAbsoluteProtocols'
 	 * @param array|string $validProtocols Value of option passed to UrlUtils
 	 * @param string $expected
@@ -89,7 +84,7 @@ class UrlUtilsTest extends MediaWikiUnitTestCase {
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideParse
+	 * @dataProvider UrlUtilsProviders::provideParse
 	 * @param string $url
 	 * @param ?array $expected
 	 */
@@ -122,7 +117,7 @@ class UrlUtilsTest extends MediaWikiUnitTestCase {
 	}
 
 	/**
-	 * @dataProvider \MediaWiki\Tests\Unit\Utils\UrlUtilsProviders::provideMatchesDomainList
+	 * @dataProvider UrlUtilsProviders::provideMatchesDomainList
 	 */
 	public function testMatchesDomainList( string $url, array $domains, bool $expected ): void {
 		$this->assertSame( $expected, ( new UrlUtils )->matchesDomainList( $url, $domains ) );

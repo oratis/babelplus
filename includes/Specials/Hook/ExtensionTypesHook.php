@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -26,6 +26,3 @@ interface ExtensionTypesHook {
 	 */
 	public function onExtensionTypes( &$extTypes );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ExtensionTypesHook::class, 'MediaWiki\\Hook\\ExtensionTypesHook' );

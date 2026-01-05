@@ -34,7 +34,7 @@ class CommentParserTest extends \MediaWikiIntegrationTestCase {
 		return $repoGroup;
 	}
 
-	private function getParser(): CommentParser {
+	private function getParser() {
 		$services = $this->getServiceContainer();
 		return new CommentParser(
 			$services->getLinkRenderer(),
@@ -51,7 +51,9 @@ class CommentParserTest extends \MediaWikiIntegrationTestCase {
 
 	private function getFormatter() {
 		$parserFactory = $this->createNoOpMock( CommentParserFactory::class, [ 'create' ] );
-		$parserFactory->method( 'create' )->willReturnCallback( $this->getParser( ... ) );
+		$parserFactory->method( 'create' )->willReturnCallback( function () {
+			return $this->getParser();
+		} );
 		return new CommentFormatter( $parserFactory );
 	}
 

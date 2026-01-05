@@ -21,7 +21,6 @@ use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\Exception\MWExceptionHandler;
 use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
 use MediaWiki\Logger\LoggerFactory;
-use MediaWiki\Mail\ConfirmEmail\ConfirmEmailData;
 use MediaWiki\Mail\MailAddress;
 use MediaWiki\Mail\UserEmailContact;
 use MediaWiki\MainConfigNames;
@@ -61,7 +60,6 @@ use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\SelectQueryBuilder;
 use Wikimedia\ScopedCallback;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @defgroup User User management
@@ -136,7 +134,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 * Version number to tag cached versions of serialized User objects. Should be increased when
 	 * {@link $mCacheVars} or one of its members changes.
 	 */
-	private const VERSION = 18;
+	private const VERSION = 17;
 
 	/**
 	 * Username used for various maintenance scripts.
@@ -162,6 +160,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 		'mEmailAuthenticated',
 		'mEmailToken',
 		'mEmailTokenExpires',
+		'mRegistration',
 		// actor table
 		'mActorId',
 	];
@@ -185,9 +184,9 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 
 	/** @var string */
 	public $mEmail;
-	/** @var string TS::MW timestamp from the DB */
+	/** @var string TS_MW timestamp from the DB */
 	public $mTouched;
-	/** @var string|null TS::MW timestamp from cache */
+	/** @var string|null TS_MW timestamp from cache */
 	protected $mQuickTouched;
 	/** @var string|null */
 	protected $mToken;
@@ -197,6 +196,8 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	protected $mEmailToken;
 	/** @var string|null */
 	protected $mEmailTokenExpires;
+	/** @var string|null */
+	protected $mRegistration;
 	// @}
 
 	// @{
@@ -246,7 +247,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	/**
 	 * @internal since 1.36, use the UserFactory service instead
 	 *
-	 * @see \MediaWiki\User\UserFactory
+	 * @see MediaWiki\User\UserFactory
 	 *
 	 * @see newFromName()
 	 * @see newFromId()
@@ -265,8 +266,9 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 * Returns self::LOCAL to indicate the user is associated with the local wiki.
 	 *
 	 * @since 1.36
+	 * @return string|false
 	 */
-	public function getWikiId(): string|false {
+	public function getWikiId() {
 		return self::LOCAL;
 	}
 
@@ -536,7 +538,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 				}
 
 				$ttl = $cache->adaptiveTTL(
-					(int)wfTimestamp( TS::UNIX, $this->mTouched ),
+					(int)wfTimestamp( TS_UNIX, $this->mTouched ),
 					$ttl
 				);
 
@@ -550,7 +552,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 					foreach ( $groupMemberships as $ugm ) {
 						if ( $ugm->getExpiry() ) {
 							$secondsUntilExpiry =
-								(int)wfTimestamp( TS::UNIX, $ugm->getExpiry() ) - time();
+								(int)wfTimestamp( TS_UNIX, $ugm->getExpiry() ) - time();
 
 							if ( $secondsUntilExpiry > 0 && $secondsUntilExpiry < $ttl ) {
 								$ttl = $secondsUntilExpiry;
@@ -1004,7 +1006,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 		$loggedOut = $this->mRequest && !defined( 'MW_NO_SESSION' )
 			? $this->mRequest->getSession()->getLoggedOutTimestamp() : 0;
 		if ( $loggedOut !== 0 ) {
-			$this->mTouched = wfTimestamp( TS::MW, $loggedOut );
+			$this->mTouched = wfTimestamp( TS_MW, $loggedOut );
 		} else {
 			$this->mTouched = '1'; # Allow any pages to be cached
 		}
@@ -1013,6 +1015,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 		$this->mEmailAuthenticated = null;
 		$this->mEmailToken = '';
 		$this->mEmailTokenExpires = null;
+		$this->mRegistration = wfTimestamp( TS_MW );
 
 		$this->getHookRunner()->onUserLoadDefaults( $this, $name );
 	}
@@ -1181,7 +1184,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 		}
 
 		if ( isset( $row->user_touched ) ) {
-			$this->mTouched = wfTimestamp( TS::MW, $row->user_touched );
+			$this->mTouched = wfTimestamp( TS_MW, $row->user_touched );
 		} else {
 			$all = false;
 		}
@@ -1200,13 +1203,13 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 
 		if ( isset( $row->user_email ) ) {
 			$this->mEmail = $row->user_email;
-			$this->mEmailAuthenticated = wfTimestampOrNull( TS::MW, $row->user_email_authenticated );
+			$this->mEmailAuthenticated = wfTimestampOrNull( TS_MW, $row->user_email_authenticated );
 			$this->mEmailToken = $row->user_email_token;
-			$this->mEmailTokenExpires = wfTimestampOrNull( TS::MW, $row->user_email_token_expires );
-			$registration = wfTimestampOrNull( TS::MW, $row->user_registration );
+			$this->mEmailTokenExpires = wfTimestampOrNull( TS_MW, $row->user_email_token_expires );
+			$this->mRegistration = wfTimestampOrNull( TS_MW, $row->user_registration );
 			MediaWikiServices::getInstance()
 				->getUserRegistrationLookup()
-				->setCachedRegistration( $this, $registration );
+				->setCachedRegistration( $this, $this->mRegistration );
 		} else {
 			$all = false;
 		}
@@ -1601,15 +1604,15 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 * Generate a current or new-future timestamp to be stored in the
 	 * user_touched field when we update things.
 	 *
-	 * @return string Timestamp in TS::MW format
+	 * @return string Timestamp in TS_MW format
 	 */
 	private function newTouchedTimestamp() {
-		$time = (int)ConvertibleTimestamp::now( TS::UNIX );
+		$time = (int)ConvertibleTimestamp::now( TS_UNIX );
 		if ( $this->mTouched ) {
-			$time = max( $time, (int)ConvertibleTimestamp::convert( TS::UNIX, $this->mTouched ) + 1 );
+			$time = max( $time, (int)ConvertibleTimestamp::convert( TS_UNIX, $this->mTouched ) + 1 );
 		}
 
-		return ConvertibleTimestamp::convert( TS::MW, $time );
+		return ConvertibleTimestamp::convert( TS_MW, $time );
 	}
 
 	/**
@@ -1676,27 +1679,8 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	}
 
 	/**
-	 * Update the db touched timestamp for the user if it hasn't been updated recently
-	 *
-	 * @since 1.45
-	 */
-	public function debouncedDBTouch() {
-		$oldTouched = (int)ConvertibleTimestamp::convert( TS::UNIX, $this->getDBTouched() );
-		$newTouched = (int)ConvertibleTimestamp::now( TS::UNIX );
-
-		if ( ( $newTouched - $oldTouched ) < ( 300 + mt_rand( 1, 20 ) ) ) {
-			// Touched would be updated too soon, skip this round
-			// Adding jitter to avoid stampede.
-			return;
-		}
-
-		// Too old, definitely update.
-		$this->checkAndSetTouched();
-	}
-
-	/**
 	 * Validate the cache for this account.
-	 * @param string $timestamp A timestamp in TS::MW format
+	 * @param string $timestamp A timestamp in TS_MW format
 	 * @return bool
 	 */
 	public function validateCache( $timestamp ) {
@@ -1709,7 +1693,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 * Use this value only to validate caches via inequalities
 	 * such as in the case of HTTP If-Modified-Since response logic
 	 *
-	 * @return string TS::MW Timestamp
+	 * @return string TS_MW Timestamp
 	 */
 	public function getTouched() {
 		$this->load();
@@ -1719,7 +1703,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 				$cache = MediaWikiServices::getInstance()->getMainWANObjectCache();
 				$key = $cache->makeKey( 'user-quicktouched', 'id', $this->mId );
 
-				$this->mQuickTouched = wfTimestamp( TS::MW, $cache->getCheckKeyTime( $key ) );
+				$this->mQuickTouched = wfTimestamp( TS_MW, $cache->getCheckKeyTime( $key ) );
 			}
 
 			return max( $this->mTouched, $this->mQuickTouched );
@@ -1730,7 +1714,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 
 	/**
 	 * Get the user_touched timestamp field (time of last DB updates)
-	 * @return string TS::MW Timestamp
+	 * @return string TS_MW Timestamp
 	 * @since 1.26
 	 */
 	public function getDBTouched() {
@@ -1849,7 +1833,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 
 	/**
 	 * Get the timestamp of the user's e-mail authentication
-	 * @return string TS::MW timestamp
+	 * @return string TS_MW timestamp
 	 */
 	public function getEmailAuthenticationTimestamp() {
 		$this->load();
@@ -2197,8 +2181,8 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 		$editCount = $this->getEditCount();
 		$registration = $this->getRegistration();
 		$now = time();
-		$learnerRegistration = wfTimestamp( TS::MW, $now - $learnerMemberSince * 86400 );
-		$experiencedRegistration = wfTimestamp( TS::MW, $now - $experiencedUserMemberSince * 86400 );
+		$learnerRegistration = wfTimestamp( TS_MW, $now - $learnerMemberSince * 86400 );
+		$experiencedRegistration = wfTimestamp( TS_MW, $now - $experiencedUserMemberSince * 86400 );
 		if ( $registration === null ) {
 			// for some very old accounts, this information is missing in the database
 			// treat them as old enough to be 'experienced'
@@ -2459,7 +2443,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 			'user_email_authenticated' => $dbw->timestampOrNull( $user->mEmailAuthenticated ),
 			'user_real_name' => $user->mRealName,
 			'user_token' => strval( $user->mToken ),
-			'user_registration' => $dbw->timestamp(),
+			'user_registration' => $dbw->timestamp( $user->mRegistration ),
 			'user_editcount' => 0,
 			'user_touched' => $dbw->timestamp( $user->newTouchedTimestamp() ),
 		];
@@ -2544,7 +2528,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 					'user_email_authenticated' => $dbw->timestampOrNull( $this->mEmailAuthenticated ),
 					'user_real_name' => $this->mRealName,
 					'user_token' => strval( $this->mToken ),
-					'user_registration' => $dbw->timestamp(),
+					'user_registration' => $dbw->timestamp( $this->mRegistration ),
 					'user_editcount' => 0,
 					'user_touched' => $dbw->timestamp( $this->mTouched ),
 					'user_is_temp' => $this->isTemp(),
@@ -2569,10 +2553,9 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 				return Status::newFatal( 'userexists' );
 			}
 			$this->mId = $dbw->insertId();
-			$this->queryFlagsUsed = IDBAccessObject::READ_LATEST;
 
 			// Don't pass $this, since calling ::getId, ::getName might force ::load
-			// and this user might not be ready for that yet.
+			// and this user might not be ready for the yet.
 			$this->mActorId = MediaWikiServices::getInstance()
 				->getActorNormalization()
 				->acquireActorId( new UserIdentityValue( $this->mId, $this->mName ), $dbw );
@@ -2780,23 +2763,47 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 * @return Status
 	 */
 	public function sendConfirmationMail( $type = 'created' ) {
-		$emailer = MediaWikiServices::getInstance()->getConfirmEmailSender();
-		$expiration = null; // gets passed-by-ref and defined in next line
+		global $wgLang;
+		$expiration = null; // gets passed-by-ref and defined in next line.
 		$token = $this->getConfirmationToken( $expiration );
-		$confirmationUrl = $this->getConfirmationTokenUrl( $token );
-		$invalidateUrl = $this->getInvalidationTokenUrl( $token );
+		$url = $this->getConfirmationTokenUrl( $token );
+		$invalidateURL = $this->getInvalidationTokenUrl( $token );
 		$this->saveSettings();
 
-		return Status::wrap( $emailer->sendConfirmationMail(
-			RequestContext::getMain(),
-			$type,
-			new ConfirmEmailData(
-				$this->getUser(),
-				$confirmationUrl,
-				$invalidateUrl,
-				$expiration
-			)
-		) );
+		if ( $type == 'created' || $type === false ) {
+			$message = 'confirmemail_body';
+			$type = 'created';
+		} elseif ( $type === true ) {
+			$message = 'confirmemail_body_changed';
+			$type = 'changed';
+		} else {
+			// Messages: confirmemail_body_changed, confirmemail_body_set
+			$message = 'confirmemail_body_' . $type;
+		}
+
+		$mail = [
+			'subject' => wfMessage( 'confirmemail_subject' )->text(),
+			'body' => wfMessage( $message,
+				$this->getRequest()->getIP(),
+				$this->getName(),
+				$url,
+				$wgLang->userTimeAndDate( $expiration, $this ),
+				$invalidateURL,
+				$wgLang->userDate( $expiration, $this ),
+				$wgLang->userTime( $expiration, $this ) )->text(),
+			'from' => null,
+			'replyTo' => null,
+		];
+		$info = [
+			'type' => $type,
+			'ip' => $this->getRequest()->getIP(),
+			'confirmURL' => $url,
+			'invalidateURL' => $invalidateURL,
+			'expiration' => $expiration
+		];
+
+		$this->getHookRunner()->onUserSendConfirmationMail( $this, $mail, $info );
+		return $this->sendMail( $mail['subject'], $mail['body'], $mail['from'], $mail['replyTo'] );
 	}
 
 	/**
@@ -2865,7 +2872,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 		$now = ConvertibleTimestamp::time();
 
 		$expires = $now + $tokenLifeTimeSeconds;
-		$expiration = wfTimestamp( TS::MW, $expires );
+		$expiration = wfTimestamp( TS_MW, $expires );
 		$this->load();
 		$token = MWCryptRand::generateHex( 32 );
 		$hash = md5( $token );
@@ -2984,7 +2991,7 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 
 	/**
 	 * Set the e-mail authentication timestamp.
-	 * @param string|null $timestamp TS::MW timestamp
+	 * @param string|null $timestamp TS_MW timestamp
 	 */
 	public function setEmailAuthenticationTimestamp( $timestamp ) {
 		$this->load();
@@ -3065,9 +3072,11 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 *  but information is not in database.
 	 */
 	public function getRegistration() {
-		return MediaWikiServices::getInstance()
-			->getUserRegistrationLookup()
-			->getRegistration( $this );
+		if ( $this->isAnon() ) {
+			return false;
+		}
+		$this->load();
+		return $this->mRegistration;
 	}
 
 	/**
@@ -3187,23 +3196,17 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 *
 	 * @return User|null Returns null if the user was not found in the DB
 	 * @since 1.27
-	 * @deprecated since 1.46. Use User::getInstanceFromPrimary() instead. The exact equivalent of
+	 * @deprecated since 1.45. Use User::getInstanceFromPrimary() instead. The exact equivalent of
 	 *   this method is getInstanceFromPrimary() with the READ_EXCLUSIVE flag, but most callers
 	 *   didn't actually need an exclusive lock, and overusing it is harmful, so consider whether
 	 *   you really need locking.
-	 *   Note that getInstanceFromPrimary() is not guaranteed to return a new instance if the
-	 *   original User object was already from the primary DB.
 	 */
 	public function getInstanceForUpdate() {
-		wfDeprecated( __METHOD__, '1.46' );
 		return $this->getInstanceFromPrimary( IDBAccessObject::READ_EXCLUSIVE );
 	}
 
 	/**
-	 * Get an instance of this user that was loaded from the primary DB.
-	 *
-	 * If the user object was already from the primary DB (and more generally matches $loadFlags),
-	 * it will be returned; otherwise a DB query will be performed and a new User instance returned.
+	 * Get a new instance of this user that was loaded from the primary DB
 	 *
 	 * Use this instead of the main context User when updating that user or updating something else
 	 * based on the user's data, to avoid updating based on outdated information.
@@ -3217,10 +3220,8 @@ class User implements Stringable, Authority, UserIdentity, UserEmailContact {
 	 * @since 1.45
 	 */
 	public function getInstanceFromPrimary( int $loadFlags = IDBAccessObject::READ_LATEST ): ?User {
-		if ( $this->isAnon() ) {
-			return null;
-		} elseif ( ( $loadFlags & $this->queryFlagsUsed ) === $loadFlags ) {
-			return $this;
+		if ( !$this->getId() ) {
+			return null; // anon
 		}
 
 		$user = self::newFromId( $this->getId() );

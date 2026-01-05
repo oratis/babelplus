@@ -1,8 +1,6 @@
 <?php
-namespace MediaWiki\Tests\Unit\Installer\Task;
 
 use MediaWiki\Installer\Task\SqliteUtils;
-use MediaWikiUnitTestCase;
 
 /**
  * @group sqlite

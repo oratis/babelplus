@@ -30,7 +30,6 @@ use RuntimeException;
 use Wikimedia\Assert\Assert;
 use Wikimedia\IPUtils;
 use Wikimedia\Rdbms\IConnectionProvider;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @since 1.45
@@ -328,6 +327,7 @@ class RecentChangeStore implements RecentChangeFactory, RecentChangeLookup {
 			'rc_timestamp' => $timestamp,
 			'rc_namespace' => $page->getNamespace(),
 			'rc_title' => $page->getDBkey(),
+			'rc_type' => RC_EDIT,
 			'rc_source' => RecentChange::SRC_EDIT,
 			'rc_minor' => $minor ? 1 : 0,
 			'rc_cur_id' => $page->getId(),
@@ -387,6 +387,7 @@ class RecentChangeStore implements RecentChangeFactory, RecentChangeLookup {
 			'rc_timestamp' => $timestamp,
 			'rc_namespace' => $page->getNamespace(),
 			'rc_title' => $page->getDBkey(),
+			'rc_type' => RC_NEW,
 			'rc_source' => RecentChange::SRC_NEW,
 			'rc_minor' => $minor ? 1 : 0,
 			'rc_cur_id' => $page->getId(),
@@ -488,6 +489,7 @@ class RecentChangeStore implements RecentChangeFactory, RecentChangeLookup {
 			'rc_timestamp' => $timestamp,
 			'rc_namespace' => $target->getNamespace(),
 			'rc_title' => $target->getDBkey(),
+			'rc_type' => RC_LOG,
 			'rc_source' => RecentChange::SRC_LOG,
 			'rc_minor' => 0,
 			'rc_cur_id' => $pageId,
@@ -559,9 +561,10 @@ class RecentChangeStore implements RecentChangeFactory, RecentChangeLookup {
 
 		$rc = new RecentChange( $categoryTitle, $user );
 		$rc->setAttribs( [
-			'rc_timestamp' => MWTimestamp::convert( TS::MW, $timestamp ),
+			'rc_timestamp' => MWTimestamp::convert( TS_MW, $timestamp ),
 			'rc_namespace' => $categoryTitle->getNamespace(),
 			'rc_title' => $categoryTitle->getDBkey(),
+			'rc_type' => RC_CATEGORIZE,
 			'rc_source' => RecentChange::SRC_CATEGORIZE,
 			'rc_minor' => 0,
 			// XXX: rc_cur_id does not correspond to rc_namespace/rc_title.

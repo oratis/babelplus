@@ -74,7 +74,7 @@ class UserRegistrationLookup {
 	/**
 	 * @param UserIdentity $user User for which registration should be fetched.
 	 * @param string $type Name of a registered registration provider
-	 * @return string|null|false Registration timestamp (TS::MW), null if not available or false if it
+	 * @return string|null|false Registration timestamp (TS_MW), null if not available or false if it
 	 * cannot be fetched (anonymous users, for example).
 	 */
 	public function getRegistration(
@@ -113,6 +113,7 @@ class UserRegistrationLookup {
 		}
 
 		$cacheKey = $this->getCacheKey( $user, $type );
+		/* @phan-suppress-next-line PhanTypeMismatchProperty Phan can't recognize that the types here are the same */
 		$this->registrationCache[$cacheKey] = $timestamp;
 	}
 
@@ -122,7 +123,7 @@ class UserRegistrationLookup {
 	 * Note this invokes _all_ registered providers.
 	 *
 	 * @param UserIdentity $user
-	 * @return string|null Earliest registration timestamp (TS::MW), null if not available.
+	 * @return string|null Earliest registration timestamp (TS_MW), null if not available.
 	 */
 	public function getFirstRegistration( UserIdentity $user ): ?string {
 		$firstRegistrationTimestamp = null;

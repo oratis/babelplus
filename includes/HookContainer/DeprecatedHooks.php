@@ -27,7 +27,6 @@ class DeprecatedHooks {
 		'ArticleDelete' => [ 'deprecatedVersion' => '1.37', 'silent' => true ],
 		'ArticleDeleteComplete' => [ 'deprecatedVersion' => '1.37', 'silent' => true ],
 		'ArticleUndelete' => [ 'deprecatedVersion' => '1.40', 'silent' => true ],
-		'AutopromoteCondition' => [ 'deprecatedVersion' => '1.46' ],
 		'EditPageBeforeEditToolbar' => [ 'deprecatedVersion' => '1.36' ],
 		'EmailUser' => [ 'deprecatedVersion' => '1.41', 'silent' => true ],
 		'EmailUserPermissionsErrors' => [ 'deprecatedVersion' => '1.41' ],
@@ -42,10 +41,11 @@ class DeprecatedHooks {
 		'RollbackComplete' => [ 'deprecatedVersion' => '1.36', 'silent' => true ],
 		'SearchDataForIndex' => [ 'deprecatedVersion' => '1.40', 'silent' => true ],
 		'SendWatchlistEmailNotification' => [ 'deprecatedVersion' => '1.45' ],
+		'SpecialWatchlistGetNonRevisionTypes' => [ 'deprecatedVersion' => '1.45' ],
 		'UpdateUserMailerFormattedPageStatus' => [ 'deprecatedVersion' => '1.45' ],
 		'userCan' => [ 'deprecatedVersion' => '1.37' ],
 		'UserCanSendEmail' => [ 'deprecatedVersion' => '1.41', 'silent' => true ],
-		'WatchedItemQueryServiceExtensionsHook' => [ 'deprecatedVersion' => '1.46' ],
+		'UserIsBlockedGlobally' => [ 'deprecatedVersion' => '1.40' ],
 		'WikiPageDeletionUpdates' => [ 'deprecatedVersion' => '1.32', 'silent' => true ],
 	];
 

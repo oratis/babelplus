@@ -13,16 +13,12 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\GroupPermissionsLookup;
 use MediaWiki\RecentChanges\RecentChangeLookup;
 use MediaWiki\User\TempUser\TempUserConfig;
-use MediaWiki\User\TempUser\TempUserDetailsLookup;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserGroupManager;
-use MediaWiki\User\UserIdentityValue;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 use Wikimedia\Rdbms\IExpression;
 use Wikimedia\Rdbms\LikeValue;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Query module to enumerate all registered users.
@@ -32,18 +28,30 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
 class ApiQueryAllUsers extends ApiQueryBase {
 	use ApiQueryBlockInfoTrait;
 
+	private UserFactory $userFactory;
+	private UserGroupManager $userGroupManager;
+	private GroupPermissionsLookup $groupPermissionsLookup;
+	private Language $contentLanguage;
+	private TempUserConfig $tempUserConfig;
+	private RecentChangeLookup $recentChangeLookup;
+
 	public function __construct(
 		ApiQuery $query,
 		string $moduleName,
-		private readonly UserFactory $userFactory,
-		private readonly UserGroupManager $userGroupManager,
-		private readonly GroupPermissionsLookup $groupPermissionsLookup,
-		private readonly Language $contentLanguage,
-		private readonly TempUserConfig $tempUserConfig,
-		private readonly RecentChangeLookup $recentChangeLookup,
-		private readonly TempUserDetailsLookup $tempUserDetailsLookup
+		UserFactory $userFactory,
+		UserGroupManager $userGroupManager,
+		GroupPermissionsLookup $groupPermissionsLookup,
+		Language $contentLanguage,
+		TempUserConfig $tempUserConfig,
+		RecentChangeLookup $recentChangeLookup
 	) {
 		parent::__construct( $query, $moduleName, 'au' );
+		$this->userFactory = $userFactory;
+		$this->userGroupManager = $userGroupManager;
+		$this->groupPermissionsLookup = $groupPermissionsLookup;
+		$this->contentLanguage = $contentLanguage;
+		$this->tempUserConfig = $tempUserConfig;
+		$this->recentChangeLookup = $recentChangeLookup;
 	}
 
 	/**
@@ -73,10 +81,9 @@ class ApiQueryAllUsers extends ApiQueryBase {
 			$fld_registration = isset( $prop['registration'] );
 			$fld_implicitgroups = isset( $prop['implicitgroups'] );
 			$fld_centralids = isset( $prop['centralids'] );
-			$fld_tempexpired = isset( $prop['tempexpired'] );
 		} else {
 			$fld_blockinfo = $fld_editcount = $fld_groups = $fld_registration =
-				$fld_rights = $fld_implicitgroups = $fld_centralids = $fld_tempexpired = false;
+				$fld_rights = $fld_implicitgroups = $fld_centralids = false;
 		}
 
 		$limit = $params['limit'];
@@ -225,7 +232,7 @@ class ApiQueryAllUsers extends ApiQueryBase {
 			] ] );
 
 			// Actually count the actions using a subquery (T66505 and T66507)
-			$timestamp = $db->timestamp( (int)ConvertibleTimestamp::now( TS::UNIX ) - $activeUserSeconds );
+			$timestamp = $db->timestamp( (int)wfTimestamp( TS_UNIX ) - $activeUserSeconds );
 			$subqueryBuilder = $db->newSelectQueryBuilder()
 				->select( 'COUNT(*)' )
 				->from( 'recentchanges' )
@@ -319,7 +326,7 @@ class ApiQueryAllUsers extends ApiQueryBase {
 			}
 			if ( $fld_registration ) {
 				$data['registration'] = $row->user_registration ?
-					wfTimestamp( TS::ISO_8601, $row->user_registration ) : '';
+					wfTimestamp( TS_ISO_8601, $row->user_registration ) : '';
 			}
 
 			if ( $fld_implicitgroups || $fld_groups || $fld_rights ) {
@@ -348,15 +355,6 @@ class ApiQueryAllUsers extends ApiQueryBase {
 					$data['rights'] = $this->getPermissionManager()->getUserPermissions( $user );
 					ApiResult::setIndexedTagName( $data['rights'], 'r' );
 					ApiResult::setArrayType( $data['rights'], 'array' );
-				}
-			}
-
-			if ( $fld_tempexpired ) {
-				if ( $this->tempUserConfig->isTempName( $row->user_name ) ) {
-					$userIdentity = UserIdentityValue::newRegistered( $row->user_id, $row->user_name );
-					$data['tempexpired'] = $this->tempUserDetailsLookup->isExpired( $userIdentity );
-				} else {
-					$data['tempexpired'] = null;
 				}
 			}
 
@@ -419,7 +417,6 @@ class ApiQueryAllUsers extends ApiQueryBase {
 					'editcount',
 					'registration',
 					'centralids',
-					'tempexpired',
 				],
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [],
 			],

@@ -5,9 +5,6 @@
  * @copyright Copyright © 2022, Amir E. Aharoni
  * @file
  */
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
 
 /**
  * @group Language

@@ -6,13 +6,7 @@
  * @file
  * @ingroup LockManager
  */
-
-namespace MediaWiki\FileBackend\LockManager;
-
-use Exception;
-use InvalidArgumentException;
 use MediaWiki\Logger\LoggerFactory;
-use Wikimedia\LockManager\LockManager;
 
 /**
  * Class to handle file lock manager registration

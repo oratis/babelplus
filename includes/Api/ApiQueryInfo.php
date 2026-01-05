@@ -16,7 +16,6 @@ use MediaWiki\EditPage\PreloadedContentBuilder;
 use MediaWiki\Language\ILanguageConverter;
 use MediaWiki\Language\Language;
 use MediaWiki\Languages\LanguageConverterFactory;
-use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\Linker\LinksMigration;
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\MainConfigNames;
@@ -34,11 +33,11 @@ use MediaWiki\Title\TitleValue;
 use MediaWiki\User\TempUser\TempUserCreator;
 use MediaWiki\User\UserFactory;
 use MediaWiki\Utils\UrlUtils;
+use MediaWiki\Watchlist\WatchedItem;
 use MediaWiki\Watchlist\WatchedItemStore;
 use MessageLocalizer;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\EnumDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A query module to show basic page information.
@@ -61,7 +60,6 @@ class ApiQueryInfo extends ApiQueryBase {
 	private PreloadedContentBuilder $preloadedContentBuilder;
 	private RevisionLookup $revisionLookup;
 	private UrlUtils $urlUtils;
-	private LinkRenderer $linkRenderer;
 
 	private bool $fld_protection = false;
 	private bool $fld_talkid = false;
@@ -181,8 +179,7 @@ class ApiQueryInfo extends ApiQueryBase {
 		IntroMessageBuilder $introMessageBuilder,
 		PreloadedContentBuilder $preloadedContentBuilder,
 		RevisionLookup $revisionLookup,
-		UrlUtils $urlUtils,
-		LinkRenderer $linkRenderer
+		UrlUtils $urlUtils
 	) {
 		parent::__construct( $queryModule, $moduleName, 'in' );
 		$this->languageConverter = $languageConverterFactory->getLanguageConverter( $contentLanguage );
@@ -199,7 +196,6 @@ class ApiQueryInfo extends ApiQueryBase {
 		$this->preloadedContentBuilder = $preloadedContentBuilder;
 		$this->revisionLookup = $revisionLookup;
 		$this->urlUtils = $urlUtils;
-		$this->linkRenderer = $linkRenderer;
 	}
 
 	/**
@@ -261,7 +257,7 @@ class ApiQueryInfo extends ApiQueryBase {
 			);
 		}
 
-		uasort( $this->everything, Title::compare( ... ) );
+		uasort( $this->everything, [ Title::class, 'compare' ] );
 		if ( $this->params['continue'] !== null ) {
 			// Throw away any titles we're gonna skip so they don't
 			// clutter queries
@@ -319,7 +315,7 @@ class ApiQueryInfo extends ApiQueryBase {
 		}
 
 		if ( $this->fld_linkclasses ) {
-			$this->getLinkClasses( $this->params['linkcontext'], $this->params['defaultlinkcaption'] );
+			$this->getLinkClasses( $this->params['linkcontext'] );
 		}
 
 		/** @var PageIdentity $page */
@@ -360,7 +356,7 @@ class ApiQueryInfo extends ApiQueryBase {
 		$pageInfo['pagelanguagedir'] = $pageLanguage->getDir();
 
 		if ( $pageExists ) {
-			$pageInfo['touched'] = wfTimestamp( TS::ISO_8601, $this->pageTouched[$pageid] );
+			$pageInfo['touched'] = wfTimestamp( TS_ISO_8601, $this->pageTouched[$pageid] );
 			$pageInfo['lastrevid'] = (int)$this->pageLatest[$pageid];
 			$pageInfo['length'] = (int)$this->pageLength[$pageid];
 
@@ -420,7 +416,7 @@ class ApiQueryInfo extends ApiQueryBase {
 			$pageInfo['notificationtimestamp'] = '';
 			if ( isset( $this->notificationtimestamps[$ns][$dbkey] ) ) {
 				$pageInfo['notificationtimestamp'] =
-					wfTimestamp( TS::ISO_8601, $this->notificationtimestamps[$ns][$dbkey] );
+					wfTimestamp( TS_ISO_8601, $this->notificationtimestamps[$ns][$dbkey] );
 			}
 		}
 
@@ -580,7 +576,7 @@ class ApiQueryInfo extends ApiQueryBase {
 				}
 
 				if ( $detailLevel === 'boolean' ) {
-					$pageInfo['actions'][$action] = $authority->definitelyCan( $action, $page );
+					$pageInfo['actions'][$action] = $authority->authorizeRead( $action, $page );
 				} else {
 					$status = new PermissionStatus();
 					if ( $detailLevel === 'quick' ) {
@@ -730,26 +726,15 @@ class ApiQueryInfo extends ApiQueryBase {
 			if ( $protectedPages ) {
 				$this->setVirtualDomain( ImageLinksTable::VIRTUAL_DOMAIN );
 
-				$migrationStage = $this->getConfig()->get( MainConfigNames::ImageLinksSchemaMigrationStage );
-				$queryInfo = $this->linksMigration->getQueryInfo( 'imagelinks' );
-
-				$queryBuilder = $this->getDB()->newSelectQueryBuilder()
-					->tables( $queryInfo['tables'] )
-					->where( [ 'il_from' => array_keys( $protectedPages ) ] )
-					->caller( __METHOD__ );
-
-				if ( $migrationStage & SCHEMA_COMPAT_READ_NEW ) {
-					$queryBuilder
-						->fields( [ 'il_from', 'il_to' => 'lt_title' ] )
-						->joinConds( $queryInfo['joins'] )
-						->andWhere( [ 'lt_title' => $images, 'lt_namespace' => NS_FILE ] );
-				} else {
-					$queryBuilder
-						->fields( [ 'il_from', 'il_to' ] )
-						->andWhere( [ 'il_to' => $images ] );
-				}
-
-				$res = $queryBuilder->fetchResultSet();
+				$res = $this->getDB()->newSelectQueryBuilder()
+					->select( [ 'il_from', 'il_to' ] )
+					->from( 'imagelinks' )
+					->where( [
+						'il_from' => array_keys( $protectedPages ),
+						'il_to' => $images
+					] )
+					->caller( __METHOD__ )
+					->fetchResultSet();
 
 				foreach ( $res as $row ) {
 					$protection = $protectedPages[$row->il_from];
@@ -831,11 +816,8 @@ class ApiQueryInfo extends ApiQueryBase {
 	 * given context page.
 	 * @param ?LinkTarget $context_title The page context in which link
 	 *   colors are determined.
-	 * @param bool $default_link_caption Whether to treat links as having
-	 *   default captions for the purpose of determining link colors.
-	 *   Default caption is defined as for {@see LinkRenderer::isDefaultLinkCaption()}.
 	 */
-	private function getLinkClasses( ?LinkTarget $context_title = null, bool $default_link_caption = false ) {
+	private function getLinkClasses( ?LinkTarget $context_title = null ) {
 		if ( $this->titles === [] ) {
 			return;
 		}
@@ -850,7 +832,7 @@ class ApiQueryInfo extends ApiQueryBase {
 		foreach ( $this->titles as $pageId => $page ) {
 			$pdbk = $this->titleFormatter->getPrefixedDBkey( $page );
 			$pagemap[$pageId] = $pdbk;
-			$classes[$pdbk] = $this->linkRenderer->getLinkClasses( $page, $default_link_caption );
+			$classes[$pdbk] = isset( $this->pageIsRedir[$pageId] ) && $this->pageIsRedir[$pageId] ? 'mw-redirect' : '';
 		}
 		// legacy hook requires a real Title, not a LinkTarget
 		$context_title = $this->titleFactory->newFromLinkTarget(
@@ -915,6 +897,7 @@ class ApiQueryInfo extends ApiQueryBase {
 		$this->watchlistExpiries = [];
 		$this->notificationtimestamps = [];
 
+		/** @var WatchedItem[] $items */
 		$items = $this->watchedItemStore->loadWatchedItemsBatch( $user, $this->everything );
 
 		foreach ( $items as $item ) {
@@ -924,7 +907,7 @@ class ApiQueryInfo extends ApiQueryBase {
 			if ( $this->fld_watched ) {
 				$this->watched[$nsId][$dbKey] = true;
 
-				$expiry = $item->getExpiry( TS::ISO_8601 );
+				$expiry = $item->getExpiry( TS_ISO_8601 );
 				if ( $expiry ) {
 					$this->watchlistExpiries[$nsId][$dbKey] = $expiry;
 				}
@@ -1000,7 +983,7 @@ class ApiQueryInfo extends ApiQueryBase {
 			$age = $config->get( MainConfigNames::WatchersMaxAge );
 			$timestamps = [];
 			foreach ( $timestampRes as $row ) {
-				$revTimestamp = wfTimestamp( TS::UNIX, (int)$row->rev_timestamp );
+				$revTimestamp = wfTimestamp( TS_UNIX, (int)$row->rev_timestamp );
 				$timestamps[$row->page_namespace][$row->page_title] = (int)$revTimestamp - $age;
 			}
 			$titlesWithThresholds = array_map(
@@ -1090,10 +1073,6 @@ class ApiQueryInfo extends ApiQueryBase {
 				ParamValidator::PARAM_TYPE => 'title',
 				ParamValidator::PARAM_DEFAULT => $this->titleFactory->newMainPage()->getPrefixedText(),
 				TitleDef::PARAM_RETURN_OBJECT => true,
-			],
-			'defaultlinkcaption' => [
-				ParamValidator::PARAM_TYPE => 'boolean',
-				ParamValidator::PARAM_DEFAULT => false,
 			],
 			'testactions' => [
 				ParamValidator::PARAM_TYPE => 'string',

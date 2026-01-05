@@ -78,25 +78,24 @@ class SpecialUserLogout extends FormSpecialPage {
 		$form->setSubmitTextMsg( 'userlogout-submit' );
 		if ( $this->getUser()->isTemp() ) {
 			$form->addHeaderHtml(
-				// Keep in sync with mediawiki.page.ready/ready.js
-				Html::rawElement( 'p', [], $this->msg( 'userlogout-temp' )->parse() ) .
-				Html::rawElement( 'p', [], $this->msg( 'userlogout-temp-moreinfo' )->parse() ) .
-				( new MessageWidget( [
+				Html::rawElement( 'p', [], $this->msg( 'userlogout-temp' ) ) .
+				Html::rawElement( 'p', [], $this->msg( 'userlogout-temp-moreinfo' ) ) .
+				new MessageWidget( [
 					'type' => 'notice',
 					'label' => new HtmlSnippet(
-						Html::element(
+						Html::rawElement(
 							'strong',
 							[],
-							$this->msg( 'userlogout-temp-messagebox-title' )->text()
+							$this->msg( 'userlogout-temp-messagebox-title' )
 						) .
 						Html::element( 'br' ) .
-						$this->msg( 'userlogout-temp-messagebox-body' )->parse()
+						$this->msg( 'userlogout-temp-messagebox-body' )
 					),
-				] ) )->toString()
+				] )
 			);
 		} else {
 			$form->addHeaderHtml(
-				Html::element( 'p', [], $this->msg( 'userlogout-continue' )->text() )
+				Html::rawElement( 'p', [], $this->msg( 'userlogout-continue' ) )
 			);
 		}
 

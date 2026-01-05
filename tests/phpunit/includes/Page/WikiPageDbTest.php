@@ -37,7 +37,6 @@ use MediaWiki\Utils\MWTimestamp;
 use PHPUnit\Framework\Assert;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\TestingAccessWrapper;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\Page\WikiPage
@@ -879,17 +878,23 @@ class WikiPageDbTest extends MediaWikiLangTestCase {
 		// Default canonical parser options for a normal wikitext page
 		yield [
 			NS_MAIN, 'Main Page', CONTENT_MODEL_WIKITEXT, 'canonical',
-			ParserOptions::newFromAnon( ... ),
+			static function () {
+				return ParserOptions::newFromAnon();
+			},
 		];
 		// JavaScript should have Table Of Contents suppressed
 		yield [
 			NS_MAIN, 'JavaScript Test', CONTENT_MODEL_JAVASCRIPT, 'canonical',
-			ParserOptions::newFromAnon( ... ),
+			static function () {
+				return ParserOptions::newFromAnon();
+			},
 		];
 		// CSS should have Table Of Contents suppressed
 		yield [
 			NS_MAIN, 'CSS Test', CONTENT_MODEL_CSS, 'canonical',
-			ParserOptions::newFromAnon( ... ),
+			static function () {
+				return ParserOptions::newFromAnon();
+			},
 		];
 		// Language Conversion tables have content conversion disabled
 		yield [
@@ -1416,12 +1421,12 @@ more stuff
 			->where( $condition )
 			->fetchField();
 		$this->assertTrue(
-			wfTimestamp( TS::UNIX, $startTimeStamp )
-			<= wfTimestamp( TS::UNIX, $pageTouched )
+			wfTimestamp( TS_UNIX, $startTimeStamp )
+			<= wfTimestamp( TS_UNIX, $pageTouched )
 		);
 		$this->assertTrue(
-			wfTimestamp( TS::UNIX, $endTimeStamp )
-			>= wfTimestamp( TS::UNIX, $pageTouched )
+			wfTimestamp( TS_UNIX, $endTimeStamp )
+			>= wfTimestamp( TS_UNIX, $pageTouched )
 		);
 
 		// Try inserting the same page again and checking the result is false (no change)
@@ -2022,12 +2027,12 @@ more stuff
 			->from( 'page' )
 			->where( [ 'page_id' => $page->getId() ] )
 			->fetchField();
-		$touched = MWTimestamp::convert( TS::MW, $touched );
+		$touched = MWTimestamp::convert( TS_MW, $touched );
 
 		// Internal cache of the touched time was set after the page was created
 		$this->assertSame( $touched, $page->getTouched() );
 
-		$touched = MWTimestamp::convert( TS::MW, MWTimestamp::convert( TS::UNIX, $touched ) + 100 );
+		$touched = MWTimestamp::convert( TS_MW, MWTimestamp::convert( TS_UNIX, $touched ) + 100 );
 		$page->getTitle()->invalidateCache( $touched );
 
 		// Re-load touched time

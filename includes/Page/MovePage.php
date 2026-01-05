@@ -35,7 +35,6 @@ use MediaWiki\Status\Status;
 use MediaWiki\Storage\PageUpdaterFactory;
 use MediaWiki\Title\NamespaceInfo;
 use MediaWiki\Title\Title;
-use MediaWiki\Upload\UploadBase;
 use MediaWiki\User\UserEditTracker;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentity;
@@ -494,8 +493,7 @@ class MovePage {
 	 * @param string[] $changeTags Applied to entries in the move log and redirect page revision
 	 * @return Status Good if no errors occurred. Ok if at least one page succeeded. The "value"
 	 *  of the top-level status is an array containing the per-title status for each page. For any
-	 *  move that succeeded, the "value" of the per-title status is the new page title. For any
-	 *  move that failed, the "value" of the per-title status is the subpage it tried to move to.
+	 *  move that succeeded, the "value" of the per-title status is the new page title.
 	 */
 	public function moveSubpages(
 		UserIdentity $user, $reason = null, $createRedirect = true, array $changeTags = []
@@ -520,10 +518,7 @@ class MovePage {
 	 * @param string[] $changeTags Applied to entries in the move log and redirect page revision
 	 * @return Status Good if no errors occurred. Ok if at least one page succeeded. The "value"
 	 *  of the top-level status is an array containing the per-title status for each page. For any
-	 * move that succeeded, the "value" of the per-title status is the new page title. For any
-	 * move that failed, the "value" of the per-title status is the subpage it tried to move to.
-	 * This may not be a valid title; for example the new title could possibly exceed the maximum
-	 * title size,
+	 *  move that succeeded, the "value" of the per-title status is the new page title.
 	 */
 	public function moveSubpagesIfAllowed(
 		Authority $performer, $reason = null, $createRedirect = true, array $changeTags = []
@@ -540,14 +535,6 @@ class MovePage {
 		);
 	}
 
-	private function constructNoSubpagesStatus( int $ns ): Status {
-		$status = Status::newFatal( 'namespace-nosubpages',
-			$this->nsInfo->getCanonicalName( $ns ) );
-		// No pages were moved, so the array of per-page statuses is empty
-		$status->value = [];
-		return $status;
-	}
-
 	/**
 	 * @param callable $subpageMoveCallback
 	 * @return Status
@@ -555,10 +542,12 @@ class MovePage {
 	private function moveSubpagesInternal( callable $subpageMoveCallback ) {
 		// Do the source and target namespaces support subpages?
 		if ( !$this->nsInfo->hasSubpages( $this->oldTitle->getNamespace() ) ) {
-			return $this->constructNoSubpagesStatus( $this->oldTitle->getNamespace() );
+			return Status::newFatal( 'namespace-nosubpages',
+				$this->nsInfo->getCanonicalName( $this->oldTitle->getNamespace() ) );
 		}
 		if ( !$this->nsInfo->hasSubpages( $this->newTitle->getNamespace() ) ) {
-			return $this->constructNoSubpagesStatus( $this->newTitle->getNamespace() );
+			return Status::newFatal( 'namespace-nosubpages',
+				$this->nsInfo->getCanonicalName( $this->newTitle->getNamespace() ) );
 		}
 
 		// Return a status for the overall result. Its value will be an array with per-title
@@ -599,12 +588,9 @@ class MovePage {
 			// T16385: we need makeTitleSafe because the new page names may be longer than 255
 			// characters.
 			$newSubpage = Title::makeTitleSafe( $newNs, $newPageName );
-			if ( !$newSubpage ) {
-				$status = Status::newFatal( 'title-invalid', $newPageName );
-				$status->value = Title::makeName( $newNs, $newPageName );
-			} else {
-				$status = $subpageMoveCallback( $oldSubpage, $newSubpage );
-				$status->value = $newSubpage->getPrefixedText();
+			$status = $subpageMoveCallback( $oldSubpage, $newSubpage );
+			if ( $status->isOK() ) {
+				$status->setResult( true, $newSubpage->getPrefixedText() );
 			}
 			$perTitleStatus[$oldSubpage->getPrefixedText()] = $status;
 			$topStatus->merge( $status );
@@ -653,8 +639,8 @@ class MovePage {
 			$dbw->cancelAtomic( __METHOD__ );
 			return $moveAttemptResult;
 		} else {
-			$dummyRevision = $moveAttemptResult->getValue()['nullRevision'];
-			'@phan-var \MediaWiki\Revision\RevisionRecord $dummyRevision';
+			$nullRevision = $moveAttemptResult->getValue()['nullRevision'];
+			'@phan-var \MediaWiki\Revision\RevisionRecord $nullRevision';
 		}
 
 		$redirid = $this->oldTitle->getArticleID();
@@ -738,7 +724,7 @@ class MovePage {
 
 		$this->hookRunner->onPageMoveCompleting(
 			$this->oldTitle, $this->newTitle,
-			$user, $pageid, $redirid, $reason, $dummyRevision
+			$user, $pageid, $redirid, $reason, $nullRevision
 		);
 
 		// Emit an event describing the move
@@ -757,7 +743,7 @@ class MovePage {
 			new AtomicSectionUpdate(
 				$dbw,
 				__METHOD__,
-				function () use ( $user, $pageid, $redirid, $reason, $dummyRevision ) {
+				function () use ( $user, $pageid, $redirid, $reason, $nullRevision ) {
 					$this->hookRunner->onPageMoveComplete(
 						$this->oldTitle,
 						$this->newTitle,
@@ -765,7 +751,7 @@ class MovePage {
 						$pageid,
 						$redirid,
 						$reason,
-						$dummyRevision
+						$nullRevision
 					);
 				}
 			)
@@ -812,7 +798,7 @@ class MovePage {
 	 * @param string[] $changeTags Change tags to apply to the entry in the move log
 	 * @return Status<array> Status object with the following value on success:
 	 *   [
-	 *     'nullRevision' => The dummy revision created by the move (RevisionRecord)
+	 *     'nullRevision' => The ("null") revision created by the move (RevisionRecord)
 	 *     'redirectRevision' => The initial revision of the redirect if it was created (RevisionRecord|null)
 	 *   ]
 	 */
@@ -915,7 +901,7 @@ class MovePage {
 			->where( [ 'page_id' => $oldid ] )
 			->caller( __METHOD__ )->execute();
 
-		// Reset $nt before using it to create the dummy revision (T248789).
+		// Reset $nt before using it to create the null revision (T248789).
 		// But not $this->oldTitle yet, see below (T47348).
 		$nt->resetArticleID( $oldid );
 
@@ -936,7 +922,7 @@ class MovePage {
 		// NOTE: The dummy revision will not be counted as a user contribution.
 		// NOTE: Use FLAG_SILENT to avoid redundant RecentChanges entry.
 		//       The move log already generates one.
-		$dummyRevision = $newpage->newPageUpdater( $user )
+		$nullRevision = $newpage->newPageUpdater( $user )
 			->setCause( PageLatestRevisionChangedEvent::CAUSE_MOVE )
 			->setHints( [
 				'oldtitle' => $this->oldTitle,
@@ -944,7 +930,7 @@ class MovePage {
 			] )
 			->saveDummyRevision( $comment, EDIT_SILENT | EDIT_MINOR );
 
-		$logEntry->setAssociatedRevId( $dummyRevision->getId() );
+		$logEntry->setAssociatedRevId( $nullRevision->getId() );
 
 		WikiPage::onArticleCreate( $nt );
 
@@ -970,7 +956,7 @@ class MovePage {
 		$logEntry->publish( $logid );
 
 		return Status::newGood( [
-			'nullRevision' => $dummyRevision,
+			'nullRevision' => $nullRevision,
 			'redirectRevision' => $redirectRevision,
 			'redirectPage' => $redirectArticle?->toPageRecord()
 		] );

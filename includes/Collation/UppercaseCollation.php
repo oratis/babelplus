@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 use MediaWiki\Language\Language;
 use MediaWiki\Languages\LanguageFactory;
 
@@ -36,6 +34,3 @@ class UppercaseCollation extends Collation {
 	}
 
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UppercaseCollation::class, 'UppercaseCollation' );

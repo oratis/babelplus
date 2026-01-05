@@ -5,7 +5,6 @@
  */
 
 use MediaWiki\Language\Language;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Walloon (Walon)
@@ -30,7 +29,7 @@ class LanguageWa extends Language {
 			return parent::date( $ts, $adj, $format, $timecorrection );
 		}
 
-		$ts = wfTimestamp( TS::MW, $ts );
+		$ts = wfTimestamp( TS_MW, $ts );
 		if ( $adj ) {
 			$ts = $this->userAdjust( $ts, $timecorrection );
 		}

@@ -6,8 +6,6 @@ use DatabaseTestHelper;
 use MediaWiki\Cache\LinkCache;
 use MediaWiki\CommentStore\CommentStore;
 use MediaWiki\Config\ServiceOptions;
-use MediaWiki\Deferred\LinksUpdate\ImageLinksTable;
-use MediaWiki\Deferred\LinksUpdate\TemplateLinksTable;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\Linker\LinksMigration;
 use MediaWiki\MainConfigNames;
@@ -127,10 +125,6 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 				MainConfigNames::RestrictionLevels => [ '', 'autoconfirmed', 'sysop' ],
 				MainConfigNames::RestrictionTypes => self::DEFAULT_RESTRICTION_TYPES,
 				MainConfigNames::SemiprotectedRestrictionLevels => [ 'autoconfirmed' ],
-				MainConfigNames::VirtualDomainsMapping => [
-					TemplateLinksTable::VIRTUAL_DOMAIN => [ 'db' => false ],
-					ImageLinksTable::VIRTUAL_DOMAIN => [ 'db' => false ],
-				],
 			] ),
 			$this->createNoOpMock( WANObjectCache::class ),
 			$this->newMockLBFactory( $options['db'] ?? [] ),
@@ -1053,10 +1047,6 @@ class RestrictionStoreTest extends MediaWikiUnitTestCase {
 					MainConfigNames::RestrictionLevels => [ '', 'autoconfirmed', 'sysop' ],
 					MainConfigNames::RestrictionTypes => self::DEFAULT_RESTRICTION_TYPES,
 					MainConfigNames::SemiprotectedRestrictionLevels => [ 'autoconfirmed' ],
-					MainConfigNames::VirtualDomainsMapping => [
-						TemplateLinksTable::VIRTUAL_DOMAIN => [ 'db' => false ],
-						ImageLinksTable::VIRTUAL_DOMAIN => [ 'db' => false ],
-					],
 				] ),
 			WANObjectCache::newEmpty(),
 			$this->createNoopMock( LBFactory::class ),

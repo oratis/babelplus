@@ -1,12 +1,10 @@
 <?php
-namespace Wikimedia\Tests\Integration\LockManager;
 
 use MediaWiki\MainConfigNames;
-use Wikimedia\LockManager\MemcLockManager;
 
 /**
  * @group LockManager
- * @covers \Wikimedia\LockManager\MemcLockManager
+ * @covers \MemcLockManager
  */
 class MemcLockManagerIntegrationTest extends LockManagerIntegrationTestBase {
 	/** @var LockManager[] */

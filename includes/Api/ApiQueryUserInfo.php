@@ -20,9 +20,7 @@ use MediaWiki\User\UserGroupManager;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\Utils\MWTimestamp;
 use MediaWiki\Watchlist\WatchedItemStore;
-use MediaWiki\Watchlist\WatchlistLabelStore;
 use Wikimedia\ParamValidator\ParamValidator;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Query module to get information about the currently logged-in user
@@ -46,7 +44,6 @@ class ApiQueryUserInfo extends ApiQueryBase {
 	private UserEditTracker $userEditTracker;
 	private UserOptionsLookup $userOptionsLookup;
 	private UserGroupManager $userGroupManager;
-	private WatchlistLabelStore $watchlistLabelStore;
 
 	public function __construct(
 		ApiQuery $query,
@@ -55,8 +52,7 @@ class ApiQueryUserInfo extends ApiQueryBase {
 		WatchedItemStore $watchedItemStore,
 		UserEditTracker $userEditTracker,
 		UserOptionsLookup $userOptionsLookup,
-		UserGroupManager $userGroupManager,
-		WatchlistLabelStore $watchlistLabelStore
+		UserGroupManager $userGroupManager
 	) {
 		parent::__construct( $query, $moduleName, 'ui' );
 		$this->talkPageNotificationManager = $talkPageNotificationManager;
@@ -64,7 +60,6 @@ class ApiQueryUserInfo extends ApiQueryBase {
 		$this->userEditTracker = $userEditTracker;
 		$this->userOptionsLookup = $userOptionsLookup;
 		$this->userGroupManager = $userGroupManager;
-		$this->watchlistLabelStore = $watchlistLabelStore;
 	}
 
 	public function execute() {
@@ -218,14 +213,14 @@ class ApiQueryUserInfo extends ApiQueryBase {
 			$vals['email'] = $user->getEmail();
 			$auth = $user->getEmailAuthenticationTimestamp();
 			if ( $auth !== null ) {
-				$vals['emailauthenticated'] = wfTimestamp( TS::ISO_8601, $auth );
+				$vals['emailauthenticated'] = wfTimestamp( TS_ISO_8601, $auth );
 			}
 		}
 
 		if ( isset( $this->prop['registrationdate'] ) ) {
 			$regDate = $user->getRegistration();
 			if ( $regDate !== false ) {
-				$vals['registrationdate'] = wfTimestampOrNull( TS::ISO_8601, $regDate );
+				$vals['registrationdate'] = wfTimestampOrNull( TS_ISO_8601, $regDate );
 			}
 		}
 
@@ -252,20 +247,6 @@ class ApiQueryUserInfo extends ApiQueryBase {
 			} else {
 				$vals['unreadcount'] = $unreadNotifications;
 			}
-		}
-
-		// T409375
-		if ( isset( $this->prop['watchlistlabels'] ) &&
-			$this->getConfig()->get( MainConfigNames::EnableWatchlistLabels )
-		) {
-			$labels = $this->watchlistLabelStore->loadAllForUser( $user );
-			$wl = array_map( static fn ( $label ) => [
-				'id' => $label->getId(),
-				'name' => $label->getName(),
-			], $labels );
-			ApiResult::setArrayType( $wl, 'array' );
-			ApiResult::setIndexedTagName( $wl, 'label' );
-			$vals['watchlistlabels'] = $wl;
 		}
 
 		if ( isset( $this->prop['centralids'] ) ) {
@@ -347,7 +328,7 @@ class ApiQueryUserInfo extends ApiQueryBase {
 		if ( $timestamp === false ) {
 			return null;
 		}
-		return MWTimestamp::convert( TS::ISO_8601, $timestamp );
+		return MWTimestamp::convert( TS_ISO_8601, $timestamp );
 	}
 
 	/** @inheritDoc */
@@ -373,7 +354,6 @@ class ApiQueryUserInfo extends ApiQueryBase {
 					'acceptlang',
 					'registrationdate',
 					'unreadcount',
-					'watchlistlabels',
 					'centralids',
 					'latestcontrib',
 					'cancreateaccount',

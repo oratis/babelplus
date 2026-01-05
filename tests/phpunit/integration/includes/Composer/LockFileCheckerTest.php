@@ -3,10 +3,8 @@
  * @license GPL-2.0-or-later
  * @file
  */
-namespace MediaWiki\Tests\Integration\Composer;
 
 use MediaWiki\Composer\LockFileChecker;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\Composer\ComposerJson;
 use Wikimedia\Composer\ComposerLock;
 

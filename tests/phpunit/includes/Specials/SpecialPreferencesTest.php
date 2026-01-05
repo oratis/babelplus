@@ -5,7 +5,6 @@
  * Copyright © 2013, Antoine Musso
  * Copyright © 2013, Wikimedia Foundation Inc.
  */
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\MainConfigNames;
 use MediaWiki\Specials\SpecialPreferences;

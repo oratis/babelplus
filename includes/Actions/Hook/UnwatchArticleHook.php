@@ -1,10 +1,10 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Page\WikiPage;
 use MediaWiki\Status\Status;
-use MediaWiki\User\UserIdentity;
+use MediaWiki\User\User;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -19,7 +19,7 @@ interface UnwatchArticleHook {
 	 *
 	 * @since 1.35
 	 *
-	 * @param UserIdentity $user User watching
+	 * @param User $user User watching
 	 * @param WikiPage $page WikiPage object to be removed
 	 * @param Status &$status Status object to be returned if the hook returns false
 	 * @return bool|void True or no return value to continue or false to abort and
@@ -27,6 +27,3 @@ interface UnwatchArticleHook {
 	 */
 	public function onUnwatchArticle( $user, $page, &$status );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UnwatchArticleHook::class, 'MediaWiki\\Hook\\UnwatchArticleHook' );

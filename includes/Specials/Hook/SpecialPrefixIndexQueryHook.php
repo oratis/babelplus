@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use Wikimedia\Rdbms\SelectQueryBuilder;
 
@@ -24,6 +24,3 @@ interface SpecialPrefixIndexQueryHook {
 	 */
 	public function onSpecialPrefixIndexQuery( array $fieldData, SelectQueryBuilder $queryBuilder );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialPrefixIndexQueryHook::class, 'MediaWiki\\Hook\\SpecialPrefixIndexQueryHook' );

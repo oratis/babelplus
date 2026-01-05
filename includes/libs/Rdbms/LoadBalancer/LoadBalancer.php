@@ -53,8 +53,8 @@ class LoadBalancer implements ILoadBalancerForOwner {
 	private $clusterName;
 	/** @var ServerInfo */
 	private $serverInfo;
-	/** @var array<int,int|float> Map of server index => weight */
-	private $loads;
+	/** @var array<string,array<int,int|float>> Map of (group => server index => weight) */
+	private $groupLoads;
 	/** @var string|null Default query group to use with getConnection() */
 	private $defaultGroup;
 
@@ -87,7 +87,7 @@ class LoadBalancer implements ILoadBalancerForOwner {
 	/** @var bool Whether the session consistency callback already executed */
 	private $chronologyProtectorCalled = false;
 
-	/** @var IDatabaseForOwner|null The last connection handle that caused a problem */
+	/** @var Database|null The last connection handle that caused a problem */
 	private $lastErrorConn;
 
 	/** @var DatabaseDomain[] Map of (domain ID => domain instance) */
@@ -153,10 +153,13 @@ class LoadBalancer implements ILoadBalancerForOwner {
 			: DatabaseDomain::newUnspecified();
 
 		$this->serverInfo = new ServerInfo();
-		$this->loads = [];
+		$this->groupLoads = [ self::GROUP_GENERIC => [] ];
 		foreach ( $this->serverInfo->normalizeServerMaps( $params['servers'] ?? [] ) as $i => $server ) {
 			$this->serverInfo->addServer( $i, $server );
-			$this->loads[$i] = $server['load'];
+			foreach ( $server['groupLoads'] as $group => $weight ) {
+				$this->groupLoads[$group][$i] = $weight;
+			}
+			$this->groupLoads[self::GROUP_GENERIC][$i] = $server['load'];
 		}
 		// If the cluster name is not specified, fallback to the current primary name
 		$this->clusterName = $params['clusterName']
@@ -214,7 +217,8 @@ class LoadBalancer implements ILoadBalancerForOwner {
 
 		$this->cliMode = $params['cliMode'] ?? ( PHP_SAPI === 'cli' || PHP_SAPI === 'phpdbg' );
 
-		$this->defaultGroup = $params['defaultGroup'] ?? self::GROUP_GENERIC;
+		$group = $params['defaultGroup'] ?? self::GROUP_GENERIC;
+		$this->defaultGroup = isset( $this->groupLoads[ $group ] ) ? $group : self::GROUP_GENERIC;
 		if ( empty( $params['shuffleSharding'] ) ) {
 			$this->uniqueIdentifier = null;
 		} else {
@@ -239,11 +243,15 @@ class LoadBalancer implements ILoadBalancerForOwner {
 	}
 
 	/** @inheritDoc */
-	public function resolveDomainID( DatabaseDomain|string|false $domain ): string {
+	public function resolveDomainID( $domain ): string {
 		return $this->resolveDomainInstance( $domain )->getId();
 	}
 
-	final protected function resolveDomainInstance( DatabaseDomain|string|false $domain ): DatabaseDomain {
+	/**
+	 * @param DatabaseDomain|string|false $domain
+	 * @return DatabaseDomain
+	 */
+	final protected function resolveDomainInstance( $domain ): DatabaseDomain {
 		if ( $domain instanceof DatabaseDomain ) {
 			return $domain; // already a domain instance
 		} elseif ( $domain === false || $domain === $this->localDomain->getId() ) {
@@ -262,6 +270,45 @@ class LoadBalancer implements ILoadBalancerForOwner {
 		}
 
 		return $cachedDomain;
+	}
+
+	/**
+	 * Get the first group in $groups with assigned servers, falling back to the default group
+	 *
+	 * @param string[]|string|false $groups Query group(s) in preference order, [], or false
+	 * @param int $i Specific server index or DB_PRIMARY/DB_REPLICA
+	 * @return string Query group
+	 */
+	private function resolveGroups( $groups, $i ) {
+		// If a specific replica server was specified, then $groups makes no sense
+		if ( $i > 0 && $groups !== [] && $groups !== false ) {
+			$list = implode( ', ', (array)$groups );
+			throw new LogicException( "Query group(s) ($list) given with server index (#$i)" );
+		}
+
+		if ( $groups === [] || $groups === false || $groups === $this->defaultGroup ) {
+			$resolvedGroup = $this->defaultGroup;
+		} elseif ( is_string( $groups ) ) {
+			if ( $groups !== 'dump' && $groups !== 'vslow' ) {
+				wfDeprecatedMsg( 'Asking for a replica from groups except dump/vslow is deprecated: ' . $groups );
+			}
+			$resolvedGroup = isset( $this->groupLoads[$groups] ) ? $groups : $this->defaultGroup;
+		} elseif ( is_array( $groups ) ) {
+			$resolvedGroup = $this->defaultGroup;
+			foreach ( $groups as $group ) {
+				if ( $group !== 'dump' && $group !== 'vslow' ) {
+					wfDeprecatedMsg( 'Asking for a replica from groups except dump/vslow is deprecated: ' . $group );
+				}
+				if ( isset( $this->groupLoads[$group] ) ) {
+					$resolvedGroup = $group;
+					break;
+				}
+			}
+		} else {
+			$resolvedGroup = $this->defaultGroup;
+		}
+
+		return $resolvedGroup;
 	}
 
 	/**
@@ -406,22 +453,11 @@ class LoadBalancer implements ILoadBalancerForOwner {
 
 	/** @inheritDoc */
 	public function getReaderIndex( $group = false ) {
+		$group = is_string( $group ) ? $group : self::GROUP_GENERIC;
+
 		if ( !$this->serverInfo->hasReplicaServers() ) {
 			// There is only one possible server to use (the primary)
 			return ServerInfo::WRITER_INDEX;
-		}
-
-		if (
-			$group === 'dump' ||
-			$group === 'vslow' ||
-			$group === [ 'dump' ] ||
-			$group === [ 'vslow' ] ||
-			$this->defaultGroup === 'dump' ||
-			$this->defaultGroup === 'vslow'
-		) {
-			$group = 'vslow';
-		} else {
-			$group = self::GROUP_GENERIC;
 		}
 
 		$index = $this->getExistingReaderIndex( $group );
@@ -433,20 +469,7 @@ class LoadBalancer implements ILoadBalancerForOwner {
 		}
 
 		// Get the server weight array for this load group
-		if ( $group === 'vslow' ) {
-			// pick the replica with the lowest weight above zero as the vslow
-			$lowestWeight = INF;
-			$loads = $this->loads;
-			foreach ( $this->loads as $index => $weight ) {
-				if ( $weight > 0 && $weight < $lowestWeight ) {
-					$loads = [ $index => $weight ];
-					$lowestWeight = $weight;
-				}
-			}
-		} else {
-			$loads = $this->loads;
-		}
-
+		$loads = $this->groupLoads[$group] ?? [];
 		if ( !$loads ) {
 			$this->logger->info( __METHOD__ . ": no loads for group $group" );
 			return false;
@@ -578,7 +601,7 @@ class LoadBalancer implements ILoadBalancerForOwner {
 
 			$failedReplicas = [];
 			foreach ( $this->serverInfo->getStreamingReplicaIndexes() as $i ) {
-				if ( isset( $this->loads[$i] ) && $this->loads[$i] > 0 ) {
+				if ( $this->serverHasLoadInAnyGroup( $i ) ) {
 					$start = microtime( true );
 					$ok = $this->awaitSessionPrimaryPos( $i, $timeout );
 					if ( !$ok ) {
@@ -608,6 +631,20 @@ class LoadBalancer implements ILoadBalancerForOwner {
 			// Restore the old position; this is used for throttling, not lag-protection
 			$this->waitForPos = $oldPos;
 		}
+	}
+
+	/**
+	 * @param int $i Specific server index
+	 * @return bool
+	 */
+	private function serverHasLoadInAnyGroup( $i ) {
+		foreach ( $this->groupLoads as $loadsByIndex ) {
+			if ( ( $loadsByIndex[$i] ?? 0 ) > 0 ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/** @inheritDoc */
@@ -747,7 +784,7 @@ class LoadBalancer implements ILoadBalancerForOwner {
 	}
 
 	/** @inheritDoc */
-	public function getConnection( $i, $groups = [], string|false $domain = false, $flags = 0 ) {
+	public function getConnection( $i, $groups = [], $domain = false, $flags = 0 ) {
 		if ( self::fieldHasBit( $flags, self::CONN_SILENCE_ERRORS ) ) {
 			throw new UnexpectedValueException(
 				__METHOD__ . ' got CONN_SILENCE_ERRORS; connection is already deferred'
@@ -765,6 +802,7 @@ class LoadBalancer implements ILoadBalancerForOwner {
 	/** @inheritDoc */
 	public function getConnectionInternal( $i, $groups = [], $domain = false, $flags = 0 ): IDatabase {
 		$domain = $this->resolveDomainID( $domain );
+		$group = $this->resolveGroups( $groups, $i );
 		$flags = $this->sanitizeConnectionFlags( $flags, $domain );
 		// If given DB_PRIMARY/DB_REPLICA, resolve it to a specific server index. Resolving
 		// DB_REPLICA might trigger getServerConnection() calls due to the getReaderIndex()
@@ -774,7 +812,7 @@ class LoadBalancer implements ILoadBalancerForOwner {
 		if ( $i === self::DB_PRIMARY ) {
 			$serverIndex = ServerInfo::WRITER_INDEX;
 		} elseif ( $i === self::DB_REPLICA ) {
-			$groupIndex = $this->getReaderIndex( $groups );
+			$groupIndex = $this->getReaderIndex( $group );
 			if ( $groupIndex !== false ) {
 				// Group connection succeeded
 				$serverIndex = $groupIndex;
@@ -1241,12 +1279,26 @@ class LoadBalancer implements ILoadBalancerForOwner {
 		$paramServers = $params['servers'];
 		$newIndexByServerIndex = $this->serverInfo->reconfigureServers( $paramServers );
 		foreach ( $newIndexByServerIndex as $i => $ni ) {
-			if ( $ni === null ) {
+			if ( $ni !== null ) {
+				// Server still exists in the new config
+				$newWeightByGroup = $paramServers[$ni]['groupLoads'] ?? [];
+				$newWeightByGroup[ILoadBalancer::GROUP_GENERIC] = $paramServers[$ni]['load'];
+				// Check if the server was removed from any load groups
+				foreach ( $this->groupLoads as $group => $weightByIndex ) {
+					if ( isset( $weightByIndex[$i] ) && !isset( $newWeightByGroup[$group] ) ) {
+						// Server no longer in this load group in the new config
+						$anyServerDepooled = true;
+						unset( $this->groupLoads[$group][$i] );
+					}
+				}
+			} else {
 				// Server no longer exists in the new config
 				$anyServerDepooled = true;
 				// Note that if the primary server is depooled and a replica server promoted
 				// to new primary, then DB_PRIMARY handles will fail with server index errors
-				unset( $this->loads[$i] );
+				foreach ( $this->groupLoads as $group => $loads ) {
+					unset( $this->groupLoads[$group][$i] );
+				}
 			}
 		}
 
@@ -1853,7 +1905,7 @@ class LoadBalancer implements ILoadBalancerForOwner {
 			$lagTimes = $this->getLagTimes();
 			foreach ( $lagTimes as $i => $lag ) {
 				// Allowing the value to be unset due to stale cache (T361824)
-				$load = $this->loads[$i] ?? 0;
+				$load = $this->groupLoads[self::GROUP_GENERIC][$i] ?? 0;
 				if ( $load > 0 && $lag > $maxLag ) {
 					$maxLag = $lag;
 					$host = $this->serverInfo->getServerInfoStrict( $i, 'host' );
@@ -2033,10 +2085,6 @@ class LoadBalancer implements ILoadBalancerForOwner {
 	 * @codeCoverageIgnore
 	 */
 	public function setMockTime( &$time ) {
-		if ( !$this->loadMonitor instanceof LoadMonitor ) {
-			throw new LogicException( 'Cannot set mock time on ' . $this::class . ' (consider adding ' .
-				'setMockTime to ILoadMonitor).' );
-		}
 		$this->loadMonitor->setMockTime( $time );
 	}
 

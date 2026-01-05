@@ -13,8 +13,8 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\WikiPage;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Revision\RevisionRecord;
-use MediaWiki\Search\SearchEngine;
-use MediaWiki\Search\SearchIndexField;
+use SearchEngine;
+use SearchIndexField;
 
 /**
  * Base content handler implementation for flat text contents.

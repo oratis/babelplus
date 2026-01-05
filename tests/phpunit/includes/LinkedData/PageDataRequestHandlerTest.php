@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\LinkedData;
-
 use MediaWiki\Context\DerivativeContext;
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Exception\HttpError;
@@ -11,13 +9,12 @@ use MediaWiki\Request\FauxRequest;
 use MediaWiki\Request\FauxResponse;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleFactory;
-use MediaWikiLangTestCase;
 
 /**
  * @covers \MediaWiki\LinkedData\PageDataRequestHandler
  * @group PageData
  */
-class PageDataRequestHandlerTest extends MediaWikiLangTestCase {
+class PageDataRequestHandlerTest extends \MediaWikiLangTestCase {
 
 	/**
 	 * @var Title

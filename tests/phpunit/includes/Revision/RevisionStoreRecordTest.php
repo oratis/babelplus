@@ -41,6 +41,7 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 			'rev_minor_edit' => 0,
 			'rev_parent_id' => '5',
 			'rev_len' => $slots->computeSize(),
+			'rev_sha1' => $slots->computeSha1(),
 			'page_latest' => '18',
 		];
 
@@ -109,8 +110,9 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 
 		$row = $protoRow;
 		$row['rev_len'] = null;
+		$row['rev_sha1'] = '';
 
-		yield 'rev_len is null' => [
+		yield 'rev_len is null, rev_sha1 is ""' => [
 			$title,
 			$user,
 			$comment,
@@ -119,7 +121,7 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 		];
 
 		$row = $protoRow;
-		yield 'no length' => [
+		yield 'no length, no hash' => [
 			$title,
 			$user,
 			$comment,
@@ -175,6 +177,12 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 			$this->assertSame( $slots->computeSize(), $rec->getSize(), 'getSize' );
 		}
 
+		if ( !empty( $row->rev_sha1 ) ) {
+			$this->assertSame( $row->rev_sha1, $rec->getSha1(), 'getSha1' );
+		} else {
+			$this->assertSame( $slots->computeSha1(), $rec->getSha1(), 'getSha1' );
+		}
+
 		if ( isset( $row->page_latest ) ) {
 			$this->assertSame(
 				(int)$row->rev_id === (int)$row->page_latest,
@@ -215,6 +223,7 @@ class RevisionStoreRecordTest extends MediaWikiIntegrationTestCase {
 			'rev_minor_edit' => 0,
 			'rev_parent_id' => '5',
 			'rev_len' => $slots->computeSize(),
+			'rev_sha1' => $slots->computeSha1(),
 			'page_latest' => '18',
 		];
 

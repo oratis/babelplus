@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Watchlist\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Watchlist\WatchedItemQueryService;
 
@@ -8,7 +8,7 @@ use MediaWiki\Watchlist\WatchedItemQueryService;
  * This is a hook handler interface, see docs/Hooks.md.
  * Use the hook name "WatchedItemQueryServiceExtensions" to register handlers implementing this interface.
  *
- * @deprecated since 1.46 use ApiQueryBaseBeforeQueryHook
+ * @stable to implement
  * @ingroup Hooks
  */
 interface WatchedItemQueryServiceExtensionsHook {
@@ -16,7 +16,6 @@ interface WatchedItemQueryServiceExtensionsHook {
 	 * Use this hook to create a WatchedItemQueryServiceExtension.
 	 *
 	 * @since 1.35
-	 * @deprecated since 1.46 and no longer called. Use ApiQueryBaseBeforeQueryHook.
 	 *
 	 * @param array &$extensions Add WatchedItemQueryServiceExtension objects to this array
 	 * @param WatchedItemQueryService $watchedItemQueryService Service object
@@ -26,6 +25,3 @@ interface WatchedItemQueryServiceExtensionsHook {
 		$watchedItemQueryService
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( WatchedItemQueryServiceExtensionsHook::class, 'MediaWiki\\Hook\\WatchedItemQueryServiceExtensionsHook' );

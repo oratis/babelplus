@@ -22,7 +22,6 @@ use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
 use RuntimeException;
 use Wikimedia\AtEase\AtEase;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @defgroup RecentChanges Recent changes
@@ -52,7 +51,8 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  *  rc_timestamp    time the entry was made
  *  rc_namespace    namespace #
  *  rc_title        non-prefixed db key
- *  rc_source       change source
+ *  rc_type         obsolete, use rc_source
+ *  rc_source       string representation of change source
  *  rc_minor        is minor
  *  rc_cur_id       page_id of associated page entry
  *  rc_user         user id who made the entry
@@ -90,14 +90,6 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  */
 class RecentChange implements Taggable {
 	use DeprecationHelper;
-
-	private const CHANGE_TYPES = [
-		'edit' => RC_EDIT,
-		'new' => RC_NEW,
-		'log' => RC_LOG,
-		'external' => RC_EXTERNAL,
-		'categorize' => RC_CATEGORIZE,
-	];
 
 	// Constants for the rc_source field.  Extensions may also have
 	// their own source constants.
@@ -177,6 +169,14 @@ class RecentChange implements Taggable {
 	 */
 	private $highlights = [];
 
+	private const CHANGE_TYPES = [
+		'edit' => RC_EDIT,
+		'new' => RC_NEW,
+		'log' => RC_LOG,
+		'external' => RC_EXTERNAL,
+		'categorize' => RC_CATEGORIZE,
+	];
+
 	public function __construct(
 		?PageReference $page = null,
 		?UserIdentity $performer = null
@@ -213,15 +213,11 @@ class RecentChange implements Taggable {
 
 	/**
 	 * Parsing text to RC_* constants
-	 *
-	 * @deprecated since 1.46
 	 * @since 1.24
 	 * @param string|array $type Callers must make sure that the given types are valid RC types.
 	 * @return int|array RC_TYPE
 	 */
 	public static function parseToRCType( $type ) {
-		wfDeprecated( __METHOD__, '1.46' );
-
 		if ( is_array( $type ) ) {
 			$retval = [];
 			foreach ( $type as $t ) {
@@ -239,15 +235,11 @@ class RecentChange implements Taggable {
 
 	/**
 	 * Parsing RC_* constants to human-readable test
-	 *
-	 * @deprecated since 1.46
 	 * @since 1.24
 	 * @param int $rcType
 	 * @return string
 	 */
 	public static function parseFromRCType( $rcType ) {
-		wfDeprecated( __METHOD__, '1.46' );
-
 		return array_search( $rcType, self::CHANGE_TYPES, true ) ?: "$rcType";
 	}
 
@@ -338,6 +330,7 @@ class RecentChange implements Taggable {
 				'rc_cur_id',
 				'rc_this_oldid',
 				'rc_last_oldid',
+				'rc_type',
 				'rc_source',
 				'rc_patrolled',
 				'rc_ip',
@@ -632,7 +625,7 @@ class RecentChange implements Taggable {
 	 */
 	public function loadFromRow( $row ) {
 		$this->mAttribs = get_object_vars( $row );
-		$this->mAttribs['rc_timestamp'] = wfTimestamp( TS::MW, $this->mAttribs['rc_timestamp'] );
+		$this->mAttribs['rc_timestamp'] = wfTimestamp( TS_MW, $this->mAttribs['rc_timestamp'] );
 		// rc_deleted MUST be set
 		$this->mAttribs['rc_deleted'] = $row->rc_deleted;
 
@@ -655,7 +648,7 @@ class RecentChange implements Taggable {
 
 		// Watchlist expiry.
 		if ( isset( $row->we_expiry ) && $row->we_expiry ) {
-			$this->watchlistExpiry = wfTimestamp( TS::MW, $row->we_expiry );
+			$this->watchlistExpiry = wfTimestamp( TS_MW, $row->we_expiry );
 		}
 	}
 
@@ -785,7 +778,7 @@ class RecentChange implements Taggable {
 		$rcMaxAge =
 			MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::RCMaxAge );
 
-		return (int)wfTimestamp( TS::UNIX, $timestamp ) > time() - $tolerance - $rcMaxAge;
+		return (int)wfTimestamp( TS_UNIX, $timestamp ) > time() - $tolerance - $rcMaxAge;
 	}
 
 	/**

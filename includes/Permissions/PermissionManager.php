@@ -158,7 +158,6 @@ class PermissionManager {
 		'edituserjson',
 		'edituserjs',
 		'hideuser',
-		'ignore-restricted-groups',
 		'import',
 		'importupload',
 		'interwiki',
@@ -273,7 +272,7 @@ class PermissionManager {
 	 *
 	 * @return bool
 	 */
-	public function userCan( $action, User $user, LinkTarget $page, $rigor = self::RIGOR_FULL ): bool {
+	public function userCan( $action, User $user, LinkTarget $page, $rigor = self::RIGOR_SECURE ): bool {
 		return $this->getPermissionStatus( $action, $user, $page, $rigor, true )->isGood();
 	}
 
@@ -686,7 +685,7 @@ class PermissionManager {
 		}
 
 		if ( !$allowed ) {
-			// If the title is not allowed, give extensions a chance to do so
+			# If the title is not whitelisted, give extensions a chance to do so...
 			$this->hookRunner->onTitleReadWhitelist( $title, $user, $allowed );
 			if ( !$allowed ) {
 				$this->missingPermissionError( $action, $short, $status );
@@ -1864,9 +1863,9 @@ class PermissionManager {
 	 * @since 1.34
 	 * @param UserIdentity $user
 	 * @param string|string[] $rights
+	 * @return ScopedCallback
 	 */
-	#[\NoDiscard]
-	public function addTemporaryUserRights( UserIdentity $user, $rights ): ScopedCallback {
+	public function addTemporaryUserRights( UserIdentity $user, $rights ) {
 		$userId = $user->getId();
 		$nextKey = count( $this->temporaryUserRights[$userId] ?? [] );
 		$this->temporaryUserRights[$userId][$nextKey] = (array)$rights;

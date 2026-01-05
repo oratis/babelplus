@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Mocks\Content;
-
 use MediaWiki\Content\AbstractContent;
 use MediaWiki\Content\Content;
 
@@ -99,5 +97,3 @@ class DummyNonTextContent extends AbstractContent {
 		return false;
 	}
 }
-// @deprecated since 1.46
-class_alias( DummyNonTextContent::class, 'DummyNonTextContent' );

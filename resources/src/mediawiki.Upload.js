@@ -6,7 +6,7 @@
 	 *
 	 * A simple example:
 	 * ```
-	 * var file = new OO.ui.SelectFileInputWidget(),
+	 * var file = new OO.ui.SelectFileWidget(),
 	 *   button = new OO.ui.ButtonWidget( { label: 'Save' } ),
 	 *   upload = new mw.Upload;
 	 *

@@ -1,10 +1,6 @@
 <?php
 
-namespace MediaWiki\Collation;
-
-use Collator;
 use MediaWiki\Shell\ShellboxClientFactory;
-use RuntimeException;
 use Shellbox\RPC\RpcClient;
 
 /**
@@ -112,6 +108,3 @@ class RemoteIcuCollation extends Collation {
 		return self::encode( $ret );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( RemoteIcuCollation::class, 'RemoteIcuCollation' );

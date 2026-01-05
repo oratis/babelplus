@@ -29,15 +29,14 @@
 	 *
 	 * @private
 	 * @param {string} str
-	 * @param {mw.Message} [wrapperMsg] Message to wrap in, if other than `parentheses`
 	 * @return {string}
 	 */
-	function parenthesesWrap( str, wrapperMsg = mw.message( 'parentheses' ) ) {
+	function parenthesesWrap( str ) {
 		if ( str === '' ) {
 			return str;
 		}
 		// There is no equivalent to rawParams
-		return wrapperMsg.escaped()
+		return mw.message( 'parentheses' ).escaped()
 			// Specify a function as the replacement,
 			// so that "$" characters in str are not interpreted.
 			.replace( '$1', () => str );
@@ -239,31 +238,39 @@
 	 * @return {jQuery.Promise}
 	 */
 	function getRestrictionsText( restrictions ) {
-		// API also returns e.g. move protections, which we don't want here
-		restrictions = restrictions.filter( ( r ) => r.type === 'edit' );
-
-		if ( restrictions.length === 0 ) {
-			return $.Deferred().resolve( '' );
+		let msg = '';
+		if ( !restrictions ) {
+			return $.Deferred().resolve( msg );
 		}
 
-		// Construct the message from restriction-level-*
-		// e.g. restriction-level-sysop, restriction-level-autoconfirmed
-		const msgs = [];
+		// Record other restriction levels, in case it's protected for others.
+		const restrictionLevels = [];
 		restrictions.forEach( ( r ) => {
-			msgs.push( 'restriction-level-' + r.level );
+			if ( r.type !== 'edit' ) {
+				return;
+			}
+			if ( r.level === 'sysop' ) {
+				msg = mw.msg( 'template-protected' );
+			} else if ( r.level === 'autoconfirmed' ) {
+				msg = mw.msg( 'template-semiprotected' );
+			} else {
+				restrictionLevels.push( r.level );
+			}
 		} );
 
-		// Check backwards-compatible messages for the built-in protection levels,
-		// wrap custom levels in parentheses
-		let msg;
-		if ( restrictions.length === 1 && restrictions[ 0 ].level === 'sysop' ) {
-			msg = mw.message( 'template-protected' );
-		} else if ( restrictions.length === 1 && restrictions[ 0 ].level === 'autoconfirmed' ) {
-			msg = mw.message( 'template-semiprotected' );
+		// If sysop or autoconfirmed, use that.
+		if ( msg !== '' ) {
+			return $.Deferred().resolve( msg );
 		}
-		if ( !msg || !msg.exists() || msg.plain() === '' || msg.plain() === '-' ) {
-			// By default wrap protection levels in parentheses
-			msg = mw.message( 'parentheses' );
+
+		// Otherwise, if the edit restriction isn't one of the backwards-compatible ones,
+		// use the (possibly custom) restriction-level-* messages.
+		const msgs = [];
+		restrictionLevels.forEach( ( level ) => {
+			msgs.push( 'restriction-level-' + level );
+		} );
+		if ( msgs.length === 0 ) {
+			return $.Deferred().resolve( '' );
 		}
 
 		// Custom restriction levels don't have their messages loaded, so we have to do that.
@@ -275,7 +282,7 @@
 				( m ) => mw.message( m ).parse()
 			);
 			// There's no commaList in JS, so just join with commas (doesn't handle the last item).
-			return parenthesesWrap( localizedMessages.join( mw.message( 'comma-separator' ).escaped() ), msg );
+			return parenthesesWrap( localizedMessages.join( mw.message( 'comma-separator' ).escaped() ) );
 		} );
 	}
 
@@ -398,7 +405,7 @@
 		if ( response.parse.categorieshtml ) {
 			$content = $( $.parseHTML( response.parse.categorieshtml ) );
 			mw.hook( 'wikipage.categories' ).fire( $content );
-			$( '.catlinks[data-mw="interface"], .catlinks[data-mw-interface]' ).replaceWith( $content );
+			$( '.catlinks[data-mw="interface"]' ).replaceWith( $content );
 		}
 
 		// Table of contents.
@@ -665,11 +672,9 @@
 	 *   - After finishing the preview, a reminder that it's only a preview, or an error message in
 	 *     case a request has failed, will be shown at the top of the preview.
 	 * @param {Node|Node[]|jQuery|string} [config.previewHeader=null] Content of `<h2>` element at
-	 *   the top of the preview notes. If `isLivePreview` is true then this must be set, either at
-	 *   entry or by the responseHandler callback.
+	 *   the top of the preview notes. Required if `isLivePreview` is true.
 	 * @param {Node|Node[]|jQuery|string} [config.previewNote=null] Main text of the first preview
-	 *   note. If `isLivePreview` is true then this must be set, either at entry or by the
-	 *   responseHandler callback.
+	 *   note. Required if `isLivePreview` is true.
 	 * @param {string} [config.title=mw.config.get( 'wgPageName' )] The title of the page being previewed.
 	 * @param {string} [config.titleParam='title'] Name of the parse API parameter to pass `title` to.
 	 * @param {string} [config.textParam='text'] Name of the parse API parameter to pass the content
@@ -679,9 +684,6 @@
 	 * @param {module:mediawiki.page.preview~responseHandler} [config.responseHandler=null] Callback
 	 *   to run right after the API responses are received. This allows the config and response
 	 *   objects to be modified before the preview is shown.
-	 * @param {jQuery|string} [config.responseValidationError=null] This may be set by the response
-	 *   handler. If it is set, the specified error message will be shown and the response will not
-	 *   be handled.
 	 * @param {boolean} [config.createSpinner=false] Creates `$spinnerNode` and inserts it before
 	 *   `$previewNode` if one doesn't already exist and the module `jquery.spinner` is loaded.
 	 * @param {string[]} [config.loadingSelectors=getLoadingSelectors()] An array of query selectors
@@ -817,15 +819,6 @@
 						config.responseHandler( config, parseResponse[ 0 ], diffResponse[ 0 ] );
 					} else {
 						config.responseHandler( config, parseResponse[ 0 ] );
-					}
-					const error = config.responseValidationError;
-					if ( error !== undefined && error !== null ) {
-						if ( typeof error === 'string' ) {
-							showError( config, $( '<div>' ).text( error ) );
-						} else {
-							showError( config, error );
-						}
-						return;
 					}
 				}
 

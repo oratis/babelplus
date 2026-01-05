@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\HTMLForm\HTMLForm;
 
@@ -25,6 +25,3 @@ interface PreferencesGetLegendHook {
 	 */
 	public function onPreferencesGetLegend( $form, $key, &$legend );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PreferencesGetLegendHook::class, 'MediaWiki\\Hook\\PreferencesGetLegendHook' );

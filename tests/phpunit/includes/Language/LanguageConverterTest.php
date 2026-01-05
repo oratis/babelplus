@@ -1,20 +1,15 @@
 <?php
 
-namespace MediaWiki\Tests\Language;
-
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Language\Language;
 use MediaWiki\Linker\LinkTarget;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\PageReferenceValue;
-use MediaWiki\Tests\Mocks\Language\DummyConverter;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleValue;
 use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\User;
-use MediaWikiLangTestCase;
-use MockMessageLocalizer;
 
 /**
  * @group Language

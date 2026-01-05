@@ -124,7 +124,6 @@ use MediaWiki\Specials\SpecialRedirect;
 use MediaWiki\Specials\SpecialRemoveCredentials;
 use MediaWiki\Specials\SpecialRenameUser;
 use MediaWiki\Specials\SpecialResetTokens;
-use MediaWiki\Specials\SpecialRestSandbox;
 use MediaWiki\Specials\SpecialRevisionDelete;
 use MediaWiki\Specials\SpecialRunJobs;
 use MediaWiki\Specials\SpecialSearch;
@@ -156,7 +155,6 @@ use MediaWiki\Specials\SpecialWantedFiles;
 use MediaWiki\Specials\SpecialWantedPages;
 use MediaWiki\Specials\SpecialWantedTemplates;
 use MediaWiki\Specials\SpecialWatchlist;
-use MediaWiki\Specials\SpecialWatchlistLabels;
 use MediaWiki\Specials\SpecialWhatLinksHere;
 use MediaWiki\Specials\SpecialWithoutInterwiki;
 use MediaWiki\Title\Title;
@@ -678,7 +676,6 @@ class SpecialPageFactory {
 			'class' => SpecialEditWatchlist::class,
 			'services' => [
 				'WatchedItemStore',
-				'WatchlistLabelStore',
 				'TitleParser',
 				'GenderCache',
 				'LinkBatchFactory',
@@ -726,13 +723,6 @@ class SpecialPageFactory {
 				'TempUserConfig',
 				'RecentChangeFactory',
 				'ChangesListQueryFactory',
-				'WatchlistLabelStore',
-			]
-		],
-		'WatchlistLabels' => [
-			'class' => SpecialWatchlistLabels::class,
-			'services' => [
-				'WatchlistLabelStore',
 			]
 		],
 		'Newpages' => [
@@ -862,12 +852,6 @@ class SpecialPageFactory {
 				'LanguageNameUtils',
 				'UrlUtils',
 				'ConnectionProvider',
-			]
-		],
-		'RestSandbox' => [
-			'class' => SpecialRestSandbox::class,
-			'services' => [
-				'UrlUtils',
 			]
 		],
 		'Statistics' => [

@@ -10,7 +10,6 @@ use MediaWiki\Rest\RequestData;
 use MediaWiki\Title\Title;
 use MediaWikiIntegrationTestCase;
 use Wikimedia\Message\MessageValue;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\Rest\Handler\MediaLinksHandler
@@ -114,7 +113,7 @@ class MediaLinksHandlerTest extends MediaWikiIntegrationTestCase {
 
 		$firstETag = $response->getHeaderLine( 'ETag' );
 		$this->assertSame(
-			wfTimestamp( TS::RFC2822, $title->getTouched() ),
+			wfTimestamp( TS_RFC2822, $title->getTouched() ),
 			$response->getHeaderLine( 'Last-Modified' )
 		);
 
@@ -126,7 +125,7 @@ class MediaLinksHandlerTest extends MediaWikiIntegrationTestCase {
 
 		$this->assertNotEquals( $response->getHeaderLine( 'ETag' ), $firstETag );
 		$this->assertSame(
-			wfTimestamp( TS::RFC2822, $title->getTouched() ),
+			wfTimestamp( TS_RFC2822, $title->getTouched() ),
 			$response->getHeaderLine( 'Last-Modified' )
 		);
 	}

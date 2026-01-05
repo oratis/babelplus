@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Registration;
+namespace MediaWiki\Tests\Registration;
 
 use Exception;
 use InvalidArgumentException;
@@ -1276,7 +1276,7 @@ class ExtensionProcessorTest extends MediaWikiUnitTestCase {
 		$schemaFileHash = md5_file( "$IP/docs/extension.schema.v1.json", false );
 
 		$this->assertSame(
-			'94585ce1beec1fdf726d5750cf887bb1',
+			'51b7eb8503c163fb1381110bc995cdd5',
 			$schemaFileHash,
 			"Manifest_version 1 is frozen and should not be changed or given new features" );
 	}

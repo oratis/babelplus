@@ -3,11 +3,7 @@
  * @license GPL-2.0-or-later
  * @file
  */
-namespace Wikimedia\LockManager;
 
-use Exception;
-use InvalidArgumentException;
-use StatusValue;
 use Wikimedia\MapCacheLRU\MapCacheLRU;
 use Wikimedia\ObjectCache\MemcachedBagOStuff;
 use Wikimedia\ObjectCache\MemcachedPhpBagOStuff;
@@ -352,5 +348,3 @@ class MemcLockManager extends QuorumLockManager {
 		}
 	}
 }
-/** @deprecated class alias since 1.46 */
-class_alias( MemcLockManager::class, 'MemcLockManager' );

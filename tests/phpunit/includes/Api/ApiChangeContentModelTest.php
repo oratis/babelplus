@@ -6,7 +6,6 @@ use MediaWiki\Api\ApiUsageException;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\RateLimiter;
 use MediaWiki\Status\Status;
-use MediaWiki\Tests\Mocks\Content\DummyContentHandlerForTesting;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\Title\Title;
@@ -41,7 +40,7 @@ class ApiChangeContentModelTest extends ApiTestCase {
 			],
 		] );
 		$this->mergeMwGlobalArrayValue( 'wgContentHandlers', [
-			'testing' => DummyContentHandlerForTesting::class,
+			'testing' => 'DummyContentHandlerForTesting',
 		] );
 	}
 

@@ -10,7 +10,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\User\UserIdentity;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Trait for functionality related to media files
@@ -55,7 +54,7 @@ trait MediaFileTrait {
 				];
 			}
 			$responseFile['latest'] = [
-				'timestamp' => wfTimestamp( TS::ISO_8601, $file->getTimestamp() ),
+				'timestamp' => wfTimestamp( TS_ISO_8601, $file->getTimestamp() ),
 				'user' => $fileUser,
 			];
 

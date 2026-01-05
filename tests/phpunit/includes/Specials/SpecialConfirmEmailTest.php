@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Specials\SpecialConfirmEmail;
 use MediaWiki\User\UserFactory;

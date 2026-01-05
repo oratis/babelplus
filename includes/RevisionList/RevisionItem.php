@@ -8,7 +8,7 @@
 
 namespace MediaWiki\RevisionList;
 
-use MediaWiki\Context\IContextSource;
+use MediaWiki\Context\RequestContext;
 use MediaWiki\Linker\Linker;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionRecord;
@@ -20,7 +20,7 @@ class RevisionItem extends RevisionItemBase {
 	/** @var RevisionRecord */
 	protected $revisionRecord;
 
-	/** @var IContextSource */
+	/** @var RequestContext */
 	protected $context;
 
 	/** @inheritDoc */

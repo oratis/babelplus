@@ -13,9 +13,8 @@ use MediaWiki\Context\RequestContext;
 use MediaWiki\Exception\MWExceptionHandler;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\Status\Status;
-use MediaWiki\Upload\Exception\UploadStashException;
-use MediaWiki\Upload\UploadBase;
 use MediaWiki\User\User;
+use UploadBase;
 use Wikimedia\ScopedCallback;
 
 /**
@@ -100,10 +99,7 @@ trait UploadJobTrait {
 
 			// Cleanup any temporary local file
 			$this->getUpload()->cleanupTempFile();
-		} catch ( UploadStashException $e ) {
-			$this->setStatus( 'publish', 'Failure', Status::newFatal( $e->getMessageObject() ) );
-			$this->setLastError( get_class( $e ) . ": " . $e->getMessage() );
-			return false;
+
 		} catch ( Exception $e ) {
 			$this->setStatus( 'publish', 'Failure', Status::newFatal( 'api-error-publishfailed' ) );
 			$this->setLastError( get_class( $e ) . ": " . $e->getMessage() );
@@ -261,16 +257,14 @@ trait UploadJobTrait {
 	 */
 	private function setStatusDone() {
 		// Build the image info array while we have the local reference handy
-		// Deprecated, kept for backward compatibility on deployment
 		$imageInfo = ApiUpload::getDummyInstance()->getUploadImageInfo( $this->getUpload() );
 
 		// Cache the info so the user doesn't have to wait forever to get the final info
-		$file = $this->getUpload()->getLocalFile();
 		$this->setStatus(
 			'publish',
 			'Success',
 			Status::newGood(),
-			[ 'filename' => $file->getName(), 'timestamp' => $file->getTimestamp(), 'imageinfo' => $imageInfo ]
+			[ 'filename' => $this->getUpload()->getLocalFile()->getName(), 'imageinfo' => $imageInfo ]
 		);
 	}
 

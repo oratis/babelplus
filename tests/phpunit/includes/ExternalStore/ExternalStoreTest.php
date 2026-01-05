@@ -1,11 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\ExternalStore;
-
-use ExternalStore;
-use ExternalStoreFactory;
-use MediaWikiIntegrationTestCase;
-
 class ExternalStoreTest extends MediaWikiIntegrationTestCase {
 
 	/**

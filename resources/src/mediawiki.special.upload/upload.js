@@ -174,7 +174,7 @@
 					$( this ).attr( 'id' ) !== 'wpUploadFileURL'
 				) {
 					if (
-						!fname.includes( '.' ) ||
+						fname.lastIndexOf( '.' ) === -1 ||
 						!mw.config.get( 'wgFileExtensions' ).map( ( element ) => element.toLowerCase() ).includes( fname.slice( fname.lastIndexOf( '.' ) + 1 ).toLowerCase() )
 					) {
 						// Not a valid extension

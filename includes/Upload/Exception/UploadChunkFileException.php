@@ -5,9 +5,6 @@
  * @ingroup Upload
  */
 
-namespace MediaWiki\Upload\Exception;
-
-use RuntimeException;
 use Wikimedia\NormalizedException\INormalizedException;
 use Wikimedia\NormalizedException\NormalizedExceptionTrait;
 
@@ -22,7 +19,7 @@ class UploadChunkFileException extends RuntimeException implements INormalizedEx
 		$this->messageContext = $context;
 
 		parent::__construct(
-			self::getMessageFromNormalizedMessage( $this->normalizedMessage, $this->messageContext )
+			$this->getMessageFromNormalizedMessage( $this->normalizedMessage, $this->messageContext )
 		);
 	}
 }

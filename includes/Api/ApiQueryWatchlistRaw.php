@@ -18,7 +18,6 @@ use MediaWiki\Watchlist\WatchedItemQueryService;
 use MediaWiki\Watchlist\WatchedItemStore;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This query action allows clients to retrieve a list of pages
@@ -115,10 +114,9 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 		) {
 			$usernames = [];
 			foreach ( $items as $item ) {
-				$target = $item->getTarget();
-				if ( $this->namespaceInfo->hasGenderDistinction( $target->getNamespace() ) ) {
-					// GenderCache is able to deal with underscores in usernames
-					$usernames[] = $target->getDBkey();
+				$linkTarget = $item->getTarget();
+				if ( $this->namespaceInfo->hasGenderDistinction( $linkTarget->getNamespace() ) ) {
+					$usernames[] = $linkTarget->getText();
 				}
 			}
 			if ( $usernames !== [] ) {
@@ -141,7 +139,7 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 				$vals = [];
 				ApiQueryBase::addTitleInfo( $vals, $t );
 				if ( isset( $prop['changed'] ) && $item->getNotificationTimestamp() !== null ) {
-					$vals['changed'] = wfTimestamp( TS::ISO_8601, $item->getNotificationTimestamp() );
+					$vals['changed'] = wfTimestamp( TS_ISO_8601, $item->getNotificationTimestamp() );
 				}
 				$fit = $this->getResult()->addValue( $this->getModuleName(), null, $vals );
 				if ( !$fit ) {

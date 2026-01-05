@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Parser\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -34,6 +34,3 @@ interface ParserLogLinterDataHook {
 		array $lints
 	): bool;
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ParserLogLinterDataHook::class, 'MediaWiki\\Hook\\ParserLogLinterDataHook' );

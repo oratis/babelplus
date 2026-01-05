@@ -24,7 +24,6 @@ use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
-use MediaWiki\Watchlist\WatchlistLabel;
 use Psr\Log\NullLogger;
 use Psr\Log\Test\TestLogger;
 use Wikimedia\Rdbms\IDatabase;
@@ -32,7 +31,6 @@ use Wikimedia\Rdbms\IExpression;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\SelectQueryBuilder;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * There is also a unit test.
@@ -57,7 +55,6 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  * @covers \MediaWiki\RecentChanges\ChangesListQuery\UserCondition
  * @covers \MediaWiki\RecentChanges\ChangesListQuery\WatchedCondition
  * @covers \MediaWiki\RecentChanges\ChangesListQuery\WatchlistJoin
- * @covers \MediaWiki\RecentChanges\ChangesListQuery\WatchlistLabelCondition
  * @group Database
  */
 class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
@@ -83,7 +80,6 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 		'auxslot-create',
 		'auxslot',
 		'deleted-user',
-		'watchlist-label',
 	];
 
 	private const ALICE_ID = 1;
@@ -101,7 +97,6 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 			MainConfigNames::LearnerEdits => 10,
 			MainConfigNames::LearnerMemberSince => 4,
 			MainConfigNames::MiserMode => true,
-			MainConfigNames::EnableWatchlistLabels => true
 		] );
 		ExtensionRegistry::getInstance()->setAttributeForTest(
 			'RecentChangeSources',
@@ -123,7 +118,6 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 	}
 
 	public function addDBDataOnce() {
-		$this->overrideConfigValue( MainConfigNames::EnableWatchlistLabels, true );
 		$services = $this->getServiceContainer();
 		$this->enableAutoCreateTempUser();
 		$services->getActorStore()->setAllowCreateIpActors( true );
@@ -228,13 +222,6 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 			->set( [ 'rc_deleted' => RevisionRecord::DELETED_USER ] )
 			->where( [ 'rc_this_oldid' => $deletedUserPage->getLatestRevID() ] )
 			->execute();
-
-		$assertName( 18, 'watchlist-label' );
-		$labelPage = $this->edit( 'Watchlist label', $dan );
-		$wis->addWatch( $alice, $labelPage );
-		$label = new WatchlistLabel( $alice, 'test' );
-		$this->getServiceContainer()->getWatchlistLabelStore()->save( $label );
-		$wis->addLabels( $alice, [ $labelPage ], [ $label ] );
 	}
 
 	private function edit( $titleText, $user, $flags = 0, $content = null, $slotRole = null ) {
@@ -303,7 +290,7 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 		return preg_replace_callback(
 			"/'($d4-$d2-$d2 $d2:$d2:$d2$tz)'/",
 			static function ( $m ) {
-				return "'" . ConvertibleTimestamp::convert( TS::MW, $m[1] ) . "'";
+				return "'" . ConvertibleTimestamp::convert( TS_MW, $m[1] ) . "'";
 			},
 			$sql
 		);
@@ -399,15 +386,6 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 		$joinWatchlistExpiry['tables']['watchlist_expiry'] = 'watchlist_expiry';
 		$joinWatchlistExpiry['join_conds']['watchlist_expiry'] = [ 'LEFT JOIN', [ 'we_item=wl_id' ] ];
 
-		$joinWatchlistLabel = $joinWatchlist;
-		$joinWatchlistLabel['tables']['watchlist_label_member'] = 'watchlist_label_member';
-		$joinWatchlistLabel['join_conds']['watchlist_label_member'] = [ 'JOIN', [ 'wlm_item=wl_id' ] ];
-
-		$leftJoinWatchlistLabel = $joinWatchlistLabel;
-		$leftJoinWatchlistLabel['join_conds']['watchlist'][0] = 'LEFT JOIN';
-		$leftJoinWatchlistLabel['join_conds']['watchlist_label_member'][0] = 'LEFT JOIN';
-		$leftJoinWatchlistLabel['join_conds']['watchlist_label_member'][1][] = 'wlm_label = 1';
-
 		$joinChangeTag = $defaultInfo;
 		$joinChangeTag['tables']['changetagdisplay'] = 'change_tag';
 		$joinChangeTag['join_conds']['changetagdisplay'] =
@@ -430,14 +408,11 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 
 		$newIds = [ $rcIds['alice'], $rcIds['anon'], $rcIds['minor'], $rcIds['bot'],
 			$rcIds['pl-source'], $rcIds['tl-source'], $rcIds['dest'], $rcIds['untagged'],
-			$rcIds['redirect'], $rcIds['auxslot-create'], $rcIds['deleted-user'],
-			$rcIds['watchlist-label'] ];
+			$rcIds['redirect'], $rcIds['auxslot-create'], $rcIds['deleted-user'] ];
 
 		$logIds = [ $rcIds['newuser'], $rcIds['deleted'] ];
 
 		$oldIds = [ $rcIds['alice'], $rcIds['bob'], $rcIds['untagged'], $rcIds['auxslot-create'] ];
-
-		$watchedIds = [ $rcIds['alice'], $rcIds['bob'], $rcIds['unseen'], $rcIds['watchlist-label'] ];
 
 		$makePage = static fn ( $ns, $dbKey ) =>
 			new PageReferenceValue( $ns, $dbKey, WikiAwareEntity::LOCAL );
@@ -644,12 +619,12 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 					[ 'require', 'watched', 'watchednew' ],
 				],
 				array_merge( $defaultInfo, $joinWatchlist ),
-				$watchedIds,
+				[ $rcIds['alice'], $rcIds['bob'], $rcIds['unseen'] ],
 			],
 			'exclude notwatched' => [
 				[ [ 'exclude', 'watched', 'notwatched' ] ],
 				array_merge( $defaultInfo, $joinWatchlist ),
-				$watchedIds,
+				[ $rcIds['alice'], $rcIds['bob'], $rcIds['unseen'] ],
 			],
 			'require watchednew' => [
 				[ [ 'require', 'watched', 'watchednew' ] ],
@@ -665,14 +640,14 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 					[ 'require', 'watched', 'watchednew' ],
 				],
 				array_merge( $defaultInfo, $joinWatchlist ),
-				$watchedIds,
+				[ $rcIds['alice'], $rcIds['bob'], $rcIds['unseen'] ],
 			],
 			'require notwatched' => [
 				[ [ 'require', 'watched', 'notwatched' ] ],
 				array_merge( $defaultInfo, $leftJoinWatchlist, [
 					'conds' => '(wl_user IS NULL)',
 				] ),
-				array_diff( $allIds, $watchedIds ),
+				array_diff( $allIds, [ $rcIds['alice'], $rcIds['bob'], $rcIds['unseen'] ] ),
 			],
 			'require watchednew+notwatched' => [
 				[
@@ -683,7 +658,7 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 					'conds' => "((wl_user IS NULL OR " .
 						"(wl_user IS NOT NULL AND rc_timestamp >= wl_notificationtimestamp)))"
 				] ),
-				array_diff( $allIds, [ $rcIds['alice'], $rcIds['bob'], $rcIds['watchlist-label'] ] ),
+				array_diff( $allIds, [ $rcIds['alice'], $rcIds['bob'] ] ),
 			],
 			'require anon watched' => [
 				[ [ 'exclude', 'watched', 'notwatched' ] ],
@@ -696,23 +671,8 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 				array_merge( $defaultInfo, $joinWatchlistExpiry, [
 					'conds' => "((we_expiry IS NULL OR we_expiry > '20250105000000'))",
 				] ),
-				$watchedIds,
+				[ $rcIds['alice'], $rcIds['bob'], $rcIds['unseen'] ],
 				[ 'watchlist-expiry' => true ],
-			],
-			'require watchlist label' => [
-				[ [ 'require', 'watchlistLabel', 1 ] ],
-				array_merge( $defaultInfo, $joinWatchlistLabel, [
-					'conds' => '(wlm_label = 1)',
-				] ),
-				[ $rcIds['watchlist-label'] ],
-			],
-			// TODO: test multiple labels (need T406676)
-			'exclude watchlist label' => [
-				[ [ 'exclude', 'watchlistLabel', 1 ] ],
-				array_merge( $defaultInfo, $leftJoinWatchlistLabel, [
-					'conds' => '(wlm_label IS NULL)',
-				] ),
-				array_diff( $allIds, [ $rcIds['watchlist-label'] ] ),
 			],
 			'require seen' => [
 				[ [ 'require', 'seen', true ] ],
@@ -755,7 +715,7 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 					'conds' => '((wl_notificationtimestamp IS NULL ' .
 						'OR rc_timestamp < wl_notificationtimestamp))',
 				] ),
-				array_diff( $watchedIds, [ $rcIds['unseen'] ] ),
+				[ $rcIds['alice'], $rcIds['bob'] ],
 			],
 			'require namespace' => [
 				[ [ 'require', 'namespace', NS_TALK ] ],
@@ -860,7 +820,6 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 				] ),
 				array_diff( $allIds, [ $rcIds['tagged' ] ] ),
 			],
-			// TODO: test multiple change tags (need T406676)
 		];
 	}
 
@@ -970,13 +929,6 @@ class ChangesListQueryTest extends \MediaWikiIntegrationTestCase {
 		$query = $this->getQuery();
 		[ $actions, $expectedInfo, $expectedIds ] = self::provideActions()['exclude notwatched'];
 		$query->requireWatched();
-		$this->doQuery( $query, $expectedInfo, $expectedIds );
-	}
-
-	public function testRequireWatchlistLabelIds() {
-		$query = $this->getQuery();
-		[ $actions, $expectedInfo, $expectedIds ] = self::provideActions()['require watchlist label'];
-		$query->requireWatchlistLabelIds( [ $actions[0][2] ] );
 		$this->doQuery( $query, $expectedInfo, $expectedIds );
 	}
 

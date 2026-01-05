@@ -185,12 +185,6 @@ abstract class Maintenance {
 	private ?ILBFactory $lbFactory = null;
 
 	/**
-	 * Convert fatalError() to a throw in order to allow this class to be
-	 * tested.
-	 */
-	private bool $isTesting = false;
-
-	/**
 	 * Default constructor. Children should call this *first* if implementing
 	 * their own constructors
 	 *
@@ -553,7 +547,7 @@ abstract class Maintenance {
 		// If running PHPUnit tests we don't want to call exit, as it will end the test suite early.
 		// Instead, throw an exception that will still cause the relevant test to fail if the ::fatalError
 		// call was not expected.
-		if ( defined( 'MW_PHPUNIT_TEST' ) && $this->isTesting ) {
+		if ( defined( 'MW_PHPUNIT_TEST' ) ) {
 			throw new MaintenanceFatalError( $exitCode );
 		} else {
 			exit( $exitCode );
@@ -1135,21 +1129,19 @@ abstract class Maintenance {
 	}
 
 	/**
-	 * @param string|false $virtualDomain
 	 * @return IReadableDatabase
 	 * @since 1.42
 	 */
-	protected function getReplicaDB( string|false $virtualDomain = false ): IReadableDatabase {
-		return $this->getLBFactory()->getReplicaDatabase( $virtualDomain );
+	protected function getReplicaDB(): IReadableDatabase {
+		return $this->getLBFactory()->getReplicaDatabase();
 	}
 
 	/**
-	 * @param string|false $virtualDomain
 	 * @return IDatabase
 	 * @since 1.42
 	 */
-	protected function getPrimaryDB( string|false $virtualDomain = false ): IDatabase {
-		return $this->getLBFactory()->getPrimaryDatabase( $virtualDomain );
+	protected function getPrimaryDB(): IDatabase {
+		return $this->getLBFactory()->getPrimaryDatabase();
 	}
 
 	/**

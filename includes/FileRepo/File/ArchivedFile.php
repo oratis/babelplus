@@ -20,7 +20,6 @@ use UnexpectedValueException;
 use Wikimedia\Rdbms\Blob;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Rdbms\SelectQueryBuilder;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Deleted file in the 'filearchive' table.
@@ -669,7 +668,7 @@ class ArchivedFile {
 	public function getTimestamp() {
 		$this->load();
 
-		return wfTimestamp( TS::MW, $this->timestamp );
+		return wfTimestamp( TS_MW, $this->timestamp );
 	}
 
 	/**

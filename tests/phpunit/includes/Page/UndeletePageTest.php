@@ -22,7 +22,6 @@ use MediaWiki\User\UserIdentityValue;
 use MediaWiki\Utils\MWTimestamp;
 use PHPUnit\Framework\Assert;
 use Wikimedia\IPUtils;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -243,7 +242,7 @@ class UndeletePageTest extends MediaWikiIntegrationTestCase {
 		$expectEvent,
 		$expectCreation = false
 	) {
-		$fakeTime = wfTimestamp( TS::UNIX, '2020-01-01T11:22:33' );
+		$fakeTime = wfTimestamp( TS_UNIX, '2020-01-01T11:22:33' );
 
 		// create a page and delete it.
 		MWTimestamp::setFakeTime( $fakeTime + $archiveTimestampOffset );

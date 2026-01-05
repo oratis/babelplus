@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Logging\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Logging\DatabaseLogEntry;
 use MediaWiki\Logging\LogEventsList;
@@ -31,6 +31,3 @@ interface LogEventsListLineEndingHook {
 		&$attribs
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( LogEventsListLineEndingHook::class, 'MediaWiki\\Hook\\LogEventsListLineEndingHook' );

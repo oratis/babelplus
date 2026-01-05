@@ -87,16 +87,16 @@ use MediaWiki\Site\MediaWikiSite;
 use MediaWiki\Storage\SqlBlobStore;
 use MediaWiki\Title\NamespaceInfo;
 use MediaWiki\User\CentralId\LocalIdLookup;
-use MediaWiki\User\Options\UserOptionsUpdateJob;
 use MediaWiki\User\Registration\LocalUserRegistrationProvider;
-use MediaWiki\User\UserEditCountInitJob;
-use MediaWiki\User\UserGroupExpiryJob;
 use MediaWiki\Watchlist\ActivityUpdateJob;
 use MediaWiki\Watchlist\ClearUserWatchlistJob;
 use MediaWiki\Watchlist\ClearWatchlistNotificationsJob;
 use MediaWiki\Watchlist\WatchlistExpiryJob;
 use ReflectionClass;
 use SqlBagOStuff;
+use UserEditCountInitJob;
+use UserGroupExpiryJob;
+use UserOptionsUpdateJob;
 use Wikimedia\EventRelayer\EventRelayerNull;
 use Wikimedia\ObjectCache\APCUBagOStuff;
 use Wikimedia\ObjectCache\EmptyBagOStuff;
@@ -2672,16 +2672,6 @@ class MainConfigSchema {
 	];
 
 	/**
-	 * Whether the modern email confirmation message is used
-	 *
-	 * @since 1.46
-	 */
-	public const UserEmailConfirmationUseHTML = [
-		'default' => false,
-		'type' => 'boolean',
-	];
-
-	/**
 	 * The number of days that a user's password is good for. After this number of days, the
 	 * user will be asked to reset their password. Set to false to disable password expiration.
 	 */
@@ -3105,6 +3095,9 @@ class MainConfigSchema {
 	 *                  sent to it. It will be excluded from lag checks in maintenance scripts.
 	 *                  The only way it can receive traffic is if groupLoads is used.
 	 *
+	 *   - groupLoads:  (optional) Array of load ratios, the key is the query group name. A query
+	 *                  may belong to several groups, the most specific group defined here is used.
+	 *
 	 *   - flags:       (optional) Bit field of properties:
 	 *                  - DBO_DEFAULT:    Transactional-ize web requests and use autocommit otherwise
 	 *                  - DBO_DEBUG:      Equivalent of $wgDebugDumpSql
@@ -3319,22 +3312,6 @@ class MainConfigSchema {
 	 *   - 1.44: Added
 	 */
 	public const FileSchemaMigrationStage = [
-		'default' => SCHEMA_COMPAT_OLD,
-		'type' => 'integer',
-	];
-
-	/**
-	 * Migration stage for imagelinks tables
-	 *
-	 * Use the SCHEMA_COMPAT_XXX flags. Supported values:
-	 *
-	 *   - SCHEMA_COMPAT_WRITE_OLD | SCHEMA_COMPAT_READ_OLD (SCHEMA_COMPAT_OLD)
-	 *   - SCHEMA_COMPAT_WRITE_BOTH | SCHEMA_COMPAT_READ_OLD
-	 *
-	 * History:
-	 *   - 1.46: Added
-	 */
-	public const ImageLinksSchemaMigrationStage = [
 		'default' => SCHEMA_COMPAT_OLD,
 		'type' => 'integer',
 	];
@@ -4245,20 +4222,6 @@ class MainConfigSchema {
 					'minCpuTime' => 0
 				],
 			],
-			'postproc-pcache' => [ // postprocessing output cache
-				'default' => [ // all namespaces
-					// 0 means no threshold.
-					// Use PHP_INT_MAX to disable cache.
-					'minCpuTime' => PHP_INT_MAX
-				],
-			],
-			'postproc-parsoid-pcache' => [ // parsoid postprocessing output cache
-				'default' => [ // all namespaces
-					// 0 means no threshold.
-					// Use PHP_INT_MAX to disable cache.
-					'minCpuTime' => PHP_INT_MAX
-				],
-			],
 		],
 		'additionalProperties' => [ // caches
 			'type' => 'map',
@@ -4847,7 +4810,7 @@ class MainConfigSchema {
 	/** @name   Language, regional and character encoding settings */
 
 	/**
-	 * Site language code. See includes/Languages/Data/Names.php for languages
+	 * Site language code. See includes/languages/data/Names.php for languages
 	 * supported by MediaWiki out of the box. Not all languages listed there have
 	 * translations, see languages/messages/ for the list of languages with some
 	 * localisation.
@@ -6802,17 +6765,6 @@ class MainConfigSchema {
 	];
 
 	/**
-	 * List of domains that will be ignored in being tracked into externallinks table.
-	 *
-	 * Subdomains will be also ignored. So 'wikipedia.org' means 'fa.wikipedia.org'
-	 * will be also ignored.
-	 */
-	public const ExternalLinksIgnoreDomains = [
-		'default' => [],
-		'type' => 'array',
-	];
-
-	/**
 	 * Allow DISPLAYTITLE to change title display
 	 */
 	public const AllowDisplayTitle = [
@@ -7117,7 +7069,8 @@ class MainConfigSchema {
 	 * every check should have a corresponding passwordpolicies-policy-<check> message,
 	 * and every settings field other than 'value' should have a corresponding
 	 * passwordpolicies-policyflag-<flag> message (<check> and <flag> are in lowercase).
-	 * The check message receives the policy value as a parameter.
+	 * The check message receives the policy value as a parameter, the flag message
+	 * receives the flag value (or values if it's an array).
 	 *
 	 * @since 1.26
 	 * @see \MediaWiki\Password\PasswordPolicyChecks
@@ -7704,14 +7657,6 @@ class MainConfigSchema {
 	];
 
 	/**
-	 * Maximum number of userjs preferences allowed for each user
-	 */
-	public const UserJsPrefLimit = [
-		'default' => 100,
-		'type' => 'int',
-	];
-
-	/**
 	 * Characters to prevent during new account creations.
 	 *
 	 * This is used in a regular expression character class during
@@ -8291,32 +8236,6 @@ class MainConfigSchema {
 	 * @see self::GroupsAddToSelf
 	 */
 	public const GroupsRemoveFromSelf = [
-		'default' => [],
-		'type' => 'map',
-	];
-
-	/**
-	 * A map of group names to the conditions under which the group can be granted.
-	 * The requirements are specified in the same way as for autopromotion.
-	 *
-	 * If `canBeIgnored` is set to true, these restrictions can be bypassed by users
-	 * who have the `ignore-restricted-groups` permission.
-	 *
-	 * If either of the `memberConditions` or `updaterConditions` keys are omitted,
-	 * they default to an empty array (i.e. no conditions). The default value for
-	 * `canBeIgnored` is false.
-	 *
-	 * ```
-	 * $wgRestrictedGroups = [
-	 *     'sysop' => [
-	 *         'memberConditions' => [ APCOND_EDITCOUNT, 1000 ],
-	 *         'updaterConditions' => [ !, APCOND_ISBOT ],
-	 *         'canBeIgnored' => false,
-	 *     ]
-	 * ]
-	 * ```
-	 */
-	public const RestrictedGroups = [
 		'default' => [],
 		'type' => 'map',
 	];
@@ -9657,6 +9576,17 @@ class MainConfigSchema {
 	 * @since 1.27
 	 */
 	public const SessionSecret = [
+		'default' => false,
+	];
+
+	/**
+	 * Enable the deprecated xslt option in the Action API.
+	 *
+	 * This is unsafe and allows users with the editinterface right to perform XSS.
+	 *
+	 * @see https://phabricator.wikimedia.org/T401995
+	 */
+	public const EnableUnsafeXsltOption = [
 		'default' => false,
 	];
 
@@ -11060,7 +10990,6 @@ class MainConfigSchema {
 	 * @see \MediaWiki\ChangeTags\ChangeTags::TAG_MANUAL_REVERT
 	 * @see \MediaWiki\ChangeTags\ChangeTags::TAG_REVERTED
 	 * @see \MediaWiki\ChangeTags\ChangeTags::TAG_SERVER_SIDE_UPLOAD
-	 * @see \MediaWiki\ChangeTags\ChangeTags::TAG_IPBLOCK_APPEAL
 	 */
 	public const SoftwareTags = [
 		'default' => [
@@ -11076,7 +11005,6 @@ class MainConfigSchema {
 			'mw-manual-revert' => true,
 			'mw-reverted' => true,
 			'mw-server-side-upload' => true,
-			'mw-ipblock-appeal' => true,
 		],
 		'type' => 'map',
 		'additionalProperties' => [ 'type' => 'boolean', ],
@@ -11161,26 +11089,6 @@ class MainConfigSchema {
 	];
 
 	/**
-	 * Whether to enable the watchlist labels feature.
-	 *
-	 * @since 1.46
-	 */
-	public const EnableWatchlistLabels = [
-		'default' => false,
-		'type' => 'boolean',
-	];
-
-	/**
-	 * Maximum number of labels a user can create for their watchlist.
-	 *
-	 * @since 1.46
-	 */
-	public const WatchlistLabelsMaxPerUser = [
-		'default' => 100,
-		'type' => 'integer',
-	];
-
-	/**
 	 * Chance of expired watchlist items being purged on any page edit.
 	 *
 	 * Only has effect if $wgWatchlistExpiry is true.
@@ -11212,6 +11120,16 @@ class MainConfigSchema {
 	public const WatchlistExpiryMaxDuration = [
 		'default' => '1 year',
 		'type' => '?string',
+	];
+
+	/**
+	 * Whether to enable pagination on Special:EditWatchlist (feature flag)
+	 *
+	 * @since 1.45
+	 */
+	public const EditWatchlistPaginate = [
+		'default' => false,
+		'type' => 'boolean',
 	];
 
 	/**
@@ -12736,6 +12654,15 @@ class MainConfigSchema {
 	];
 
 	/**
+	 * Log file or URL (TCP or UDP) to log API requests to, or false to disable
+	 * API request logging
+	 */
+	public const APIRequestLog = [
+		'default' => false,
+		'deprecated' => 'since 1.43; use api or api-request $wgDebugLogGroups channel',
+	];
+
+	/**
 	 * Set the timeout for the API help text cache. If set to 0, caching disabled
 	 */
 	public const APICacheHelpTimeout = [
@@ -12831,36 +12758,6 @@ class MainConfigSchema {
 	public const RestAPIAdditionalRouteFiles = [
 		'default' => [],
 		'type' => 'list',
-	];
-
-	/**
-	 * A list of OpenAPI specs to be made available for exploration on
-	 * Special:RestSandbox. If none are given, Special:RestSandbox is disabled.
-	 *
-	 * This is an associative array, arbitrary spec IDs to spec descriptions.
-	 * Each spec description is an array with the following keys:
-	 * - url: the URL that will return the OpenAPI spec.
-	 * - name: the name of the API, to be shown on Special:RestSandbox.
-	 *   Ignored if msg is given.
-	 * - msg: a message key for the name of the API, to be shown on
-	 *   Special:RestSandbox.
-	 *
-	 * @unstable Introduced in 1.43. We may want to rename or change this to
-	 * accommodate the need to list external APIs in a central discovery
-	 * document.
-	 */
-	public const RestSandboxSpecs = [
-		'default' => [],
-		'type' => 'map',
-		'additionalProperties' => [
-			'type' => 'object',
-			'properties' => [
-				'url' => [ 'type' => 'string', 'format' => 'url' ],
-				'name' => [ 'type' => 'string' ],
-				'msg' => [ 'type' => 'string', 'description' => 'a message key' ]
-			],
-			'required' => [ 'url' ]
-		]
 	];
 
 	// endregion -- End AJAX and API
@@ -13446,34 +13343,12 @@ class MainConfigSchema {
 	];
 
 	/**
-	 * Whether Article should clone the ParserOutput before postprocessing.
-	 *
-	 * @unstable Temporary feature flag, T410923
-	 * @since 1.45
-	 */
-	public const CloneArticleParserOutput = [
-		'default' => true,
-		'type' => 'boolean',
-	];
-
-	/**
 	 * Whether parser functions should use Leximorph handlers instead of Language methods.
 	 *
 	 * @unstable Temporary feature flag, T389281
 	 * @since 1.45
 	 */
 	public const UseLeximorph = [
-		'default' => false,
-		'type' => 'boolean',
-	];
-
-	/**
-	 * Whether to use the post-OutputTransform cache
-	 *
-	 * @unstable Temporary feature flag, T348255
-	 * @since 1.46
-	 */
-	public const UsePostprocCache = [
 		'default' => false,
 		'type' => 'boolean',
 	];

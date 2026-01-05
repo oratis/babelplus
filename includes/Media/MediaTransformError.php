@@ -25,7 +25,7 @@ class MediaTransformError extends MediaTransformOutput {
 	/**
 	 * @stable to call
 	 *
-	 * @param string|MessageSpecifier $msg
+	 * @param string $msg
 	 * @param int $width
 	 * @param int $height
 	 * @param MessageParam|MessageSpecifier|string|int|float ...$args

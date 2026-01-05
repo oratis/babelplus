@@ -1,6 +1,7 @@
 <?php
 namespace MediaWiki\Search;
 
+use ISearchResultSet;
 use MediaWiki\FileRepo\RepoGroup;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
@@ -10,6 +11,7 @@ use MediaWiki\Languages\LanguageConverterFactory;
 use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleFactory;
+use SearchNearMatchResultSet;
 use UtfNormal\Validator;
 
 /**

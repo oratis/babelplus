@@ -1,7 +1,6 @@
 {
 	"@metadata": {
 		"authors": [
-			"AmazingJus",
 			"Iketsi",
 			"Kiharoa",
 			"Kiwi128",
@@ -10,7 +9,8 @@
 			"Sonia",
 			"Tok Pisin",
 			"Ultron90",
-			"Xð"
+			"Xð",
+			"AmazingJus"
 		]
 	},
 	"pagecategories": "{{PLURAL:$1|Rōpū|Ngā rōpū}}",

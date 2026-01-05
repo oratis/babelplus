@@ -13,7 +13,9 @@ import fs from 'fs';
 import path from 'path';
 import { PrometheusFileReporter, writeAllProjectMetrics } from './PrometheusFileReporter.js';
 const logPath = process.env.LOG_DIR || path.join( process.cwd(), 'tests/selenium/log' );
-import { makeFilenameDate, saveScreenshot, startVideo, stopVideo, logSystemInformation, logBrowserInformation } from 'wdio-mediawiki';
+import { makeFilenameDate, saveScreenshot, startVideo, stopVideo } from 'wdio-mediawiki';
+// T355556: remove when T324766 is resolved
+import dns from 'dns';
 
 if ( !process.env.MW_SERVER || !process.env.MW_SCRIPT_PATH ) {
 	throw new Error( 'MW_SERVER or MW_SCRIPT_PATH not defined.\nSee https://www.mediawiki.org/wiki/Selenium/How-to/Set_environment_variables\n' );
@@ -75,17 +77,6 @@ export const config = {
 		// It is also used by afterTest for capturing screenshots.
 		'mw:screenshotPath': logPath,
 
-		// Setting that enables video recording of the test.
-		// Recording videos is currently supported only on Linux,
-		// and is triggered by the DISPLAY value starting with a colon.
-		// https://www.mediawiki.org/wiki/Selenium/How-to/Record_videos_of_test_runs
-		'mw:recordVideo': true,
-
-		// Browser width and height
-		'mw:width': 1280,
-		'mw:height': 1024,
-		// If DISPLAY is setup, default usage is to not use browser headless
-		'mw:useBrowserHeadless': !process.env.DISPLAY,
 		// For Chrome/Chromium https://www.w3.org/TR/webdriver
 		browserName: 'chrome',
 		// Use correct browser and driver in CI
@@ -104,12 +95,13 @@ export const config = {
 			// If DISPLAY is set, assume developer asked non-headless or CI with Xvfb.
 			// Otherwise, use --headless.
 			args: [
+				// Dismissed Chrome's `Save password?` popup
+				'--enable-automation',
+				...( process.env.DISPLAY ? [] : [ '--headless' ] ),
 				// Chrome sandbox does not work in Docker. Disable GPU to prevent crashes (T389536#10677201)
-				// For disable-dev-shm-usage: We map /tmp to tmpfs for the container in CI
 				...( fs.existsSync( '/.dockerenv' ) ? [ '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage' ] : [] ),
 				// Disable as much as possible to make Chrome clean
 				// https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md
-				// https://peter.sh/experiments/chromium-command-line-switches/
 				'--ash-no-nudges',
 				'--disable-background-networking',
 				'--disable-background-timer-throttling',
@@ -137,19 +129,7 @@ export const config = {
 				'--propagate-iph-for-testing',
 				// Workaround inputs not working consistently post-navigation on Chrome 90
 				// https://issuetracker.google.com/issues/42322798
-				'--allow-pre-commit-input',
-				// To disable save password popup together with prefs
-				'--password-store=basic'
-			],
-			prefs: {
-				// These setting disable the password save popup together
-				// with --password-store=basic.
-				// eslint-disable-next-line camelcase
-				credentials_enable_service: false,
-				'profile.password_manager_enabled': false
-			},
-			excludeSwitches: [
-				'enable-automation'
+				'--allow-pre-commit-input'
 			]
 		}
 	} ],
@@ -216,33 +196,19 @@ export const config = {
 	 */
 	onPrepare: function ( wdioConfig ) {
 		console.log( `Run test targeting ${ wdioConfig.baseUrl }` );
-		logSystemInformation();
 	},
 	/**
 	 * Gets executed just before initializing the webdriver session and test framework.
 	 * It allows you to manipulate configurations depending on the capability or spec.
 	 *
-	 * @param {Object} configuration wdio configuration object
+	 * @param {Object} config wdio configuration object
 	 * @param {Array.<Object>} capabilities list of capabilities details
+	 * @param {Array.<string>} specs List of spec file paths that are to be run
 	 */
-	beforeSession: function ( configuration, capabilities ) {
-		const useBrowserHeadless = capabilities[ 'mw:useBrowserHeadless' ];
-		if ( useBrowserHeadless === true ) {
-			capabilities[ 'goog:chromeOptions' ].args.push( '--headless' );
-		}
-	},
-
-	/**
-	 * Gets executed before test execution begins. At this point you can access to all global
-	 * variables like `browser`. It is the perfect place to define custom commands.
-	 *
-	 * @param {Array.<Object>} capabilities list of capabilities details
-	 * @param {Array.<string>} specs        List of spec file paths that are to be run
-	 * @param {Object}         browser      instance of created browser/device session
-	 */
-	before: async function ( capabilities, specs, browser ) {
-		await browser.setWindowSize( browser.options.capabilities[ 'mw:width' ], browser.options.capabilities[ 'mw:height' ] );
-		await logBrowserInformation( browser );
+	// T355556: remove when T324766 is resolved
+	beforeSession: function () {
+		// eslint-disable-next-line n/no-unsupported-features/node-builtins
+		dns.setDefaultResultOrder( 'ipv4first' );
 	},
 
 	/**
@@ -251,9 +217,7 @@ export const config = {
 	 * @param {Object} test Mocha Test object
 	 */
 	beforeTest: async function ( test ) {
-		if ( browser.options.capabilities[ 'mw:recordVideo' ] === true ) {
-			ffmpeg = await startVideo( ffmpeg, `${ test.parent }-${ test.title }` );
-		}
+		ffmpeg = await startVideo( ffmpeg, `${ test.parent }-${ test.title }` );
 	},
 
 	/**
@@ -267,9 +231,7 @@ export const config = {
 		try {
 			await saveScreenshot( `${ test.parent }-${ test.title }${ result.passed ? '' : '-failed' }` );
 		} finally {
-			if ( browser.options.capabilities[ 'mw:recordVideo' ] === true ) {
-				stopVideo( ffmpeg );
-			}
+			stopVideo( ffmpeg );
 		}
 	},
 

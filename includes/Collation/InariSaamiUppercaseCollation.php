@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 use MediaWiki\Languages\LanguageFactory;
 
 class InariSaamiUppercaseCollation extends CustomUppercaseCollation {
@@ -59,6 +57,3 @@ class InariSaamiUppercaseCollation extends CustomUppercaseCollation {
 		);
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( InariSaamiUppercaseCollation::class, 'InariSaamiUppercaseCollation' );

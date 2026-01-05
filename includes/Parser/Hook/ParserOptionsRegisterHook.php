@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Parser\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -28,6 +28,3 @@ interface ParserOptionsRegisterHook {
 	 */
 	public function onParserOptionsRegister( &$defaults, &$inCacheKey, &$lazyLoad );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ParserOptionsRegisterHook::class, 'MediaWiki\\Hook\\ParserOptionsRegisterHook' );

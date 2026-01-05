@@ -18,7 +18,6 @@ use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Title\Title;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This action allows users to get their watchlist items in RSS/Atom formats.
@@ -76,7 +75,7 @@ class ApiFeedWatchlist extends ApiBase {
 			}
 
 			// limit to the number of hours going from now back
-			$endTime = wfTimestamp( TS::MW, time() - (int)$params['hours'] * 60 * 60 );
+			$endTime = wfTimestamp( TS_MW, time() - (int)$params['hours'] * 60 * 60 );
 
 			// Prepare parameters for nested request
 			$fauxReqArr = [
@@ -165,14 +164,14 @@ class ApiFeedWatchlist extends ApiBase {
 					// @phan-suppress-next-line PhanUndeclaredMethod
 					$msg = ApiMessage::create( $msg )
 						->inLanguage( $this->getLanguage() );
-					$errorTitle = $this->msg( 'api-feed-error-title', $msg->getApiCode() )->text();
+					$errorTitle = $this->msg( 'api-feed-error-title', $msg->getApiCode() );
 					$errorText = $msg->text();
 					$feedItems[] = new FeedItem( $errorTitle, $errorText, '', '', '' );
 				}
 			} else {
 				// Something is seriously wrong
 				$errorCode = 'internal_api_error';
-				$errorTitle = $this->msg( 'api-feed-error-title', $errorCode )->text();
+				$errorTitle = $this->msg( 'api-feed-error-title', $errorCode );
 				$errorText = $e->getMessage();
 				$feedItems[] = new FeedItem( $errorTitle, $errorText, '', '', '' );
 			}

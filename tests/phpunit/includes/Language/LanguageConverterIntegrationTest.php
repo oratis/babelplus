@@ -1,9 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Language;
-
-use MediaWikiIntegrationTestCase;
-
 /**
  * @group Language
  * @covers \MediaWiki\Language\LanguageConverter

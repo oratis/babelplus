@@ -35,7 +35,6 @@ use MediaWiki\Page\ExistingPageRecord;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Page\PageReference;
-use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\Page\PageStoreRecord;
 use MediaWiki\Page\ProperPageIdentity;
 use MediaWiki\Page\WikiPage;
@@ -57,7 +56,6 @@ use Wikimedia\Rdbms\DBAccessObjectUtils;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\IDBAccessObject;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Represents a title within MediaWiki.
@@ -2095,29 +2093,6 @@ class Title implements Stringable, LinkTarget, PageIdentity {
 	}
 
 	/**
-	 * Get the entire subpage string of a title
-	 *
-	 * @par Example:
-	 * @code
-	 * Title::newFromText('Special:Page/Foo/Bar/Baz')->getFullSubpageText();
-	 * # returns: "Foo/Bar/Baz"
-	 * @endcode
-	 *
-	 * @return string Subpage name
-	 * @since 1.46
-	 */
-	public function getFullSubpageText() {
-		$text = $this->getText();
-		$slashPos = strpos( $text, '/' );
-
-		if ( $slashPos === false ) {
-			return '';
-		}
-
-		return substr( $text, $slashPos + 1 );
-	}
-
-	/**
 	 * Get a URL-encoded form of the subpage text
 	 *
 	 * @return string URL-encoded subpage name
@@ -3293,7 +3268,7 @@ class Title implements Stringable, LinkTarget, PageIdentity {
 	/**
 	 * Updates page_touched for this page; called from LinksUpdate.php
 	 *
-	 * @param string|null $purgeTime [optional] TS::MW timestamp
+	 * @param string|null $purgeTime [optional] TS_MW timestamp
 	 * @return bool True if the update succeeded
 	 */
 	public function invalidateCache( $purgeTime = null ) {
@@ -3379,7 +3354,7 @@ class Title implements Stringable, LinkTarget, PageIdentity {
 	 */
 	public function getTouched( int $flags = IDBAccessObject::READ_NORMAL ) {
 		$touched = $this->getFieldFromPageStore( 'page_touched', $flags );
-		return $touched ? MWTimestamp::convert( TS::MW, $touched ) : false;
+		return $touched ? MWTimestamp::convert( TS_MW, $touched ) : false;
 	}
 
 	/**
@@ -3878,22 +3853,6 @@ class Title implements Stringable, LinkTarget, PageIdentity {
 				'page_lang' => $this->getDbPageLanguageCode( $flags ),
 			],
 			PageIdentity::LOCAL
-		);
-	}
-
-	/**
-	 * Returns the page represented by this Title as a PageReferenceValue.
-	 * This is an object which implements PageReference but not PageIdentity.
-	 *
-	 * @since 1.46
-	 * @return PageReference
-	 */
-	public function toPageReference(): PageReference {
-		$this->assertProperPage();
-		return new PageReferenceValue(
-			$this->getNamespace(),
-			$this->getDBkey(),
-			PageReferenceValue::LOCAL
 		);
 	}
 

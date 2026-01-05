@@ -68,6 +68,7 @@ class QueryPageTest extends MediaWikiUnitTestCase {
 		$this->httpRequestFactory = $this->createMock( HttpRequestFactory::class );
 
 		$reflection = new ReflectionProperty( QueryPage::class, 'httpRequestFactory' );
+		$reflection->setAccessible( true );
 		$reflection->setValue( $this->queryPage, $this->httpRequestFactory );
 	}
 
@@ -92,6 +93,7 @@ class QueryPageTest extends MediaWikiUnitTestCase {
 
 		$reflection = new ReflectionClass( $this->queryPage );
 		$method = $reflection->getMethod( 'reallyDoQueryExternal' );
+		$method->setAccessible( true );
 
 		$result = $method->invokeArgs( $this->queryPage, [ 10, 0 ] );
 
@@ -105,6 +107,7 @@ class QueryPageTest extends MediaWikiUnitTestCase {
 
 		$reflection = new ReflectionClass( $this->queryPage );
 		$method = $reflection->getMethod( 'reallyDoQueryExternal' );
+		$method->setAccessible( true );
 
 		$request = $this->createMock( 'MWHttpRequest' );
 		$message = $this->createMock( Message::class );
@@ -126,6 +129,7 @@ class QueryPageTest extends MediaWikiUnitTestCase {
 
 		$reflection = new ReflectionClass( $this->queryPage );
 		$method = $reflection->getMethod( 'reallyDoQueryExternal' );
+		$method->setAccessible( true );
 
 		$this->mockHttpRequest( 'invalid json' );
 		$method->invokeArgs( $this->queryPage, [ 10, 0 ] );
@@ -137,6 +141,7 @@ class QueryPageTest extends MediaWikiUnitTestCase {
 
 		$reflection = new ReflectionClass( $this->queryPage );
 		$method = $reflection->getMethod( 'reallyDoQueryExternal' );
+		$method->setAccessible( true );
 
 		$this->mockHttpRequest( '"not an array"' );
 		$method->invokeArgs( $this->queryPage, [ 10, 0 ] );
@@ -154,6 +159,7 @@ class QueryPageTest extends MediaWikiUnitTestCase {
 
 		$reflection = new ReflectionClass( $this->queryPage );
 		$method = $reflection->getMethod( 'reallyDoQueryExternal' );
+		$method->setAccessible( true );
 
 		$this->mockHttpRequest( json_encode( $testData ) );
 		$method->invokeArgs( $this->queryPage, [ 10, 0 ] );
@@ -183,6 +189,7 @@ class QueryPageTest extends MediaWikiUnitTestCase {
 
 		$reflection = new ReflectionClass( $this->queryPage );
 		$method = $reflection->getMethod( 'reallyDoQueryExternal' );
+		$method->setAccessible( true );
 
 		$result = $method->invokeArgs( $this->queryPage, [ 10, 0 ] );
 

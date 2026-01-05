@@ -12,7 +12,6 @@ import WDIOReporter from '@wdio/reporter';
 const getValidPrometheusTagName = ( name ) => name.replace( /\W+/g, '_' ).toLowerCase();
 
 /**
- *
  * Formats a single Prometheus text format line.
  *
  * @param {string} name - Metric name (must already follow Prometheus naming conventions).
@@ -42,7 +41,7 @@ function getSpecDuration( suiteMetrics ) {
 	for ( const { duration } of suiteMetrics ) {
 		specDuration += duration;
 	}
-	return specDuration;
+	return specDuration.toFixed( 3 );
 }
 
 /**
@@ -99,9 +98,7 @@ class PrometheusFileReporter extends WDIOReporter {
 				failed: 0,
 				skipped: 0,
 				retries: 0,
-				testDurationSecondsMax: 0,
-				testDurationSecondsSum: 0,
-				testDurationSecondsCount: 0
+				maxDuration: 0
 			};
 			this.spec.totalTests++;
 		}
@@ -111,9 +108,7 @@ class PrometheusFileReporter extends WDIOReporter {
 		const testDurationInSeconds = ( test.end - test.start ) / 1000;
 		const myTest = this.testMetrics[ test.uid ];
 		myTest.passed++;
-		myTest.testDurationSecondsMax = Math.max( myTest.testDurationSecondsMax, testDurationInSeconds );
-		myTest.testDurationSecondsSum += testDurationInSeconds;
-		myTest.testDurationSecondsCount += 1;
+		myTest.maxDuration = Math.max( myTest.maxDuration, testDurationInSeconds );
 		this.spec.passed++;
 	}
 
@@ -121,9 +116,7 @@ class PrometheusFileReporter extends WDIOReporter {
 		const testDurationInSeconds = ( test.end - test.start ) / 1000;
 		const myTest = this.testMetrics[ test.uid ];
 		myTest.failed++;
-		myTest.testDurationSecondsMax = Math.max( myTest.testDurationSecondsMax, testDurationInSeconds );
-		myTest.testDurationSecondsSum += testDurationInSeconds;
-		myTest.testDurationSecondsCount += 1;
+		myTest.maxDuration = Math.max( myTest.maxDuration, testDurationInSeconds );
 		this.spec.failed++;
 	}
 
@@ -136,9 +129,7 @@ class PrometheusFileReporter extends WDIOReporter {
 				failed: 0,
 				skipped: 1,
 				retries: 0,
-				testDurationSecondsMax: 0,
-				testDurationSecondsSum: 0,
-				testDurationSecondsCount: 0
+				maxDuration: 0
 			};
 			this.spec.totalTests++;
 		}
@@ -175,9 +166,7 @@ function writeAllProjectMetrics( metricsDir, fileName ) {
 		skipped: 0,
 		retries: 0,
 		totalTests: 0,
-		duration: 0,
-		testDurationSecondsSum: 0,
-		testDurationSecondsCount: 0
+		duration: 0
 	};
 	const tests = [];
 
@@ -198,22 +187,17 @@ function writeAllProjectMetrics( metricsDir, fileName ) {
 		projectMetrics.totalTests += data.totalTests;
 		projectMetrics.duration += Number( data.duration );
 		projectMetrics.labels = data.labels;
-		for ( const test of data.tests ) {
-			tests.push( test );
-			projectMetrics.testDurationSecondsSum += test.testDurationSecondsSum;
-			projectMetrics.testDurationSecondsCount += test.testDurationSecondsCount;
-		}
+		tests.push( ...data.tests );
 	}
+
+	projectMetrics.duration.toFixed( 3 );
 
 	const lines = [];
 	const labels = projectMetrics.labels;
-
-	const flakyTestsInRun = tests.filter( ( test ) => test.failed > 0 && test.retries > 0 ).length;
-
 	// Add Project metrics
 	lines.push( '# HELP wdio_project_duration_seconds Total duration of all test suites per project' );
 	lines.push( '# TYPE wdio_project_duration_seconds gauge' );
-	lines.push( formatMetric( 'wdio_project_duration_seconds', projectMetrics.duration.toFixed( 3 ), { ...labels } ) );
+	lines.push( formatMetric( 'wdio_project_duration_seconds', projectMetrics.duration, { ...labels } ) );
 
 	lines.push( '# HELP wdio_project_passed Number of tests passed per project' );
 	lines.push( '# TYPE wdio_project_passed gauge' );
@@ -234,24 +218,6 @@ function writeAllProjectMetrics( metricsDir, fileName ) {
 	lines.push( '# HELP wdio_project_tests Total number of tests per project' );
 	lines.push( '# TYPE wdio_project_tests gauge' );
 	lines.push( formatMetric( 'wdio_project_tests', projectMetrics.totalTests, { ...labels } ) );
-
-	lines.push( '# HELP wdio_project_test_duration_seconds_sum Sum of all test execution durations in this project (seconds)' );
-	lines.push( '# TYPE wdio_project_test_duration_seconds_sum gauge' );
-	lines.push( formatMetric( 'wdio_project_test_duration_seconds_sum', projectMetrics.testDurationSecondsSum.toFixed( 3 ), { ...labels } )
-	);
-
-	lines.push( '# HELP wdio_project_test_duration_seconds_count Number of test executions contributing to duration' );
-	lines.push( '# TYPE wdio_project_test_duration_seconds_count gauge' );
-	lines.push( formatMetric( 'wdio_project_test_duration_seconds_count', projectMetrics.testDurationSecondsCount, { ...labels } )
-	);
-
-	lines.push( '# HELP wdio_project_flaky_tests Number of distinct tests that were flaky in this project' );
-	lines.push( '# TYPE wdio_project_flaky_tests gauge' );
-	lines.push( formatMetric( 'wdio_project_flaky_tests', flakyTestsInRun, { ...labels } ) );
-
-	lines.push( '# HELP wdio_project_flaky 1 if any flaky test occurred in this project, else 0' );
-	lines.push( '# TYPE wdio_project_flaky gauge' );
-	lines.push( formatMetric( 'wdio_project_flaky', Number( flakyTestsInRun > 0 ), { ...labels } ) );
 
 	// Add test metrics
 
@@ -278,28 +244,18 @@ function writeAllProjectMetrics( metricsDir, fileName ) {
 
 			lines.push( '# HELP wdio_test_duration_max_seconds Max observed test duration (seconds per test)' );
 			lines.push( '# TYPE wdio_test_duration_max_seconds gauge' );
-			lines.push( formatMetric( 'wdio_test_duration_max_seconds', test.testDurationSecondsMax.toFixed( 3 ), { ...testLabels } ) );
-
-			lines.push( '# HELP wdio_test_flaky 1 if the test failed and retried at least once in this run, else 0' );
-			lines.push( '# TYPE wdio_test_flaky gauge' );
-			lines.push( formatMetric( 'wdio_test_flaky', Number( test.failed > 0 && test.retries > 0 ), testLabels ) );
-
+			lines.push( formatMetric( 'wdio_test_duration_max_seconds', test.maxDuration.toFixed( 3 ), { ...testLabels } ) );
 			addMetaData = false;
 		} else {
 			lines.push( formatMetric( 'wdio_test_passed', test.passed, testLabels ) );
 			lines.push( formatMetric( 'wdio_test_failed', test.failed, testLabels ) );
 			lines.push( formatMetric( 'wdio_test_skipped', test.skipped, testLabels ) );
 			lines.push( formatMetric( 'wdio_test_retries', test.retries, testLabels ) );
-			lines.push( formatMetric( 'wdio_test_duration_max_seconds', test.testDurationSecondsMax.toFixed( 3 ), { ...testLabels } ) );
-			lines.push( formatMetric( 'wdio_test_flaky', Number( test.failed > 0 && test.retries > 0 ), testLabels ) );
-
+			lines.push( formatMetric( 'wdio_test_duration_max_seconds', test.maxDuration.toFixed( 3 ), { ...testLabels } ) );
 		}
 	}
-	// Only write the file if we have any tests https://phabricator.wikimedia.org/T407831
-	if ( projectMetrics.totalTests > 0 ) {
-		const projectName = projectMetrics.labels.project;
-		writeFileSync( path.join( metricsDir, `${ projectName }-${ fileName }.prom` ), `${ lines.join( '\n' ) }\n`, 'utf-8' );
-	}
+	const projectName = projectMetrics.labels.project;
+	writeFileSync( path.join( metricsDir, `${ projectName }-${ fileName }.prom` ), `${ lines.join( '\n' ) }\n`, 'utf-8' );
 }
 
 export {

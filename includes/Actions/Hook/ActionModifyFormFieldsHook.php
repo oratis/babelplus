@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Page\Article;
 
@@ -25,6 +25,3 @@ interface ActionModifyFormFieldsHook {
 	 */
 	public function onActionModifyFormFields( $name, &$fields, $article );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ActionModifyFormFieldsHook::class, 'MediaWiki\\Hook\\ActionModifyFormFieldsHook' );

@@ -9,14 +9,13 @@
 
 namespace MediaWiki\Parser;
 
+use DateTime;
 use MediaWiki\Config\ServiceOptions;
-use MediaWiki\Language\Language;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Specials\SpecialVersion;
 use MediaWiki\Utils\MWTimestamp;
 use Psr\Log\LoggerInterface;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Expansions of core magic variables, used by the parser.
@@ -42,14 +41,22 @@ class CoreMagicVariables {
 		'numberingroup' => 3600,
 	];
 
+	/** Map of (time unit => relative datetime specifier) */
+	private const DEADLINE_DATE_SPEC_BY_UNIT = [
+		'Y' => 'first day of January next year midnight',
+		'M' => 'first day of next month midnight',
+		'D' => 'next day midnight',
+		// Note that this relative datetime specifier does not zero out
+		// minutes/seconds, but we will do so manually in
+		// ::applyUnitTimestampDeadline() when given the unit 'H'
+		'H' => 'next hour'
+	];
 	/** Seconds of clock skew fudge factor for time-interval deadline TTLs */
 	private const DEADLINE_TTL_CLOCK_FUDGE = 1;
-
 	/** Max seconds to "randomly" add to time-interval deadline TTLs to avoid stampedes */
 	private const DEADLINE_TTL_STAGGER_MAX = 15;
-
 	/** Minimum time-interval deadline TTL */
-	private const MIN_DEADLINE_TTL = 30 * 60;
+	private const MIN_DEADLINE_TTL = 15;
 
 	/**
 	 * Expand the magic variable given by $index.
@@ -199,7 +206,7 @@ class CoreMagicVariables {
 
 				return $pageLang->formatNumNoSeparators( $ts->format( 'Y' ) );
 			case 'currenttime':
-				return $pageLang->time( $ts->getTimestamp( TS::MW ), false, false );
+				return $pageLang->time( $ts->getTimestamp( TS_MW ), false, false );
 			case 'currenthour':
 				self::applyUnitTimestampDeadline( $parser, $ts, 'H' );
 
@@ -257,7 +264,7 @@ class CoreMagicVariables {
 				# second argument is 'raw'; magic variables are "not raw"
 				return CoreParserFunctions::$id( $parser, null );
 			case 'currenttimestamp':
-				return $ts->getTimestamp( TS::MW );
+				return $ts->getTimestamp( TS_MW );
 			case 'localtimestamp':
 				$localTs = self::makeTsLocal( $svcOptions, $ts );
 
@@ -319,33 +326,31 @@ class CoreMagicVariables {
 	 * Adjust the cache expiry to account for a dynamic timestamp displayed in output
 	 *
 	 * @param Parser $parser
-	 * @param ?ConvertibleTimestamp $ts Current timestamp with the display timezone.
-	 *   If missing (null) the timestamp will be fetched from the ParserOptions.
+	 * @param ConvertibleTimestamp $ts Current timestamp with the display timezone
 	 * @param string $unit The unit the timestamp is expressed in; one of ("Y", "M", "D", "H")
 	 */
-	public static function applyUnitTimestampDeadline(
+	private static function applyUnitTimestampDeadline(
 		Parser $parser,
-		?ConvertibleTimestamp $ts,
+		ConvertibleTimestamp $ts,
 		string $unit
-	): void {
-		$date = $ts?->timestamp ?? $parser->getParseTime();
-		$ttl = Language::computeUnitTimestampDeadline( $date, $unit );
-		self::applyCacheExpiry( $parser, $ttl, $date->getTimestamp() );
-	}
+	) {
+		$tsUnix = (int)$ts->getTimestamp( TS_UNIX );
 
-	/**
-	 * Apply the given $ttl to the cache expiry of the parser output,
-	 * adjusting slightly to ensure a minimum TTL and avoid cache
-	 * stampede.
-	 * @param Parser $parser
-	 * @param int $ttl The desired time-to-live, in seconds
-	 * @param ?int $stagger An optional random value used to avoid stampede
-	 */
-	public static function applyCacheExpiry( Parser $parser, int $ttl, ?int $stagger = null ): void {
-		$stagger ??= abs( $ttl ) ?: time();
-		$ttl = max( $ttl, self::MIN_DEADLINE_TTL );
+		$date = new DateTime( "@$tsUnix" );
+		$date->setTimezone( $ts->getTimezone() );
+		$date->modify( self::DEADLINE_DATE_SPEC_BY_UNIT[$unit] );
+		if ( $unit === 'H' ) {
+			// Zero out the minutes/seconds
+			$date->setTime( intval( $date->format( 'H' ), 10 ), 0, 0 );
+		} else {
+			$date->setTime( 0, 0, 0 );
+		}
+		$deadlineUnix = (int)$date->format( 'U' );
+
+		$ttl = max( $deadlineUnix - $tsUnix, self::MIN_DEADLINE_TTL );
 		$ttl += self::DEADLINE_TTL_CLOCK_FUDGE;
-		$ttl += ( $stagger % self::DEADLINE_TTL_STAGGER_MAX );
+		$ttl += ( $tsUnix % self::DEADLINE_TTL_STAGGER_MAX );
+
 		$parser->getOutput()->updateCacheExpiry( $ttl );
 	}
 }

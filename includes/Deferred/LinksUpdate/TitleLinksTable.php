@@ -86,9 +86,4 @@ abstract class TitleLinksTable extends LinksTable {
 			yield $this->makePageReferenceValue( $linkId );
 		}
 	}
-
-	/** @inheritDoc */
-	protected function linksTargetNormalizationStage(): int {
-		return SCHEMA_COMPAT_NEW;
-	}
 }

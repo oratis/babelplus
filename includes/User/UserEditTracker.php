@@ -3,16 +3,15 @@
 namespace MediaWiki\User;
 
 use InvalidArgumentException;
-use LogicException;
 use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\Deferred\UserEditCountUpdate;
 use MediaWiki\JobQueue\JobQueueGroup;
-use MediaWiki\WikiMap\WikiMap;
+use UserEditCountInitJob;
+use Wikimedia\Rdbms\DBAccessObjectUtils;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\Rdbms\SelectQueryBuilder;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Track info about user edit counts and timings
@@ -34,9 +33,7 @@ class UserEditTracker {
 	 * @var int[]
 	 *
 	 * Mapping of user id to edit count for caching
-	 * The keys are in one of the forms:
-	 * * `u{user_id}` - for registered users from the local wiki
-	 * * `{wiki_id}:u{user_id}` - for registered users from other wikis
+	 * To avoid using non-sequential numerical keys, keys are in the form: `u⧼user id⧽`
 	 */
 	private $userEditCountCache = [];
 
@@ -62,18 +59,17 @@ class UserEditTracker {
 	 * @return int|null Null for anonymous users
 	 */
 	public function getUserEditCount( UserIdentity $user ): ?int {
-		if ( !$user->isRegistered() ) {
+		$userId = $user->getId();
+		if ( !$userId ) {
 			return null;
 		}
 
-		$cacheKey = $this->getCacheKey( $user );
+		$cacheKey = 'u' . $userId;
 		if ( isset( $this->userEditCountCache[ $cacheKey ] ) ) {
 			return $this->userEditCountCache[ $cacheKey ];
 		}
 
-		$wikiId = $user->getWikiId();
-		$userId = $user->getId( $wikiId );
-		$count = $this->dbProvider->getReplicaDatabase( $wikiId )->newSelectQueryBuilder()
+		$count = $this->dbProvider->getReplicaDatabase()->newSelectQueryBuilder()
 			->select( 'user_editcount' )
 			->from( 'user' )
 			->where( [ 'user_id' => $userId ] )
@@ -94,11 +90,6 @@ class UserEditTracker {
 	 * @return int
 	 */
 	public function initializeUserEditCount( UserIdentity $user ): int {
-		if ( $user->getWikiId() !== UserIdentity::LOCAL ) {
-			// Don't record edits on remote wikis
-			throw new LogicException( __METHOD__ . ' only supports local users' );
-		}
-
 		$dbr = $this->dbProvider->getReplicaDatabase();
 		$count = (int)$dbr->newSelectQueryBuilder()
 			->select( 'COUNT(*)' )
@@ -123,7 +114,7 @@ class UserEditTracker {
 	 * @param UserIdentity $user
 	 */
 	public function incrementUserEditCount( UserIdentity $user ) {
-		if ( !$user->isRegistered() ) {
+		if ( !$user->getId() ) {
 			// Can't store editcount without user row (i.e. unregistered)
 			return;
 		}
@@ -167,14 +158,10 @@ class UserEditTracker {
 	 * @return string|false Timestamp of edit, or false for non-existent/anonymous user accounts.
 	 */
 	private function getUserEditTimestamp( UserIdentity $user, int $type, int $flags = IDBAccessObject::READ_NORMAL ) {
-		if ( !$user->isRegistered() ) {
+		if ( !$user->getId() ) {
 			return false;
 		}
-		if ( $flags & IDBAccessObject::READ_LATEST ) {
-			$db = $this->dbProvider->getPrimaryDatabase( $user->getWikiId() );
-		} else {
-			$db = $this->dbProvider->getReplicaDatabase( $user->getWikiId() );
-		}
+		$db = DBAccessObjectUtils::getDBFromRecency( $this->dbProvider, $flags );
 
 		$sortOrder = ( $type === self::FIRST_EDIT ) ? SelectQueryBuilder::SORT_ASC : SelectQueryBuilder::SORT_DESC;
 		$time = $db->newSelectQueryBuilder()
@@ -189,7 +176,7 @@ class UserEditTracker {
 			return false; // no edits
 		}
 
-		return ConvertibleTimestamp::convert( TS::MW, $time );
+		return ConvertibleTimestamp::convert( TS_MW, $time );
 	}
 
 	/**
@@ -197,11 +184,12 @@ class UserEditTracker {
 	 * @param UserIdentity $user
 	 */
 	public function clearUserEditCache( UserIdentity $user ) {
-		if ( !$user->isRegistered() ) {
+		$userId = $user->getId();
+		if ( !$userId ) {
 			return;
 		}
 
-		$cacheKey = $this->getCacheKey( $user );
+		$cacheKey = 'u' . $userId;
 		unset( $this->userEditCountCache[ $cacheKey ] );
 	}
 
@@ -212,25 +200,13 @@ class UserEditTracker {
 	 * @throws InvalidArgumentException If the user is not registered
 	 */
 	public function setCachedUserEditCount( UserIdentity $user, int $editCount ) {
-		if ( !$user->isRegistered() ) {
+		$userId = $user->getId();
+		if ( !$userId ) {
 			throw new InvalidArgumentException( __METHOD__ . ' with an anonymous user' );
 		}
 
-		$cacheKey = $this->getCacheKey( $user );
+		$cacheKey = 'u' . $userId;
 		$this->userEditCountCache[ $cacheKey ] = $editCount;
 	}
 
-	private function getCacheKey( UserIdentity $user ): string {
-		if ( !$user->isRegistered() ) {
-			throw new InvalidArgumentException( 'Cannot prepare cache key for an anonymous user' );
-		}
-
-		$wikiId = $user->getWikiId();
-		$userId = $user->getId( $wikiId );
-		$isRemoteWiki = ( $wikiId !== UserIdentity::LOCAL ) && !WikiMap::isCurrentWikiId( $wikiId );
-		if ( $isRemoteWiki ) {
-			return $wikiId . ':u' . $userId;
-		}
-		return 'u' . $userId;
-	}
 }

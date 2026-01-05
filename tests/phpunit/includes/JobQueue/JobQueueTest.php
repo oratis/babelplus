@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\JobQueue;
 
 use MediaWiki\JobQueue\Job;
 use MediaWiki\JobQueue\JobQueue;
@@ -8,10 +7,8 @@ use MediaWiki\JobQueue\Jobs\DuplicateJob;
 use MediaWiki\JobQueue\Jobs\NullJob;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\WikiMap\WikiMap;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\ObjectCache\HashBagOStuff;
 use Wikimedia\ObjectCache\WANObjectCache;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group JobQueue
@@ -252,10 +249,10 @@ class JobQueueTest extends MediaWikiIntegrationTestCase {
 		$queue->deduplicateRootJob( $this->newJob( 0, $root1 ) );
 
 		$root2 = $root1;
-		# Add a second to UNIX epoch and format back to TS::MW
+		# Add a second to UNIX epoch and format back to TS_MW
 		$root2_ts = strtotime( $root2['rootJobTimestamp'] );
 		$root2_ts++;
-		$root2['rootJobTimestamp'] = wfTimestamp( TS::MW, $root2_ts );
+		$root2['rootJobTimestamp'] = wfTimestamp( TS_MW, $root2_ts );
 
 		$this->assertNotEquals( $root1['rootJobTimestamp'], $root2['rootJobTimestamp'],
 			"Root job signatures have different timestamps." );

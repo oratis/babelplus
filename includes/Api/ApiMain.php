@@ -45,7 +45,6 @@ use Wikimedia\ScopedCallback;
 use Wikimedia\Stats\StatsFactory;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
 use Wikimedia\Timestamp\TimestampException;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This is the main API class, used for both external and internal processing.
@@ -377,7 +376,6 @@ class ApiMain extends ApiBase {
 				'WatchlistManager',
 				'WatchedItemStore',
 				'UserOptionsLookup',
-				'RepoGroup',
 			]
 		],
 		'filerevert' => [
@@ -486,12 +484,6 @@ class ApiMain extends ApiBase {
 			'services' => [
 				'TempUserCreator',
 			]
-		],
-		'languagesearch' => [
-			'class' => ApiLanguageSearch::class,
-			'services' => [
-				'LanguageNameSearch',
-			],
 		],
 	];
 
@@ -802,15 +794,6 @@ class ApiMain extends ApiBase {
 	}
 
 	/**
-	 * Get the stats factory.
-	 *
-	 * @return StatsFactory
-	 */
-	public function getStatsFactory() {
-		return $this->getMain()->statsFactory;
-	}
-
-	/**
 	 * Get the result formatter object. Only works after setupExecuteAction()
 	 *
 	 * @return ApiFormatBase
@@ -967,12 +950,11 @@ class ApiMain extends ApiBase {
 
 			$this->statsFactory->getTiming( 'api_executeTiming_seconds' )
 				->setLabel( 'module', $this->mModule->getModuleName() )
+				->copyToStatsdAt( 'api.' . $this->mModule->getModuleName() . '.executeTiming' )
 				->observe( 1000 * $runTime );
 
-			if ( !$this->mModule || $this->mModule->getModuleName() !== 'query' ) {
-				// Skip query module metrics; we will record them in the query module itself.
-				$this->recordUnifiedMetrics( $runTime );
-			}
+			$this->recordUnifiedMetrics( $runTime );
+
 		} catch ( Throwable $e ) {
 			// If executeAction threw before the time was set, reset it
 			$runTime ??= microtime( true ) - $t;
@@ -1064,16 +1046,12 @@ class ApiMain extends ApiBase {
 		$stats->increment();
 
 		// Unified metrics
-		if ( !$this->mModule || $this->mModule->getModuleName() !== 'query' ) {
-			// Skip query module metrics; we will record them in the query module itself.
-			$this->recordUnifiedMetrics(
-				$latency,
-				[
-					'status' => implode( '_', $errCodes ), // Failure codes
-				]
-			);
-
-		}
+		$this->recordUnifiedMetrics(
+			$latency,
+			[
+				'status' => implode( '_', $errCodes ), // Failure codes
+			]
+		);
 
 		// Get desired HTTP code from an ApiUsageException. Don't use codes from other
 		// exception types, as they are unlikely to be intended as an HTTP code.
@@ -1331,7 +1309,7 @@ class ApiMain extends ApiBase {
 			}
 			$lastMod = $this->mModule->getConditionalRequestData( 'last-modified' );
 			if ( $lastMod !== null ) {
-				$response->header( 'Last-Modified: ' . wfTimestamp( TS::RFC2822, $lastMod ) );
+				$response->header( 'Last-Modified: ' . wfTimestamp( TS_RFC2822, $lastMod ) );
 			}
 		}
 
@@ -1393,7 +1371,7 @@ class ApiMain extends ApiBase {
 		// Send an Expires header
 		$maxAge = min( $this->mCacheControl['s-maxage'], $this->mCacheControl['max-age'] );
 		$expiryUnixTime = ( $maxAge == 0 ? 1 : time() + $maxAge );
-		$response->header( 'Expires: ' . wfTimestamp( TS::RFC2822, $expiryUnixTime ) );
+		$response->header( 'Expires: ' . wfTimestamp( TS_RFC2822, $expiryUnixTime ) );
 
 		// Construct the Cache-Control header
 		$ccHeader = '';
@@ -1583,7 +1561,7 @@ class ApiMain extends ApiBase {
 		}
 
 		if ( $this->getParameter( 'curtimestamp' ) ) {
-			$result->addValue( null, 'curtimestamp', wfTimestamp( TS::ISO_8601 ), ApiResult::NO_SIZE_CHECK );
+			$result->addValue( null, 'curtimestamp', wfTimestamp( TS_ISO_8601 ), ApiResult::NO_SIZE_CHECK );
 		}
 
 		if ( $this->getParameter( 'responselanginfo' ) ) {
@@ -1800,7 +1778,7 @@ class ApiMain extends ApiBase {
 					$ts = new ConvertibleTimestamp( $value );
 					if (
 						// RFC 7231 IMF-fixdate
-						$ts->getTimestamp( TS::RFC2822 ) === $value ||
+						$ts->getTimestamp( TS_RFC2822 ) === $value ||
 						// RFC 850
 						$ts->format( 'l, d-M-y H:i:s' ) . ' GMT' === $value ||
 						// asctime (with and without space-padded day)
@@ -1820,12 +1798,12 @@ class ApiMain extends ApiBase {
 							if ( $config->get( MainConfigNames::UseCdn ) ) {
 								// T46570: the core page itself may not change, but resources might
 								$modifiedTimes['sepoch'] = wfTimestamp(
-									TS::MW, time() - $config->get( MainConfigNames::CdnMaxAge )
+									TS_MW, time() - $config->get( MainConfigNames::CdnMaxAge )
 								);
 							}
 							$this->getHookRunner()->onOutputPageCheckLastModified( $modifiedTimes, $this->getOutput() );
 							$lastMod = max( $modifiedTimes );
-							$return304 = wfTimestamp( TS::MW, $lastMod ) <= $ts->getTimestamp( TS::MW );
+							$return304 = wfTimestamp( TS_MW, $lastMod ) <= $ts->getTimestamp( TS_MW );
 						}
 					}
 				} catch ( TimestampException ) {
@@ -2299,8 +2277,6 @@ class ApiMain extends ApiBase {
 		if ( count( $unusedParams ) ) {
 			$this->addWarning( [
 				'apierror-unrecognizedparams',
-				// Do not use `wfEscapeWikiText( ... )` here for compatibility with PHP <8.1.4
-				// https://gerrit.wikimedia.org/r/c/mediawiki/core/+/1160800/comment/92e67687_ab221188/
 				Message::listParam( array_map( 'wfEscapeWikiText', $unusedParams ), ListType::COMMA ),
 				count( $unusedParams )
 			] );
@@ -2570,6 +2546,82 @@ class ApiMain extends ApiBase {
 
 		return $agent;
 	}
+
+	/**
+	 * Record unified metrics for the API
+	 *
+	 * @param float $latency Optional value for process runtime, in microseconds, for metrics
+	 * @param array $detailLabels Additional or override labels for the metrics
+	 */
+	protected function recordUnifiedMetrics( $latency, $detailLabels = [] ) {
+		// The concept of "module" is different in Action API and REST API
+		// in REST API, it represents the "collection" of endpoints
+		// in Action API, it represents the "module" of the API (or an endpoint)
+		// In order to make the metrics consistent, we want the module to also reflect
+		// the "collection" of endpoints. The closest we can get is to use the namespace
+		// of the API module, and get the area of the code or extension it belongs to.
+		$module = __NAMESPACE__;
+
+		// Get the endpoint representation, which for the moment is the module name.
+		// However, there may be cases (in error states) where the module name is not
+		// yet set; for those cases, we will use 'main', as is used in the handleException method.
+		// The module path is still stored in `path` label, which should be enough to
+		// get information about the endpoint even in those cases.
+		$endpoint = $this->mModule ? $this->mModule->getModuleName() : 'main';
+
+		// The "path" should give us useful and consistent information about the endpoint.
+		// The ->getModulePath() method is calculating the module parents' names, and those
+		// aren't always available, and may miss some of the separation of props in the query
+		// that may result in the same endpoint being represented differently.
+		// So in order to be able to get consistent information about the endpoint, we will use
+		// the "path" label to represent the query parameters and their values.
+		// This will also allow us to use regular expressions to match whatever module we are
+		// interested in for dashboards or alerts more consistently.
+		$params = $this->extractRequestParams( [ 'safeMode' => true ] );
+		$path = implode(
+			'&',
+			array_map(
+				static function ( $key, $value ): string	 {
+					return $key . '=' . $value;
+				},
+				array_keys( $params ),
+				$params
+			)
+		);
+
+		// Unified metrics
+		$metricsLabels = array_merge( [
+			// This should represent the "collection" of endpoints
+			'api_module' => $module,
+			// This is the endpoint that is being executed
+			'api_endpoint' => $endpoint,
+			'path' => $path,
+			'method' => $this->getRequest()->getMethod(),
+			'status' => "200", // Success
+		], $detailLabels );
+
+		// Hit metrics
+		$metricHitStats = $this->statsFactory->getCounter( 'action_api_modules_hit_total' )
+			->setLabel( 'api_type', 'ACTION_API' );
+		foreach ( $metricsLabels as $label => $value ) {
+			if ( $value ) {
+				$metricHitStats->setLabel( $label, $value );
+			}
+		}
+
+		// Latency metrics
+		$metricLatencyStats = $this->statsFactory->getTiming( 'action_api_modules_latency' )
+			->setLabel( 'api_type', 'ACTION_API' );
+		foreach ( $metricsLabels as $label => $value ) {
+			if ( $value ) {
+				$metricLatencyStats->setLabel( $label, $value );
+			}
+		}
+		$metricLatencyStats->observeNanoseconds( $latency );
+
+		$metricHitStats->increment();
+	}
+
 }
 
 /**

@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Mocks\Content;
-
 use MediaWiki\Content\Content;
 use MediaWiki\Content\ContentHandler;
 use MediaWiki\Content\Renderer\ContentParseParams;

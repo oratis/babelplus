@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Context\IContextSource;
 use MediaWiki\Page\Article;
@@ -24,6 +24,3 @@ interface PageHistoryBeforeListHook {
 	 */
 	public function onPageHistoryBeforeList( $article, $context );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PageHistoryBeforeListHook::class, 'MediaWiki\\Hook\\PageHistoryBeforeListHook' );

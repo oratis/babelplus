@@ -116,7 +116,6 @@ class SpecialUserLogin extends LoginSignupSpecialPage {
 		$injected_html = '';
 		if ( $direct ) {
 			$user->touch();
-			$user->debouncedDBTouch();
 
 			$this->clearToken();
 

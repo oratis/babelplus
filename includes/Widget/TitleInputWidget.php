@@ -22,8 +22,6 @@ class TitleInputWidget extends TextInputWidget {
 	protected $highlightFirst = null;
 	/** @var bool|null */
 	protected $validateTitle = null;
-	/** @var bool|null */
-	protected $creatable = null;
 
 	/**
 	 * @param array $config Configuration options
@@ -35,8 +33,6 @@ class TitleInputWidget extends TextInputWidget {
 	 *     the first result (default: true)
 	 *   - bool|null $config['validateTitle'] Whether the input must
 	 *     be a valid title (default: true)
-	 *   - bool|null $config['creatable'] Whether to validate the title
-	 *     is creatable (not a special page) (default: false)
 	 */
 	public function __construct( array $config = [] ) {
 		parent::__construct(
@@ -58,9 +54,6 @@ class TitleInputWidget extends TextInputWidget {
 		}
 		if ( isset( $config['validateTitle'] ) ) {
 			$this->validateTitle = $config['validateTitle'];
-		}
-		if ( isset( $config['creatable'] ) ) {
-			$this->creatable = $config['creatable'];
 		}
 
 		// Initialization
@@ -89,10 +82,6 @@ class TitleInputWidget extends TextInputWidget {
 		if ( $this->validateTitle !== null ) {
 			$config['validateTitle'] = $this->validateTitle;
 		}
-		if ( $this->creatable !== null ) {
-			$config['creatable'] = $this->creatable;
-		}
-
 		$config['$overlay'] = true;
 		return parent::getConfig( $config );
 	}

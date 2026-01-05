@@ -10,7 +10,6 @@ use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentityValue;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -73,8 +72,8 @@ class PageArchiveTest extends MediaWikiIntegrationTestCase {
 		$revisionStore = $this->getServiceContainer()->getRevisionStore();
 
 		$ipTimestamp = wfTimestamp(
-			TS::MW,
-			wfTimestamp( TS::UNIX, $this->firstRev->getTimestamp() ) + 1
+			TS_MW,
+			wfTimestamp( TS_UNIX, $this->firstRev->getTimestamp() ) + 1
 		);
 		$rev = new MutableRevisionRecord( $page );
 		$rev->setUser( UserIdentityValue::newAnonymous( $this->ipEditor ) );
@@ -100,6 +99,7 @@ class PageArchiveTest extends MediaWikiIntegrationTestCase {
 				'ar_deleted' => '0',
 				'ar_rev_id' => strval( $this->ipRev->getId() ),
 				'ar_timestamp' => $this->getDb()->timestamp( $this->ipRev->getTimestamp() ),
+				'ar_sha1' => '0qdrpxl537ivfnx4gcpnzz0285yxryy',
 				'ar_page_id' => strval( $this->ipRev->getPageId() ),
 				'ar_comment_text' => 'just a test',
 				'ar_comment_data' => null,
@@ -119,6 +119,7 @@ class PageArchiveTest extends MediaWikiIntegrationTestCase {
 				'ar_deleted' => '0',
 				'ar_rev_id' => strval( $this->firstRev->getId() ),
 				'ar_timestamp' => $this->getDb()->timestamp( $this->firstRev->getTimestamp() ),
+				'ar_sha1' => 'pr0s8e18148pxhgjfa0gjrvpy8fiyxc',
 				'ar_page_id' => strval( $this->firstRev->getPageId() ),
 				'ar_comment_text' => 'testing',
 				'ar_comment_data' => null,

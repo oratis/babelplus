@@ -24,7 +24,6 @@ use Wikimedia\Minify\CSSMin;
 use Wikimedia\Rdbms\Database;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Abstraction for ResourceLoader modules which pull from wiki pages
@@ -569,7 +568,7 @@ class WikiModule extends Module {
 					$titleInfo[$title->getPrefixedText()] = [
 						'page_len' => $content->getSize(),
 						'page_latest' => 'TBD', // None available
-						'page_touched' => ConvertibleTimestamp::now( TS::MW ),
+						'page_touched' => ConvertibleTimestamp::now( TS_MW ),
 					];
 				}
 			}
@@ -609,7 +608,7 @@ class WikiModule extends Module {
 				$titleInfo[self::makeTitleKey( $title )] = [
 					'page_len' => $row->page_len,
 					'page_latest' => $row->page_latest,
-					'page_touched' => ConvertibleTimestamp::convert( TS::MW, $row->page_touched ),
+					'page_touched' => ConvertibleTimestamp::convert( TS_MW, $row->page_touched ),
 				];
 			}
 		}

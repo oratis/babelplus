@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\RecentChanges\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\RecentChanges\EnhancedChangesList;
 use MediaWiki\RecentChanges\RecentChange;
@@ -28,7 +28,3 @@ interface EnhancedChangesListModifyBlockLineDataHook {
 		$rc
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( EnhancedChangesListModifyBlockLineDataHook::class,
-	'MediaWiki\\Hook\\EnhancedChangesListModifyBlockLineDataHook' );

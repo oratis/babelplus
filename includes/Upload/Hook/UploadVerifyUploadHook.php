@@ -1,9 +1,9 @@
 <?php
 
-namespace MediaWiki\Upload\Hook;
+namespace MediaWiki\Hook;
 
-use MediaWiki\Upload\UploadBase;
 use MediaWiki\User\User;
+use UploadBase;
 use Wikimedia\Message\MessageSpecifier;
 
 /**
@@ -38,6 +38,3 @@ interface UploadVerifyUploadHook {
 		$pageText, &$error
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UploadVerifyUploadHook::class, 'MediaWiki\\Hook\\UploadVerifyUploadHook' );

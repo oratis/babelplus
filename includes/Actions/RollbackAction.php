@@ -21,12 +21,12 @@ use MediaWiki\Exception\ThrottledError;
 use MediaWiki\HTMLForm\HTMLForm;
 use MediaWiki\Linker\Linker;
 use MediaWiki\MainConfigNames;
+use MediaWiki\MediaWikiServices;
 use MediaWiki\Message\Message;
 use MediaWiki\Page\Article;
 use MediaWiki\Page\RollbackPageFactory;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\User\Options\UserOptionsLookup;
-use MediaWiki\User\UserFactory;
 use MediaWiki\Watchlist\WatchlistManager;
 use Profiler;
 
@@ -37,17 +37,36 @@ use Profiler;
  */
 class RollbackAction extends FormAction {
 
+	private IContentHandlerFactory $contentHandlerFactory;
+	private RollbackPageFactory $rollbackPageFactory;
+	private UserOptionsLookup $userOptionsLookup;
+	private WatchlistManager $watchlistManager;
+	private CommentFormatter $commentFormatter;
+
+	/**
+	 * @param Article $article
+	 * @param IContextSource $context
+	 * @param IContentHandlerFactory $contentHandlerFactory
+	 * @param RollbackPageFactory $rollbackPageFactory
+	 * @param UserOptionsLookup $userOptionsLookup
+	 * @param WatchlistManager $watchlistManager
+	 * @param CommentFormatter $commentFormatter
+	 */
 	public function __construct(
 		Article $article,
 		IContextSource $context,
-		private readonly IContentHandlerFactory $contentHandlerFactory,
-		private readonly RollbackPageFactory $rollbackPageFactory,
-		private readonly UserFactory $userFactory,
-		private readonly UserOptionsLookup $userOptionsLookup,
-		private readonly WatchlistManager $watchlistManager,
-		private readonly CommentFormatter $commentFormatter,
+		IContentHandlerFactory $contentHandlerFactory,
+		RollbackPageFactory $rollbackPageFactory,
+		UserOptionsLookup $userOptionsLookup,
+		WatchlistManager $watchlistManager,
+		CommentFormatter $commentFormatter
 	) {
 		parent::__construct( $article, $context );
+		$this->contentHandlerFactory = $contentHandlerFactory;
+		$this->rollbackPageFactory = $rollbackPageFactory;
+		$this->userOptionsLookup = $userOptionsLookup;
+		$this->watchlistManager = $watchlistManager;
+		$this->commentFormatter = $commentFormatter;
 	}
 
 	/** @inheritDoc */
@@ -157,7 +176,8 @@ class RollbackAction extends FormAction {
 			if ( $this->getAuthority()->isAllowedAny( 'suppressrevision', 'viewsuppressed' ) ) {
 				$revUser = $rev->getUser( RevisionRecord::RAW );
 			} else {
-				$revUser = $this->userFactory->newFromName( $this->context->msg( 'rev-deleted-user' )->plain() );
+				$userFactory = MediaWikiServices::getInstance()->getUserFactory();
+				$revUser = $userFactory->newFromName( $this->context->msg( 'rev-deleted-user' )->plain() );
 			}
 		}
 
@@ -186,21 +206,18 @@ class RollbackAction extends FormAction {
 			}
 
 			if (
-				( $rollbackResult->hasMessage( 'alreadyrolled' ) ||
-				  $rollbackResult->hasMessage( 'cantrollback' ) ||
-				  $rollbackResult->hasMessage( 'rollback-nochange' ) )
+				( $rollbackResult->hasMessage( 'alreadyrolled' ) || $rollbackResult->hasMessage( 'cantrollback' ) )
 				&& isset( $data['current-revision-record'] )
 			) {
 				/** @var RevisionRecord $current */
 				$current = $data['current-revision-record'];
-				$comment = $current->getComment()?->text;
 
-				if ( $comment !== null && $comment !== '' ) {
+				if ( $current->getComment() != null ) {
 					$this->getOutput()->addWikiMsg(
 						'editcomment',
 						Message::rawParam(
 							$this->commentFormatter
-								->format( $comment )
+								->format( $current->getComment()->text )
 						)
 					);
 				}

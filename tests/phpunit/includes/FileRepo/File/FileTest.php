@@ -495,106 +495,32 @@ class FileTest extends MediaWikiMediaTestCase {
 		$this->assertSame( $obj, $file->getHandlerState( 'test' ) );
 	}
 
-	public static function provideThumbNameSteps() {
-		// See also client-side logic test for mw.util.adjustThumbWidthForSteps in util.test.js
-
-		$jpeg = [
-			'filename' => 'test.jpg',
-			'type' => 'image/jpeg',
-			'thumbname' => 'test.jpg',
-		];
-		$svg = [
-			'filename' => 'test.svg',
-			'type' => 'image/svg+xml',
-			'thumbname' => 'test.svg.png',
-		];
-
-		$disabled = [
-			'enabled' => false,
-			'originalWidth' => 500,
-			'thumbWidth' => 52,
-			'expected' => 52
-		];
-		yield 'unchanged when disabled jpeg' => $jpeg + $disabled;
-		yield 'unchanged when disabled svg' => $svg + $disabled;
-
-		$roundUp = [
-			'enabled' => true,
-			'originalWidth' => 500,
-			'thumbWidth' => 52,
-			'expected' => 100
-		];
-		yield 'round up jpeg' => $jpeg + $roundUp;
-		yield 'round up svg' => $svg + $roundUp;
-
-		yield 'original width when first step beyond original width jpeg' => $jpeg + [
-			'enabled' => true,
-			'originalWidth' => 90,
-			'thumbWidth' => 52,
-			'expected' => 90
-		];
-		yield 'unless this is a vector drawing, then scale to the steps' => $svg + [
-			'enabled' => true,
-			'originalWidth' => 90,
-			'thumbWidth' => 52,
-			'expected' => 100
-		];
-
-		yield 'original width when no other step between requested & original width jpeg' => $jpeg + [
-			'enabled' => true,
-			'originalWidth' => 180,
-			'thumbWidth' => 130,
-			'expected' => 180
-		];
-		yield 'unless it is a vector drawing, in which case keep applying steps' => $svg + [
-			'enabled' => true,
-			'originalWidth' => 180,
-			'thumbWidth' => 130,
-			'expected' => 200
-		];
-
-		$beyondSteps = [
-			'enabled' => true,
-			'originalWidth' => 500,
-			'thumbWidth' => 252,
-			'expected' => 252
-		];
-		yield 'unchanged when beyond available steps jpeg' => $jpeg + $beyondSteps;
-		yield 'unchanged when beyond available steps svg' => $svg + $beyondSteps;
-	}
-
 	/**
 	 * @covers \MediaWiki\FileRepo\File\File::thumbName
 	 * @covers \MediaWiki\FileRepo\File\File::generateThumbName
-	 * @covers \MediaWiki\FileRepo\File\File::adjustThumbWidthForSteps
-	 * @dataProvider provideThumbNameSteps
 	 */
-	public function testThumbNameSteps(
-		string $filename,
-		string $type,
-		string $thumbname,
-		bool $enabled,
-		int $originalWidth,
-		int $thumbWidth,
-		int $expected
-	) {
-		$this->overrideConfigValue( MainConfigNames::ThumbnailSteps, [ 100, 200 ] );
-		$this->overrideConfigValue( MainConfigNames::ThumbnailStepsRatio, $enabled ? 1 : 0 );
+	public function testThumbNameSteps() {
+		$this->overrideConfigValue( MainConfigNames::ThumbnailSteps, [ 10, 100, 200 ] );
+		// Fully enabled
+		$this->overrideConfigValue( MainConfigNames::ThumbnailStepsRatio, 1 );
 
-		$file = $this->dataFile( $filename, $type );
+		// Round up
+		$file = $this->dataFile( 'test.jpg', 'image/jpeg' );
 		$fileObj = TestingAccessWrapper::newFromObject( $file );
-		$fileObj->sizeAndMetadata = [
-			'width' => $originalWidth,
-			'height' => $originalWidth,
-			'metadata' => []
-		];
-		$actual = $fileObj->thumbName( [
-			'width' => $thumbWidth,
-			'height' => $thumbWidth,
-			'physicalWidth' => $thumbWidth,
-			'physicalHeight' => $thumbWidth
-		] );
-		$this->assertEquals( $expected . 'px-' . $thumbname, $actual );
+		$fileObj->sizeAndMetadata = [ 'width' => 500, 'height' => 500, 'metadata' => [] ];
+		$actual = $fileObj->thumbName(
+			[ 'width' => 90, 'height' => 90, 'physicalWidth' => 90, 'physicalHeight' => 90 ],
+		);
+		$this->assertEquals( '100px-test.jpg', $actual );
+
+		// Beyond available steps
+		$file = $this->dataFile( 'test.jpg', 'image/jpeg' );
+		$fileObj = TestingAccessWrapper::newFromObject( $file );
+		$fileObj->sizeAndMetadata = [ 'width' => 500, 'height' => 500, 'metadata' => [] ];
+		$actual = $fileObj->thumbName(
+			[ 'width' => 250, 'height' => 250, 'physicalWidth' => 250, 'physicalHeight' => 250 ],
+		);
+		$this->assertEquals( '250px-test.jpg', $actual );
 	}
 
 	/**

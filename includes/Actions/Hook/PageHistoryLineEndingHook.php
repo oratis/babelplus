@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Pager\HistoryPager;
 use stdClass;
@@ -31,6 +31,3 @@ interface PageHistoryLineEndingHook {
 		&$attribs
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PageHistoryLineEndingHook::class, 'MediaWiki\\Hook\\PageHistoryLineEndingHook' );

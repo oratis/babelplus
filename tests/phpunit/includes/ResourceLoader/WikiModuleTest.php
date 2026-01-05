@@ -28,7 +28,6 @@ use Wikimedia\ObjectCache\HashBagOStuff;
 use Wikimedia\Rdbms\IReadableDatabase;
 use Wikimedia\TestingAccessWrapper;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group ResourceLoader
@@ -237,7 +236,7 @@ class WikiModuleTest extends ResourceLoaderTestCase {
 
 	private function setFakeTime( $time ) {
 		ConvertibleTimestamp::setFakeTime( $time );
-		$now = ConvertibleTimestamp::now( TS::UNIX );
+		$now = ConvertibleTimestamp::now( TS_UNIX );
 		$wanCache = $this->getServiceContainer()->getMainWANObjectCache();
 		$wanCache->setMockTime( $now );
 	}

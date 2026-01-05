@@ -180,7 +180,7 @@ class JobQueueFederated extends JobQueue {
 		// Try to insert the jobs and update $partitionsTry on any failures.
 		// Retry to insert any remaining jobs again, ignoring the bad partitions.
 		$jobsLeft = $jobs;
-		for ( $i = $this->maxPartitionsTry; $i-- && $jobsLeft; ) {
+		for ( $i = $this->maxPartitionsTry; $i > 0 && count( $jobsLeft ); --$i ) {
 			try {
 				$partitionRing->getLiveLocationWeights();
 			} catch ( UnexpectedValueException ) {
@@ -188,7 +188,7 @@ class JobQueueFederated extends JobQueue {
 			}
 			$jobsLeft = $this->tryJobInsertions( $jobsLeft, $partitionRing, $flags );
 		}
-		if ( $jobsLeft ) {
+		if ( count( $jobsLeft ) ) {
 			throw new JobQueueError(
 				"Could not insert job(s), {$this->maxPartitionsTry} partitions tried." );
 		}

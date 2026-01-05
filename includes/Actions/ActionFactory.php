@@ -23,7 +23,17 @@ use Wikimedia\ObjectFactory\ObjectFactory;
  */
 class ActionFactory {
 
-	private readonly HookRunner $hookRunner;
+	/**
+	 * @var array
+	 * Configured actions (eg those added by extensions to $wgActions) that overrides CORE_ACTIONS
+	 */
+	private $actionsConfig;
+
+	private LoggerInterface $logger;
+	private ObjectFactory $objectFactory;
+	private HookContainer $hookContainer;
+	private HookRunner $hookRunner;
+	private IContentHandlerFactory $contentHandlerFactory;
 
 	/**
 	 * Core default action specifications
@@ -121,7 +131,6 @@ class ActionFactory {
 			'services' => [
 				'ContentLanguage',
 				'RepoGroup',
-				'UrlUtils',
 			],
 		],
 		'rollback' => [
@@ -129,7 +138,6 @@ class ActionFactory {
 			'services' => [
 				'ContentHandlerFactory',
 				'RollbackPageFactory',
-				'UserFactory',
 				'UserOptionsLookup',
 				'WatchlistManager',
 				'CommentFormatter'
@@ -161,13 +169,18 @@ class ActionFactory {
 	 * @param IContentHandlerFactory $contentHandlerFactory
 	 */
 	public function __construct(
-		private array $actionsConfig,
-		private readonly LoggerInterface $logger,
-		private readonly ObjectFactory $objectFactory,
-		private readonly HookContainer $hookContainer,
-		private readonly IContentHandlerFactory $contentHandlerFactory,
+		array $actionsConfig,
+		LoggerInterface $logger,
+		ObjectFactory $objectFactory,
+		HookContainer $hookContainer,
+		IContentHandlerFactory $contentHandlerFactory
 	) {
+		$this->actionsConfig = $actionsConfig;
+		$this->logger = $logger;
+		$this->objectFactory = $objectFactory;
+		$this->hookContainer = $hookContainer;
 		$this->hookRunner = new HookRunner( $hookContainer );
+		$this->contentHandlerFactory = $contentHandlerFactory;
 	}
 
 	/**

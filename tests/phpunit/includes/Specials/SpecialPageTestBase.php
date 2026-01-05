@@ -1,12 +1,10 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Language\Language;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Request\WebRequest;
 use MediaWiki\SpecialPage\SpecialPage;
-use MediaWikiIntegrationTestCase;
 
 /**
  * Base class for testing special pages. Re-used in extension test suites.
@@ -92,6 +90,3 @@ abstract class SpecialPageTestBase extends MediaWikiIntegrationTestCase {
 	}
 
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialPageTestBase::class, 'SpecialPageTestBase' );

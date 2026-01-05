@@ -125,6 +125,7 @@ class TextConflictHelper {
 	public function incrementConflictStats( ?User $user = null ) {
 		$namespace = 'n/a';
 		$userBucket = 'n/a';
+		$statsdMetrics = [ 'edit.failures.conflict' ];
 
 		// Only include 'standard' namespaces to avoid creating unknown numbers of statsd metrics
 		if (
@@ -133,16 +134,25 @@ class TextConflictHelper {
 		) {
 			// getNsText() returns empty string if getNamespace() === NS_MAIN
 			$namespace = $this->title->getNsText() ?: 'Main';
+			$statsdMetrics[] = 'edit.failures.conflict.byNamespaceId.' . $this->title->getNamespace();
 		}
 		if ( $user ) {
 			$userBucket = $this->getUserBucket( $user->getEditCount() );
+			$statsdMetrics[] = 'edit.failures.conflict.byUserEdits.' . $userBucket;
 		}
 		if ( $this->stats instanceof StatsFactory ) {
 			$this->stats->getCounter( 'edit_failure_total' )
 				->setLabel( 'cause', 'conflict' )
 				->setLabel( 'namespace', $namespace )
 				->setLabel( 'user_bucket', $userBucket )
+				->copyToStatsdAt( $statsdMetrics )
 				->increment();
+		}
+
+		if ( $this->stats instanceof IBufferingStatsdDataFactory ) {
+			foreach ( $statsdMetrics as $metric ) {
+				$this->stats->increment( $metric );
+			}
 		}
 	}
 
@@ -153,6 +163,7 @@ class TextConflictHelper {
 	public function incrementResolvedStats( ?User $user = null ) {
 		$namespace = 'n/a';
 		$userBucket = 'n/a';
+		$statsdMetrics = [ 'edit.failures.conflict.resolved' ];
 
 		// Only include 'standard' namespaces to avoid creating unknown numbers of statsd metrics
 		if (
@@ -161,10 +172,12 @@ class TextConflictHelper {
 		) {
 			// getNsText() returns empty string if getNamespace() === NS_MAIN
 			$namespace = $this->title->getNsText() ?: 'Main';
+			$statsdMetrics[] = 'edit.failures.conflict.resolved.byNamespaceId.' . $this->title->getNamespace();
 		}
 
 		if ( $user ) {
 			$userBucket = $this->getUserBucket( $user->getEditCount() );
+			$statsdMetrics[] = 'edit.failures.conflict.resolved.byUserEdits.' . $userBucket;
 		}
 
 		if ( $this->stats instanceof StatsFactory ) {
@@ -172,7 +185,14 @@ class TextConflictHelper {
 				->setLabel( 'cause', 'conflict' )
 				->setLabel( 'namespace', $namespace )
 				->setLabel( 'user_bucket', $userBucket )
+				->copyToStatsdAt( $statsdMetrics )
 				->increment();
+		}
+
+		if ( $this->stats instanceof IBufferingStatsdDataFactory ) {
+			foreach ( $statsdMetrics as $metric ) {
+				$this->stats->increment( $metric );
+			}
 		}
 	}
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\User\User;
 
@@ -24,6 +24,3 @@ interface UserLogoutCompleteHook {
 	 */
 	public function onUserLogoutComplete( $user, &$inject_html, $oldName );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UserLogoutCompleteHook::class, 'MediaWiki\\Hook\\UserLogoutCompleteHook' );

@@ -1,9 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\RevisionList;
-
 use MediaWiki\RevisionList\RevisionItemBase;
-use MediaWikiUnitTestCase;
 
 /**
  * @covers \MediaWiki\RevisionList\RevisionItemBase

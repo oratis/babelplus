@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Html\FormOptions;
 use MediaWiki\Pager\NewPagesPager;
@@ -30,6 +30,3 @@ interface SpecialNewpagesConditionsHook {
 		&$tables, &$fields, &$join_conds
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialNewpagesConditionsHook::class, 'MediaWiki\\Hook\\SpecialNewpagesConditionsHook' );

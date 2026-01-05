@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\HTMLForm\HTMLForm;
 
@@ -22,6 +22,3 @@ interface EmailUserFormHook {
 	 */
 	public function onEmailUserForm( &$form );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( EmailUserFormHook::class, 'MediaWiki\\Hook\\EmailUserFormHook' );

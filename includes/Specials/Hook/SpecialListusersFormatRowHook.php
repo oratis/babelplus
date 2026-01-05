@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use stdClass;
 
@@ -23,6 +23,3 @@ interface SpecialListusersFormatRowHook {
 	 */
 	public function onSpecialListusersFormatRow( &$item, $row );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialListusersFormatRowHook::class, 'MediaWiki\\Hook\\SpecialListusersFormatRowHook' );

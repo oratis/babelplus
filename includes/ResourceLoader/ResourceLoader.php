@@ -53,7 +53,6 @@ use Wikimedia\RequestTimeout\TimeoutException;
 use Wikimedia\ScopedCallback;
 use Wikimedia\Stats\StatsFactory;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 use Wikimedia\WrappedString;
 
 /**
@@ -769,20 +768,20 @@ class ResourceLoader implements LoggerAwareInterface {
 			}
 		}
 
-		// @phan-suppress-next-line SecurityCheck-XSS
 		echo $response;
 	}
 
 	/**
 	 * Send stats about the time used to build the response
+	 * @return ScopedCallback
 	 */
-	#[\NoDiscard]
-	protected function measureResponseTime(): ScopedCallback {
+	protected function measureResponseTime() {
 		$requestStart = $_SERVER['REQUEST_TIME_FLOAT'];
 		return new ScopedCallback( function () use ( $requestStart ) {
 			$statTiming = microtime( true ) - $requestStart;
 
 			$this->statsFactory->getTiming( 'resourceloader_response_time_seconds' )
+				->copyToStatsdAt( 'resourceloader.responseTime' )
 				->observe( 1000 * $statTiming );
 		} );
 	}
@@ -852,7 +851,7 @@ class ResourceLoader implements LoggerAwareInterface {
 				: ''
 			);
 			header( "Cache-Control: public, max-age=$maxage, s-maxage=$maxage" . $staleDirective );
-			header( 'Expires: ' . ConvertibleTimestamp::convert( TS::RFC2822, time() + $maxage ) );
+			header( 'Expires: ' . ConvertibleTimestamp::convert( TS_RFC2822, time() + $maxage ) );
 		}
 
 		foreach ( $this->extraHeaders as $header ) {
@@ -1150,9 +1149,13 @@ MESSAGE;
 			);
 
 			$mapType = $context->isSourceMap() ? 'map-js' : 'minify-js';
+			$statsdNamespace = implode( '.', [
+				"resourceloader_cache", $mapType, $isHit ? 'hit' : 'miss'
+			] );
 			$this->statsFactory->getCounter( 'resourceloader_cache_total' )
 				->setLabel( 'type', $mapType )
 				->setLabel( 'status', $isHit ? 'hit' : 'miss' )
+				->copyToStatsdAt( [ $statsdNamespace ] )
 				->increment();
 		} else {
 			[ $response, $offsetArray ] = $callback();
@@ -1601,10 +1604,10 @@ MESSAGE;
 	 *  - string: module name
 	 *  - string: module version
 	 *  - array|null: List of dependencies (optional)
-	 *  - int|null: Module group (optional)
+	 *  - string|null: Module group (optional)
 	 *  - string|null: Name of foreign module source, or 'local' (optional)
 	 *  - string|null: Script body of a skip function (optional)
-	 * @phan-param array<int,array{0:string,1:string,2?:?array,3?:?int,4?:?string,5?:?string}> $modules
+	 * @phan-param array<int,array{0:string,1:string,2?:?array,3?:?string,4?:?string,5?:?string}> $modules
 	 * @return string JavaScript code
 	 */
 	public static function makeLoaderRegisterScript(
@@ -2067,17 +2070,20 @@ MESSAGE;
 		);
 
 		$status = 'hit';
+		$incKey = "resourceloader_cache.$filter.$status";
 		$result = $cache->getWithSetCallback(
 			$key,
 			BagOStuff::TTL_DAY,
-			static function () use ( $filter, $data, &$status ) {
+			static function () use ( $filter, $data, &$incKey, &$status ) {
 				$status = 'miss';
+				$incKey = "resourceloader_cache.$filter.$status";
 				return self::applyFilter( $filter, $data );
 			}
 		);
 		$statsFactory->getCounter( 'resourceloader_cache_total' )
 			->setLabel( 'type', $filter )
 			->setLabel( 'status', $status )
+			->copyToStatsdAt( [ $incKey ] )
 			->increment();
 
 		// Use $data on cache failure

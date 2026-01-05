@@ -7,8 +7,6 @@
  * @ingroup Search
  */
 
-namespace MediaWiki\Search;
-
 use MediaWiki\Title\Title;
 use Wikimedia\HtmlArmor\HtmlArmor;
 
@@ -232,6 +230,3 @@ class SearchResultSet extends BaseSearchResultSet {
 		return $this->titles;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchResultSet::class, 'SearchResultSet' );

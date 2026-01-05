@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Api;
+namespace MediaWiki\Tests\Api;
 
 use MediaWiki\Api\ApiWatchlistTrait;
 use MediaWiki\Title\Title;

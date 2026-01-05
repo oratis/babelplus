@@ -13,11 +13,11 @@ namespace MediaWiki\Installer;
 use FixInconsistentRedirects;
 use FixWrongPasswordPrefixes;
 use MediaWiki\Maintenance\FixAutoblockLogTitles;
-use MediaWiki\Maintenance\UpdateRestrictions;
 use MigrateExternallinks;
 use MigrateRevisionActorTemp;
 use MigrateRevisionCommentTemp;
 use PopulateUserIsTemp;
+use UpdateRestrictions;
 
 /**
  * Class for handling updates to Sqlite databases.
@@ -71,6 +71,7 @@ class SqliteUpdater extends DatabaseUpdater {
 
 			// 1.43
 			[ 'migratePagelinks' ],
+			[ 'modifyField', 'revision', 'rev_id', 'patch-revision-cleanup.sql' ],
 			[ 'modifyField', 'change_tag', 'ct_rc_id', 'patch-change_tag-ct_rc_id.sql' ],
 			[ 'runMaintenance', \MigrateBlocks::class ],
 			[ 'dropTable', 'ipblocks' ],
@@ -96,14 +97,6 @@ class SqliteUpdater extends DatabaseUpdater {
 				'patch-recentchanges-rc_name_source_patrolled_timestamp.sql' ],
 			[ 'dropField', 'recentchanges', 'rc_new', 'patch-recentchanges-drop-rc_new.sql' ],
 			[ 'dropField', 'categorylinks', 'cl_to', 'patch-categorylinks-drop-cl_to-cl_collation.sql' ],
-
-			// 1.46
-			[ 'addTable', 'watchlist_label', 'patch-watchlist_label.sql' ],
-			[ 'dropField', 'recentchanges', 'rc_type', 'patch-recentchanges-drop-rc_type.sql' ],
-			[ 'dropField', 'archive', 'ar_sha1', 'patch-archive-drop-ar_sha1.sql' ],
-			[ 'dropField', 'revision', 'rev_sha1', 'patch-revision-drop-rev_sha1.sql' ],
-			[ 'dropField', 'objectcache', 'modtoken', 'patch-objectcache-drop-modtoken.sql' ],
-			[ 'addField', 'imagelinks', 'il_target_id', 'patch-imagelinks-add-il_target_id.sql' ],
 		];
 	}
 

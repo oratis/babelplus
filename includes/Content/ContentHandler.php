@@ -38,9 +38,9 @@ use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Revision\SlotRenderingProvider;
 use MediaWiki\Search\ParserOutputSearchDataExtractor;
-use MediaWiki\Search\SearchEngine;
-use MediaWiki\Search\SearchIndexField;
 use MediaWiki\Title\Title;
+use SearchEngine;
+use SearchIndexField;
 use SlotDiffRenderer;
 use StatusValue;
 use TextSlotDiffRenderer;
@@ -1342,7 +1342,7 @@ abstract class ContentHandler {
 			$page,
 			$parserOptions,
 			$revision,
-			[ ParserOutputAccess::OPT_NO_UPDATE_CACHE => true ],
+			ParserOutputAccess::OPT_NO_UPDATE_CACHE
 		)->getValue();
 	}
 

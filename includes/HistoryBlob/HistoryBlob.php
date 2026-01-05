@@ -50,10 +50,4 @@ interface HistoryBlob {
 	 * @return string|false
 	 */
 	public function getText();
-
-	/**
-	 * Helper function for compression jobs
-	 * Returns true until the object is "full" and ready to be committed
-	 */
-	public function isHappy(): bool;
 }

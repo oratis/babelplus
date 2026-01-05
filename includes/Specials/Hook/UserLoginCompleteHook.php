@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\User\User;
 
@@ -39,6 +39,3 @@ interface UserLoginCompleteHook {
 	 */
 	public function onUserLoginComplete( $user, &$inject_html, $direct );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UserLoginCompleteHook::class, 'MediaWiki\\Hook\\UserLoginCompleteHook' );

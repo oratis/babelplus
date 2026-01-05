@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Pager\NewPagesPager;
 use stdClass;
@@ -30,6 +30,3 @@ interface NewPagesLineEndingHook {
 	 */
 	public function onNewPagesLineEnding( $pager, &$ret, $row, &$classes, &$attribs );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( NewPagesLineEndingHook::class, 'MediaWiki\\Hook\\NewPagesLineEndingHook' );

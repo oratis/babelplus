@@ -31,7 +31,6 @@ use MediaWiki\User\UserIdentity;
 use Psr\Log\LoggerInterface;
 use RevisionDeleteUser;
 use Wikimedia\ParamValidator\TypeDef\ExpiryDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Handles the backend logic of blocking users
@@ -304,11 +303,11 @@ class BlockUser {
 	 *
 	 * @param string $expiry Whatever was typed into the form
 	 *
-	 * @return string|false Timestamp (format TS::MW) or 'infinity' or false on error.
+	 * @return string|false Timestamp (format TS_MW) or 'infinity' or false on error.
 	 */
 	public static function parseExpiryInput( string $expiry ) {
 		try {
-			return ExpiryDef::normalizeExpiry( $expiry, TS::MW );
+			return ExpiryDef::normalizeExpiry( $expiry, TS_MW );
 		} catch ( InvalidArgumentException ) {
 			return false;
 		}
@@ -776,8 +775,7 @@ class BlockUser {
 	private function prepareLogEntry( bool $isReblock ) {
 		$logType = $this->isHideUser ? 'suppress' : 'block';
 		$logAction = $isReblock ? 'reblock' : 'block';
-		// FIXME: Shouldn't this use BlockTarget::getLogPage?
-		$title = Title::makeTitle( NS_USER, $this->target->toString() );
+		$title = Title::makeTitle( NS_USER, $this->target );
 		// Preload the page_id: needed for log_page in ManualLogEntry::insert()
 		$title->getArticleID();
 

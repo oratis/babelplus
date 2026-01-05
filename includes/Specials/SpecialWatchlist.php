@@ -11,7 +11,6 @@ use MediaWiki\Html\FormOptions;
 use MediaWiki\Html\Html;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\RecentChanges\ChangesList;
 use MediaWiki\RecentChanges\ChangesListBooleanFilterGroup;
 use MediaWiki\RecentChanges\ChangesListQuery\ChangesListQuery;
@@ -21,20 +20,16 @@ use MediaWiki\RecentChanges\EnhancedChangesList;
 use MediaWiki\RecentChanges\RecentChange;
 use MediaWiki\RecentChanges\RecentChangeFactory;
 use MediaWiki\Request\DerivativeRequest;
-use MediaWiki\Request\WebRequest;
 use MediaWiki\SpecialPage\ChangesListSpecialPage;
 use MediaWiki\SpecialPage\SpecialPage;
-use MediaWiki\Title\Title;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\TempUser\TempUserConfig;
-use MediaWiki\User\User;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityUtils;
 use MediaWiki\Watchlist\WatchedItem;
 use MediaWiki\Watchlist\WatchedItemStoreInterface;
-use MediaWiki\Watchlist\WatchlistLabelStore;
 use MediaWiki\Watchlist\WatchlistManager;
-use MediaWiki\Watchlist\WatchlistSpecialPage;
 use MediaWiki\Xml\XmlSelect;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Rdbms\IResultWrapper;
@@ -52,13 +47,9 @@ use Wikimedia\Rdbms\IResultWrapper;
  */
 class SpecialWatchlist extends ChangesListSpecialPage {
 
-	use WatchlistSpecialPage;
-
-	// @todo Move this to WatchlistSpecialPage trait.
 	public const WATCHLIST_TAB_PATHS = [
 		'Special:Watchlist',
 		'Special:EditWatchlist',
-		'Special:WatchlistLabels',
 		'Special:EditWatchlist/raw',
 		'Special:EditWatchlist/clear'
 	];
@@ -66,11 +57,10 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 	private WatchedItemStoreInterface $watchedItemStore;
 	private WatchlistManager $watchlistManager;
 	private UserOptionsLookup $userOptionsLookup;
-	private WatchlistLabelStore $watchlistLabelStore;
 
 	/**
 	 * @var int|false where the value is one of the SpecialEditWatchlist:EDIT_ prefixed
-	 * constants (e.g. EDIT_RAW)
+	 * constants (e.g. EDIT_NORMAL)
 	 */
 	private $currentMode;
 
@@ -82,7 +72,6 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 		TempUserConfig $tempUserConfig,
 		RecentChangeFactory $recentChangeFactory,
 		ChangesListQueryFactory $changesListQueryFactory,
-		WatchlistLabelStore $watchlistLabelStore,
 	) {
 		parent::__construct(
 			'Watchlist',
@@ -96,7 +85,6 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 		$this->watchedItemStore = $watchedItemStore;
 		$this->watchlistManager = $watchlistManager;
 		$this->userOptionsLookup = $userOptionsLookup;
-		$this->watchlistLabelStore = $watchlistLabelStore;
 	}
 
 	/** @inheritDoc */
@@ -126,9 +114,20 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 		$output->addModuleStyles( [ 'mediawiki.special' ] );
 		$output->addModules( [ 'mediawiki.special.watchlist' ] );
 
-		$title = $this->getRedirect( $request, $subpage );
-		if ( $title ) {
+		$mode = SpecialEditWatchlist::getMode( $request, $subpage );
+		$this->currentMode = $mode;
+
+		if ( $mode !== false ) {
+			if ( $mode === SpecialEditWatchlist::EDIT_RAW ) {
+				$title = SpecialPage::getTitleFor( 'EditWatchlist', 'raw' );
+			} elseif ( $mode === SpecialEditWatchlist::EDIT_CLEAR ) {
+				$title = SpecialPage::getTitleFor( 'EditWatchlist', 'clear' );
+			} else {
+				$title = SpecialPage::getTitleFor( 'EditWatchlist' );
+			}
+
 			$output->redirect( $title->getLocalURL() );
+
 			return;
 		}
 
@@ -154,56 +153,6 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 		if ( $this->isStructuredFilterUiEnabled() ) {
 			$output->addModuleStyles( [ 'mediawiki.rcfilters.highlightCircles.seenunseen.styles' ] );
 		}
-
-		if ( $this->getConfig()->get( MainConfigNames::EnableWatchlistLabels ) ) {
-			$watchlistLabels = $this->getWatchlistLabelsForFiltering( $this->getUser() );
-			$output->addJsConfigVars( [
-				'enableWatchlistLabels' => true,
-				'watchlistLabels' => $watchlistLabels,
-				'SpecialWatchlistLabelsUrl' => SpecialPage::getTitleFor( 'WatchlistLabels' )->getLinkURL(),
-				'SpecialEditWatchlistUrl' => SpecialPage::getTitleFor( 'EditWatchlist' )->getLinkURL(),
-			] );
-		}
-	}
-
-	/**
-	 * Handle legacy urls
-	 *
-	 * @param WebRequest $request
-	 * @param string|null $subpage
-	 * @return Title|null
-	 */
-	private function getRedirect( WebRequest $request, ?string $subpage ): ?Title {
-		$title = null;
-		$mode = SpecialEditWatchlist::getMode( $request, $subpage );
-		$this->currentMode = $mode;
-		if ( $mode !== false ) {
-			if ( $mode === SpecialEditWatchlist::EDIT_RAW ) {
-				$title = SpecialPage::getTitleFor( 'EditWatchlist', 'raw' );
-			} elseif ( $mode === SpecialEditWatchlist::EDIT_CLEAR ) {
-				$title = SpecialPage::getTitleFor( 'EditWatchlist', 'clear' );
-			} else {
-				$title = SpecialPage::getTitleFor( 'EditWatchlist' );
-			}
-		}
-		return $title;
-	}
-
-	/**
-	 * @param User $user
-	 * @return array
-	 */
-	private function getWatchlistLabelsForFiltering( User $user ): array {
-		$idAndNames = [];
-		$labels = $this->watchlistLabelStore->loadAllForUser( $user );
-		foreach ( $labels as $label ) {
-			$idAndNames[] = [
-				'name' => (string)$label->getId(),
-				'label' => $label->getName(),
-				'cssClass' => 'mw-changeslist-label-' . $label->getId(),
-			];
-		}
-		return $idAndNames;
 	}
 
 	/**
@@ -321,14 +270,6 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 		return $defaults;
 	}
 
-	/** @inheritDoc */
-	public function getDefaultOptions() {
-		$opts = parent::getDefaultOptions();
-		$opts->add( 'wllabel', '' );
-		$opts->add( 'invertwllabels', false );
-		return $opts;
-	}
-
 	/**
 	 * Fetch values for a FormOptions object from the WebRequest associated with this instance.
 	 *
@@ -391,25 +332,6 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 		}
 		$query->requireWatched()
 			->watchlistFields( [ 'wl_notificationtimestamp', 'we_expiry' ] );
-
-		if ( $this->getConfig()->get( MainConfigNames::EnableWatchlistLabels ) ) {
-			if ( $opts['wllabel'] ) {
-				$ids = [];
-				foreach ( explode( ';', $opts['wllabel'] ) as $id ) {
-					if ( preg_match( '/^[0-9]+$/', $id ) ) {
-						$ids[] = (int)$id;
-					}
-				}
-				if ( $ids ) {
-					if ( $opts['invertwllabels'] ) {
-						$query->excludeWatchlistLabelIds( $ids );
-					} else {
-						$query->requireWatchlistLabelIds( $ids );
-					}
-
-				}
-			}
-		}
 	}
 
 	public function outputFeedLinks() {
@@ -520,8 +442,8 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 			if ( $this->getConfig()->get( MainConfigNames::RCShowWatchingUsers )
 				&& $this->userOptionsLookup->getBoolOption( $user, 'shownumberswatching' )
 			) {
-				$rcPageRef = PageReferenceValue::localReference( (int)$obj->rc_namespace, $obj->rc_title );
-				$rc->numberofWatchingusers = $this->watchedItemStore->countWatchers( $rcPageRef );
+				$rcTitleValue = new TitleValue( (int)$obj->rc_namespace, $obj->rc_title );
+				$rc->numberofWatchingusers = $this->watchedItemStore->countWatchers( $rcTitleValue );
 			} else {
 				$rc->numberofWatchingusers = 0;
 			}
@@ -540,6 +462,40 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 	}
 
 	/**
+	 * @inheritDoc
+	 */
+	public function getAssociatedNavigationLinks() {
+		return self::WATCHLIST_TAB_PATHS;
+	}
+
+	/**
+	 * @param SpecialPage $specialPage
+	 * @param string $path
+	 * @return string
+	 */
+	public static function getShortDescriptionHelper( SpecialPage $specialPage, string $path = '' ): string {
+		switch ( $path ) {
+			case 'Watchlist':
+				return $specialPage->msg( 'watchlisttools-view' )->text();
+			case 'EditWatchlist':
+				return $specialPage->msg( 'watchlisttools-edit' )->text();
+			case 'EditWatchlist/raw':
+				return $specialPage->msg( 'watchlisttools-raw' )->text();
+			case 'EditWatchlist/clear':
+				return $specialPage->msg( 'watchlisttools-clear' )->text();
+			default:
+				return $path;
+		}
+	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function getShortDescription( string $path = '' ): string {
+		return self::getShortDescriptionHelper( $this, $path );
+	}
+
+	/**
 	 * Set the text to be displayed above the changes
 	 *
 	 * @param FormOptions $opts
@@ -548,13 +504,29 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 	public function doHeader( $opts, $numRows ) {
 		$user = $this->getUser();
 		$out = $this->getOutput();
+		$skin = $this->getSkin();
+		// For legacy skins render the tabs in the subtitle
+		$subpageSubtitle = $skin->supportsMenu( 'associated-pages' ) ? '' :
+			' ' .
+			SpecialEditWatchlist::buildTools(
+					null,
+					$this->getLinkRenderer(),
+					$this->currentMode
+				);
 
-		$subtitle = $this->getWatchlistOwnerHtml();
-		if ( !$this->getSkin()->supportsMenu( 'associated-pages' ) ) {
-			// For legacy skins render the tabs in the subtitle
-			$subtitle .= ' ' . $this->buildTools( $this->currentMode );
-		}
-		$out->addSubtitle( $subtitle );
+		$out->addSubtitle(
+			Html::element(
+				'span',
+				[
+					'class' => 'mw-watchlist-owner'
+				],
+				// Previously the watchlistfor2 message took 2 parameters.
+				// It now only takes 1 so empty string is passed.
+				// Empty string parameter can be removed when all messages
+				// are updated to not use $2
+				$this->msg( 'watchlistfor2', $this->getUser()->getName(), '' )->text()
+			) . $subpageSubtitle
+		);
 
 		$this->setTopText( $opts );
 
@@ -849,7 +821,7 @@ class SpecialWatchlist extends ChangesListSpecialPage {
 
 	/**
 	 * @param RecentChange $rc
-	 * @return string|null TS::MW timestamp of first unseen revision or null if there isn't one
+	 * @return string|null TS_MW timestamp of first unseen revision or null if there isn't one
 	 */
 	private function getLatestNotificationTimestamp( RecentChange $rc ) {
 		return $this->watchedItemStore->getLatestNotificationTimestamp(

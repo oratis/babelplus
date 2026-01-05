@@ -4,9 +4,6 @@
  * @copyright Copyright © 2011, Antoine Musso <hashar at free dot fr>
  * @file
  */
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
 
 /**
  * Tests for Serbian

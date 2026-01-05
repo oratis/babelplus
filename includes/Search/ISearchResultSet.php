@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 use MediaWiki\Title\Title;
 use Wikimedia\HtmlArmor\HtmlArmor;
 
@@ -171,6 +169,3 @@ interface ISearchResultSet extends \Countable, \IteratorAggregate {
 	 */
 	public function getOffset();
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ISearchResultSet::class, 'ISearchResultSet' );

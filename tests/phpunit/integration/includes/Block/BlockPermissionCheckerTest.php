@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Integration\Block;
+namespace MediaWiki\Tests\Block;
 
 use MediaWiki\MainConfigNames;
 use MediaWikiIntegrationTestCase;

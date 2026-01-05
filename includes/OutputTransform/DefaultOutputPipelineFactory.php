@@ -11,7 +11,6 @@ use MediaWiki\OutputTransform\Stages\AddWrapperDivClass;
 use MediaWiki\OutputTransform\Stages\DeduplicateStyles;
 use MediaWiki\OutputTransform\Stages\DeduplicateStylesDOM;
 use MediaWiki\OutputTransform\Stages\ExecutePostCacheTransformHooks;
-use MediaWiki\OutputTransform\Stages\ExpandRelativeAttrs;
 use MediaWiki\OutputTransform\Stages\ExpandToAbsoluteUrls;
 use MediaWiki\OutputTransform\Stages\ExtractBody;
 use MediaWiki\OutputTransform\Stages\HandleParsoidSectionLinks;
@@ -47,6 +46,9 @@ class DefaultOutputPipelineFactory {
 			'services' => [
 				'UrlUtils',
 			],
+			'optional_services' => [
+				'MobileFrontend.Context',
+			],
 		],
 		'AddRedirectHeader' =>
 			AddRedirectHeader::class,
@@ -70,18 +72,8 @@ class DefaultOutputPipelineFactory {
 				'ContentLanguage',
 			],
 		],
-		// The next five stages are all DOM-based passes. They are adjacent to each
-		// other to be able to skip unnecessary intermediate DOM->text->DOM transformations.
-		'ExpandRelativeAttrs' => [
-			'class' => ExpandRelativeAttrs::class,
-			'services' => [
-				'UrlUtils',
-				'ParsoidSiteConfig',
-			],
-			'optional_services' => [
-				'MobileFrontend.Context',
-			],
-		],
+		// HandleParsoidSectionLinks and ParsoidLocalization are currently the only two DOM passes; we keep them
+		// adjacent to each other to be able to skip the DOM->text->DOM transformations
 		'HandleSectionLinks' => [
 			'textStage' => [
 				'class' => HandleSectionLinks::class,
@@ -103,7 +95,6 @@ class DefaultOutputPipelineFactory {
 			'class' => ParsoidLocalization::class,
 			'services' => [
 				'TitleFactory',
-				'LanguageFactory',
 			]
 		],
 		'HandleTOCMarkers' => [

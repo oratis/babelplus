@@ -1,9 +1,6 @@
 <?php
+
 // phpcs:disable Squiz.Classes.ValidClassName.NotCamelCaps
-
-namespace MediaWiki\Tests\Languages;
-
-use MediaWiki\Tests\Language\LanguageClassesTestCase;
 
 /**
  * @group Language

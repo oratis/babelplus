@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Exception\HttpError;
 use MediaWiki\LinkedData\PageDataRequestHandler;

@@ -108,7 +108,6 @@ use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\Rdbms\SelectQueryBuilder;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * The HTML user interface for page editing.
@@ -787,7 +786,7 @@ class EditPage implements IEditObject {
 		if ( $user->isTemp() ) {
 			$expiryAfterDays = $this->tempUserCreator->getExpireAfterDays();
 			if ( $expiryAfterDays ) {
-				$expirationCutoff = (int)ConvertibleTimestamp::now( TS::UNIX ) - ( 86_400 * $expiryAfterDays );
+				$expirationCutoff = (int)ConvertibleTimestamp::now( TS_UNIX ) - ( 86_400 * $expiryAfterDays );
 
 				// If the user was created before the expiration cutoff, then log them out, expire any other existing
 				// sessions, and revoke any access to the account that may exist.
@@ -796,7 +795,7 @@ class EditPage implements IEditObject {
 				$firstUserRegistration = $this->userRegistrationLookup->getFirstRegistration( $user );
 				if (
 					$firstUserRegistration &&
-					ConvertibleTimestamp::convert( TS::UNIX, $firstUserRegistration ) < $expirationCutoff
+					ConvertibleTimestamp::convert( TS_UNIX, $firstUserRegistration ) < $expirationCutoff
 				) {
 					// Log the user out of the expired temporary account.
 					$user->logout();
@@ -844,10 +843,9 @@ class EditPage implements IEditObject {
 		if ( !$this->tempUserCreateActive ) {
 			return Status::newGood();
 		}
-		$request = $this->context->getRequest();
 		$status = $this->tempUserCreator->create(
 			$this->tempUserName,
-			$request
+			$this->context->getRequest()
 		);
 		if ( $status->isOK() ) {
 			$this->placeholderTempUser = null;
@@ -856,13 +854,6 @@ class EditPage implements IEditObject {
 			$this->authManager->setRequestContextUserFromSessionUser();
 			$this->tempUserCreateDone = true;
 		}
-		LoggerFactory::getInstance( 'authevents' )->info(
-			'Temporary account creation attempt: {user}',
-			[
-				'user' => $this->tempUserName,
-				'success' => $status->isOK(),
-			] + $request->getSecurityLogContext( $status->isOK() ? $status->getUser() : null )
-		);
 		return $status;
 	}
 
@@ -1324,7 +1315,7 @@ class EditPage implements IEditObject {
 			// is necessary because ApiEditPage uses preview when it saves (yuck!). Note that it
 			// only works because the unnormalized value is retrieved again below in
 			// getCheckboxesDefinitionForWatchlist().
-			$submittedExpiry = ExpiryDef::normalizeExpiry( $submittedExpiry, TS::ISO_8601 );
+			$submittedExpiry = ExpiryDef::normalizeExpiry( $submittedExpiry, TS_ISO_8601 );
 			if ( $submittedExpiry !== false ) {
 				$this->watchlistExpiry = $submittedExpiry;
 			}
@@ -1403,12 +1394,11 @@ class EditPage implements IEditObject {
 
 		if ( !$content ) {
 			$out = $this->context->getOutput();
-			// FIXME Why is this double-parsing?
 			$this->editFormPageTop .= Html::errorBox(
 				$out->parseAsInterface( $this->context->msg( 'missing-revision-content',
 					$this->oldid,
 					Message::plaintextParam( $this->mTitle->getPrefixedText() )
-				)->parse() )
+				) )
 			);
 		} elseif ( !$this->isSupportedContentModel( $content->getModel() ) ) {
 			$modelMsg = $this->getContext()->msg( 'content-model-' . $content->getModel() );
@@ -1600,9 +1590,8 @@ class EditPage implements IEditObject {
 	private function generateUndoEditSummary( ?RevisionRecord $oldrev, int $undo,
 		?RevisionRecord $undorev, MediaWikiServices $services
 	) {
-		// Generate an autosummary
+		// If we just undid one rev, use an autosummary
 		$firstrev = $this->revisionStore->getNextRevision( $oldrev );
-		// Undid just one revision
 		if ( $firstrev && $firstrev->getId() == $undo ) {
 			$userText = $undorev->getUser() ?
 				$undorev->getUser()->getName() :
@@ -1644,28 +1633,6 @@ class EditPage implements IEditObject {
 					$userText
 				)->inContentLanguage()->text();
 			}
-			if ( $this->summary === '' ) {
-				$this->summary = $undoSummary;
-			} else {
-				$this->summary = $undoSummary . $this->context->msg( 'colon-separator' )
-					->inContentLanguage()->text() . $this->summary;
-			}
-		// Undid multiple revisions
-		} else {
-			$firstRevisionId = $firstrev->getId();
-			$lastRevisionId = $undorev->getId();
-			$revisionCount = $services->getRevisionStore()->countRevisionsBetween(
-				$firstrev->getPageId(),
-				$firstrev,
-				$undorev,
-				null,
-				[ RevisionStore::INCLUDE_BOTH, RevisionStore::INCLUDE_DELETED_REVISIONS ]
-			);
-			$undoSummary = $this->context->msg( 'undo-summary-multiple' )
-				->numParams( $revisionCount )
-				->params( $firstRevisionId, $lastRevisionId )
-				->inContentLanguage()
-				->text();
 			if ( $this->summary === '' ) {
 				$this->summary = $undoSummary;
 			} else {
@@ -3407,7 +3374,7 @@ class EditPage implements IEditObject {
 					if ( !$revRecord->userCan( RevisionRecord::DELETED_TEXT, $user ) ) {
 						$out->addHTML(
 							Html::warningBox(
-								$out->msg( 'rev-deleted-text-permission', $this->mTitle->getPrefixedURL() )->parse(),
+								$out->msg( 'rev-deleted-text-permission', $this->mTitle->getPrefixedDBkey() )->parse(),
 								'plainlinks'
 							)
 						);
@@ -3415,7 +3382,7 @@ class EditPage implements IEditObject {
 						$out->addHTML(
 							Html::warningBox(
 								// title used in wikilinks, should not contain whitespaces
-								$out->msg( 'rev-deleted-text-view', $this->mTitle->getPrefixedURL() )->parse(),
+								$out->msg( 'rev-deleted-text-view', $this->mTitle->getPrefixedDBkey() )->parse(),
 								'plainlinks'
 							)
 						);
@@ -3519,7 +3486,7 @@ class EditPage implements IEditObject {
 				$isSubjectPreview ? $this->sectiontitle : $this->summary,
 				$labelText,
 				[ 'class' => $summaryClass ]
-			)->toString()
+			)
 		);
 	}
 
@@ -3983,22 +3950,7 @@ class EditPage implements IEditObject {
 	 * @return string
 	 */
 	protected function getActionURL( Title $title ) {
-		$request = $this->context->getRequest();
-		$params = $request->getQueryValuesOnly();
-
-		$allowedFormParams = [
-			'section', 'oldid', 'preloadtitle', 'undo', 'undoafter',
-			// Considered safe in all contexts
-			'uselang', 'useskin', 'useformat', 'variant', 'debug', 'safemode'
-		];
-		$formParams = [ 'action' => $this->action ];
-		foreach ( $params as $arg => $val ) {
-			if ( in_array( $arg, $allowedFormParams, true ) ) {
-				$formParams[$arg] = $val;
-			}
-		}
-
-		return $title->getLocalURL( $formParams );
+		return $title->getLocalURL( [ 'action' => $this->action ] );
 	}
 
 	/**
@@ -4017,7 +3969,7 @@ class EditPage implements IEditObject {
 		if ( !$this->mTitle->exists() && $this->mTitle->hasDeletedEdits() ) {
 			$this->lastDelete = $this->getLastDelete();
 			if ( $this->lastDelete ) {
-				$deleteTime = wfTimestamp( TS::MW, $this->lastDelete->log_timestamp );
+				$deleteTime = wfTimestamp( TS_MW, $this->lastDelete->log_timestamp );
 				if ( $deleteTime > $this->starttime ) {
 					$this->deletedSinceEdit = true;
 				}
@@ -4232,6 +4184,7 @@ class EditPage implements IEditObject {
 			->setLabel( 'cause', $failureType )
 			->setLabel( 'namespace', 'n/a' )
 			->setLabel( 'user_bucket', 'n/a' )
+			->copyToStatsdAt( 'edit.failures.' . $failureType )
 			->increment();
 	}
 
@@ -4645,8 +4598,6 @@ class EditPage implements IEditObject {
 
 		if ( $match ) {
 			if ( is_array( $match ) ) {
-				// Do not use `wfEscapeWikiText( ... )` here for compatibility with PHP <8.1.4
-				// https://gerrit.wikimedia.org/r/c/mediawiki/core/+/1160800/comment/92e67687_ab221188/
 				$matchText = $this->context->getLanguage()->listToText( array_map( 'wfEscapeWikiText', $match ) );
 			} else {
 				$matchText = wfEscapeWikiText( $match );

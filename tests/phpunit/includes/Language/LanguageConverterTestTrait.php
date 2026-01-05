@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Language;
-
 use MediaWiki\Config\HashConfig;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Language\ILanguageConverter;
@@ -11,7 +9,7 @@ use MediaWiki\MainConfigNames;
 trait LanguageConverterTestTrait {
 
 	/** @var string */
-	private $codeRegex = '/^(?:\w+\\\\)*(.+)ConverterTest$/';
+	private $codeRegex = '/^(.+)ConverterTest$/';
 
 	/** @var LanguageConverterFactory */
 	private $factory;

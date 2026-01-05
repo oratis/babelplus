@@ -19,11 +19,11 @@ use MediaWiki\Logging\ManualLogEntry;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Permissions\PermissionStatus;
-use MediaWiki\Search\SearchEngineFactory;
 use MediaWiki\SpecialPage\FormSpecialPage;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\MalformedTitleException;
 use MediaWiki\Title\Title;
+use SearchEngineFactory;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
 
@@ -147,8 +147,7 @@ class SpecialPageLanguage extends FormSpecialPage {
 
 	public function alterForm( HTMLForm $form ) {
 		$this->getHookRunner()->onLanguageSelector( $this->getOutput(), 'mw-languageselector' );
-		$form->setId( 'mw-pagelanguage-form' )
-			->setSubmitTextMsg( 'pagelang-submit' );
+		$form->setSubmitTextMsg( 'pagelang-submit' );
 	}
 
 	/**

@@ -37,7 +37,6 @@ use MediaWiki\Status\Status;
 use MediaWiki\Title\Title;
 use Wikimedia\AtEase\AtEase;
 use Wikimedia\Message\MessageSpecifier;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 class ThumbnailEntryPoint extends MediaWikiEntryPoint {
 
@@ -727,7 +726,7 @@ EOT;
 			AtEase::suppressWarnings();
 			$imsUnix = strtotime( $imsString );
 			AtEase::restoreWarnings();
-			if ( wfTimestamp( TS::UNIX, $img->getTimestamp() ) <= $imsUnix ) {
+			if ( wfTimestamp( TS_UNIX, $img->getTimestamp() ) <= $imsUnix ) {
 				$this->status( 304 );
 
 				return true;
@@ -805,6 +804,7 @@ EOT;
 
 			if ( $status->isOK() ) {
 				$stats->getTiming( 'media_thumbnail_stream_seconds' )
+					->copyToStatsdAt( 'media.thumbnail.stream' )
 					->observe( $streamtime * 1000 );
 			} else {
 				$this->thumbError(

@@ -4,7 +4,6 @@ declare( strict_types = 1 );
 namespace MediaWiki\OutputTransform\Stages;
 
 use MediaWiki\Config\ServiceOptions;
-use MediaWiki\Language\LanguageFactory;
 use MediaWiki\Message\Message;
 use MediaWiki\OutputTransform\ContentDOMTransformStage;
 use MediaWiki\Page\PageReference;
@@ -32,16 +31,17 @@ use Wikimedia\Parsoid\Utils\DOMUtils;
  */
 class ParsoidLocalization extends ContentDOMTransformStage {
 
+	private TitleFactory $titleFactory;
+
 	public function __construct(
-		ServiceOptions $options, LoggerInterface $logger,
-		private TitleFactory $titleFactory,
-		private LanguageFactory $languageFactory
+		ServiceOptions $options, LoggerInterface $logger, TitleFactory $titleFactory
 	) {
 		parent::__construct( $options, $logger );
+		$this->titleFactory = $titleFactory;
 	}
 
 	public function transformDOM(
-		DocumentFragment $df, ParserOutput $po, ParserOptions $popts, array &$options
+		DocumentFragment $df, ParserOutput $po, ?ParserOptions $popts, array &$options
 	): DocumentFragment {
 		$poLang = $po->getLanguage();
 		if ( $poLang == null ) {
@@ -53,14 +53,13 @@ class ParsoidLocalization extends ContentDOMTransformStage {
 		}
 
 		$pageReference = $this->getPageReference( $po );
-		$popts ??= ParserOptions::newFromAnon();
 
 		// TODO this traversal will need to also traverse rich attributes
 		$traverser = new DOMTraverser( false, false );
-		$traverser->addHandler( null, function ( $node ) use ( $poLang, $pageReference, $popts ) {
+		$traverser->addHandler( null, function ( $node ) use ( $poLang, $pageReference ) {
 			if ( $node instanceof Element ) {
 				// @phan-suppress-next-line PhanTypeMismatchArgumentNullable ownerDocument is not null
-				return $this->localizeElement( $node, $poLang, $node->ownerDocument, $pageReference, $popts );
+				return $this->localizeElement( $node, $poLang, $node->ownerDocument, $pageReference );
 			}
 			return true;
 		} );
@@ -68,17 +67,14 @@ class ParsoidLocalization extends ContentDOMTransformStage {
 		return $df;
 	}
 
-	public function shouldRun( ParserOutput $po, ParserOptions $popts, array $options = [] ): bool {
+	public function shouldRun( ParserOutput $po, ?ParserOptions $popts, array $options = [] ): bool {
 		return $po->getContentHolder()->isParsoidContent();
 	}
 
 	/**
 	 * @return bool|Element
 	 */
-	private function localizeElement(
-		Element $node, Bcp47Code $lang, Document $doc, PageReference $pageRef,
-		ParserOptions $parserOptions
-	) {
+	private function localizeElement( Element $node, Bcp47Code $lang, Document $doc, PageReference $pageRef ) {
 		if ( DOMUtils::hasTypeOf( $node, 'mw:LocalizedAttrs' ) ) {
 			$i18nNames = DOMDataUtils::getDataAttrI18nNames( $node );
 			if ( count( $i18nNames ) === 0 ) {
@@ -97,8 +93,7 @@ class ParsoidLocalization extends ContentDOMTransformStage {
 						] );
 					continue;
 				}
-				// No way to indicate the language of an attribute!
-				[ 'frag' => $frag ] = $this->localizeI18n( $i18n, $lang, $doc, true, $pageRef, $parserOptions );
+				$frag = $this->localizeI18n( $i18n, $lang, $doc, true, $pageRef );
 				$node->setAttribute( $name, $frag->textContent );
 			}
 		}
@@ -109,13 +104,10 @@ class ParsoidLocalization extends ContentDOMTransformStage {
 		) {
 			$i18n = DOMDataUtils::getDataNodeI18n( $node );
 			if ( $i18n !== null ) {
-				[ 'frag' => $frag, 'lang' => $lang ] = $this->localizeI18n(
-					$i18n, $lang, $doc, DOMUtils::nodeName( $node ) === 'span', $pageRef, $parserOptions
-				);
-				DOMCompat::appendChild( $node, $frag );
-				$lang = $this->languageFactory->getLanguage( $lang );
-				$node->setAttribute( 'lang', $lang->getHtmlCode() );
-				$node->setAttribute( 'dir', $lang->getDir() );
+				$frag = $this->localizeI18n( $i18n, $lang, $doc, DOMUtils::nodeName( $node ) === 'span', $pageRef );
+				if ( $frag->hasChildNodes() ) {
+					$node->appendChild( $frag );
+				}
 			} else {
 				$this->logger->warning( 'element with mw:I18n typeof does not contain i18n data', [
 					'pass' => 'Localization',
@@ -126,23 +118,19 @@ class ParsoidLocalization extends ContentDOMTransformStage {
 		return true;
 	}
 
-	/** @return array{frag:DocumentFragment,lang:Bcp47Code} */
 	private function localizeI18n(
-		I18nInfo $i18n, Bcp47Code $poLang, Document $doc, bool $inline,
-		PageReference $title, ParserOptions $parserOptions
-	): array {
+		I18nInfo $i18n, Bcp47Code $poLang, Document $doc, bool $inline, PageReference $title
+	): DocumentFragment {
 		$msg = Message::newFromKey( $i18n->key, ...( $i18n->params ?? [] ) );
 		$msg->page( $title );
 		if ( $i18n->lang === I18nInfo::PAGE_LANG ) {
 			$msg = $msg->inLanguage( $poLang );
-			$lang = $poLang;
 		} elseif ( $i18n->lang === I18nInfo::USER_LANG ) {
+			// note: there's a high chance we'll want to access parseroptions->getUserLang here when we introduce
+			// post-proc cache (so that we split the cache accordingly)
 			$msg = $msg->inUserLanguage();
-			// This will split the cache and add language to used-options
-			$lang = $parserOptions->getUserLangObj();
 		} else {
-			$lang = new Bcp47CodeValue( $i18n->lang );
-			$msg = $msg->inLanguage( $lang );
+			$msg = $msg->inLanguage( new Bcp47CodeValue( $i18n->lang ) );
 		}
 		if ( $msg->isDisabled() ) {
 			$txt = '';
@@ -150,10 +138,7 @@ class ParsoidLocalization extends ContentDOMTransformStage {
 			$txt = $inline ? $msg->parse() : $msg->parseAsBlock();
 		}
 
-		return [
-			'frag' => ContentUtils::createAndLoadDocumentFragment( $doc, $txt ),
-			'lang' => $lang,
-		];
+		return ContentUtils::createAndLoadDocumentFragment( $doc, $txt );
 	}
 
 	/**

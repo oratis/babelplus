@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Content;
-
 use MediaWiki\Content\ContentHandler;
 use MediaWiki\Content\ContentModelChange;
 use MediaWiki\Context\RequestContext;
@@ -12,11 +10,9 @@ use MediaWiki\Permissions\Authority;
 use MediaWiki\Permissions\PermissionStatus;
 use MediaWiki\Permissions\RateLimiter;
 use MediaWiki\Status\Status;
-use MediaWiki\Tests\Mocks\Content\DummyContentHandlerForTesting;
 use MediaWiki\Tests\Unit\MockServiceDependenciesTrait;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\Title\Title;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\Rdbms\IDBAccessObject;
 
 /**
@@ -37,7 +33,7 @@ class ContentModelChangeTest extends MediaWikiIntegrationTestCase {
 
 		$this->getExistingTestPage( 'ExistingPage' );
 		$this->mergeMwGlobalArrayValue( 'wgContentHandlers', [
-			'testing' => DummyContentHandlerForTesting::class,
+			'testing' => 'DummyContentHandlerForTesting',
 		] );
 	}
 

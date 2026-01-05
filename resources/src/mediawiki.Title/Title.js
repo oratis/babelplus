@@ -80,13 +80,13 @@ const mwString = require( 'mediawiki.String' ),
 		if ( typeof ns !== 'string' ) {
 			return false;
 		}
-		ns = ns.toLowerCase();
 		// TODO: Should just use the local variable namespaceIds here, but it
 		// breaks test which modify the config
-		if ( !Object.hasOwnProperty.call( mw.config.get( 'wgNamespaceIds' ), ns ) ) {
+		const id = mw.config.get( 'wgNamespaceIds' )[ ns.toLowerCase() ];
+		if ( id === undefined ) {
 			return false;
 		}
-		return mw.config.get( 'wgNamespaceIds' )[ ns ];
+		return id;
 	},
 
 	/**
@@ -96,8 +96,7 @@ const mwString = require( 'mediawiki.String' ),
 	 * @return {boolean}
 	 */
 	isKnownNamespace = function ( namespace ) {
-		return namespace === NS_MAIN ||
-			Object.hasOwnProperty.call( mw.config.get( 'wgFormattedNamespaces' ), namespace );
+		return namespace === NS_MAIN || mw.config.get( 'wgFormattedNamespaces' )[ namespace ] !== undefined;
 	},
 
 	/**

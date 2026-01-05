@@ -10,15 +10,11 @@ namespace MediaWiki\Api;
 
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\Cache\GenderCache;
-use MediaWiki\User\TempUser\TempUserConfig;
-use MediaWiki\User\TempUser\TempUserDetailsLookup;
 use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserGroupManager;
-use MediaWiki\User\UserIdentityValue;
 use MediaWiki\User\UserNameUtils;
 use Wikimedia\ParamValidator\ParamValidator;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Query module to get information about a list of users
@@ -30,6 +26,12 @@ class ApiQueryUsers extends ApiQueryBase {
 
 	/** @var array<string,true> */
 	private $prop;
+
+	private UserNameUtils $userNameUtils;
+	private UserFactory $userFactory;
+	private UserGroupManager $userGroupManager;
+	private GenderCache $genderCache;
+	private AuthManager $authManager;
 
 	/**
 	 * Properties whose contents does not depend on who is looking at them. If the usprops field
@@ -49,21 +51,23 @@ class ApiQueryUsers extends ApiQueryBase {
 		'gender',
 		'centralids',
 		'cancreate',
-		'tempexpired',
 	];
 
 	public function __construct(
 		ApiQuery $query,
 		string $moduleName,
-		private readonly UserNameUtils $userNameUtils,
-		private readonly UserFactory $userFactory,
-		private readonly UserGroupManager $userGroupManager,
-		private readonly GenderCache $genderCache,
-		private readonly AuthManager $authManager,
-		private readonly TempUserConfig $tempUserConfig,
-		private readonly TempUserDetailsLookup $tempUserDetailsLookup
+		UserNameUtils $userNameUtils,
+		UserFactory $userFactory,
+		UserGroupManager $userGroupManager,
+		GenderCache $genderCache,
+		AuthManager $authManager
 	) {
 		parent::__construct( $query, $moduleName, 'us' );
+		$this->userNameUtils = $userNameUtils;
+		$this->userFactory = $userFactory;
+		$this->userGroupManager = $userGroupManager;
+		$this->genderCache = $genderCache;
+		$this->authManager = $authManager;
 	}
 
 	public function execute() {
@@ -162,16 +166,6 @@ class ApiQueryUsers extends ApiQueryBase {
 				$blockInfos = null;
 			}
 
-			if ( isset( $this->prop['tempexpired'] ) ) {
-				$tempUsers = [];
-				foreach ( $res as $row ) {
-					if ( $this->tempUserConfig->isTempName( $row->user_name ) ) {
-						$tempUsers[] = UserIdentityValue::newRegistered( $row->user_id, $row->user_name );
-					}
-				}
-				$this->tempUserDetailsLookup->preloadExpirationStatus( $tempUsers );
-			}
-
 			foreach ( $res as $row ) {
 				// create user object and pass along $userGroups if set
 				// that reduces the number of database queries needed in User dramatically
@@ -200,7 +194,7 @@ class ApiQueryUsers extends ApiQueryBase {
 				}
 
 				if ( isset( $this->prop['registration'] ) ) {
-					$data[$key]['registration'] = wfTimestampOrNull( TS::ISO_8601, $user->getRegistration() );
+					$data[$key]['registration'] = wfTimestampOrNull( TS_ISO_8601, $user->getRegistration() );
 				}
 
 				if ( isset( $this->prop['groups'] ) ) {
@@ -243,14 +237,6 @@ class ApiQueryUsers extends ApiQueryBase {
 					$data[$key] += ApiQueryUserInfo::getCentralUserInfo(
 						$this->getConfig(), $user, $params['attachedwiki']
 					);
-				}
-
-				if ( isset( $this->prop['tempexpired'] ) ) {
-					if ( $this->tempUserConfig->isTempName( $row->user_name ) ) {
-						$data[$key]['tempexpired'] = $this->tempUserDetailsLookup->isExpired( $user );
-					} else {
-						$data[$key]['tempexpired'] = null;
-					}
 				}
 			}
 		}
@@ -332,7 +318,6 @@ class ApiQueryUsers extends ApiQueryBase {
 					'gender',
 					'centralids',
 					'cancreate',
-					'tempexpired',
 					// When adding a prop, consider whether it should be added
 					// to self::$publicProps
 				],

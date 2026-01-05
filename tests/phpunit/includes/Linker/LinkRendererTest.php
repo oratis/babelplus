@@ -14,7 +14,6 @@ use Wikimedia\HtmlArmor\HtmlArmor;
 
 /**
  * @covers \MediaWiki\Linker\LinkRenderer
- * @group Database
  */
 class LinkRendererTest extends MediaWikiLangTestCase {
 	use LinkCacheTestTrait;
@@ -261,17 +260,12 @@ class LinkRendererTest extends MediaWikiLangTestCase {
 		yield [
 			new TitleValue( NS_MAIN, 'FooBar' ),
 			new TitleValue( NS_MAIN, 'Redirect' ),
-			new TitleValue( NS_USER, '~2025-1' )
+			new TitleValue( NS_USER, 'Someuser' )
 		];
 		yield [
 			PageReferenceValue::localReference( NS_MAIN, 'FooBar' ),
 			PageReferenceValue::localReference( NS_MAIN, 'Redirect' ),
-			PageReferenceValue::localReference( NS_USER, '~2025-1' )
-		];
-		yield [
-			new TitleValue( NS_MAIN, 'FooBar', 'ignore' ),
-			new TitleValue( NS_MAIN, 'Redirect', 'ignore' ),
-			new TitleValue( NS_SPECIAL, 'Contributions/~2025-1', 'ignore' )
+			PageReferenceValue::localReference( NS_USER, 'Someuser' )
 		];
 	}
 
@@ -284,10 +278,6 @@ class LinkRendererTest extends MediaWikiLangTestCase {
 		$titleFormatter = $services->getTitleFormatter();
 		$specialPageFactory = $services->getSpecialPageFactory();
 		$hookContainer = $services->getHookContainer();
-		$tempUserConfig = $services->getTempUserConfig();
-		$tempUserDetailsLookup = $services->getTempUserDetailsLookup();
-		$userIdentityLookup = $services->getUserIdentityLookup();
-		$userNameUtils = $services->getUserNameUtils();
 		$linkCache = $services->getLinkCache();
 		if ( $foobarTitle instanceof PageReference ) {
 			$cacheTitle = Title::newFromPageReference( $foobarTitle );
@@ -314,10 +304,6 @@ class LinkRendererTest extends MediaWikiLangTestCase {
 			$linkCache,
 			$specialPageFactory,
 			$hookContainer,
-			$tempUserConfig,
-			$tempUserDetailsLookup,
-			$userIdentityLookup,
-			$userNameUtils,
 			new ServiceOptions( LinkRenderer::CONSTRUCTOR_OPTIONS, [ 'renderForComment' => false ] )
 		);
 		$this->assertSame(
@@ -328,76 +314,5 @@ class LinkRendererTest extends MediaWikiLangTestCase {
 			'mw-redirect',
 			$linkRenderer->getLinkClasses( $redirectTitle )
 		);
-		$this->assertEquals(
-			'mw-tempuserlink',
-			$linkRenderer->getLinkClasses( $userTitle, '~2025-1' )
-		);
-	}
-
-	/** @dataProvider provideIsDefaultLinkCaption */
-	public function testIsDefaultLinkCaption( $target, $caption, $expected ) {
-		$linkRenderer = $this->factory->create();
-		$this->assertSame(
-			$expected,
-			$linkRenderer->isDefaultLinkCaption( $target, $caption )
-		);
-	}
-
-	public static function provideIsDefaultLinkCaption(): iterable {
-		yield 'Exact match with page title' => [
-			new TitleValue( NS_MAIN, 'Foobar' ),
-			'Foobar',
-			true
-		];
-		yield 'Exact match with page title, fragment present' => [
-			new TitleValue( NS_MAIN, 'Foobar', 'fragment' ),
-			'Foobar',
-			true
-		];
-		yield 'Exact match with page title (with space)' => [
-			new TitleValue( NS_MAIN, 'Foo bar' ),
-			'Foo bar',
-			true
-		];
-		yield 'Different caption' => [
-			new TitleValue( NS_MAIN, 'Foobar' ),
-			'Foo',
-			false
-		];
-		yield 'Full title match, non-main namespace' => [
-			new TitleValue( NS_USER, 'Foobar' ),
-			'User:Foobar',
-			true
-		];
-		yield 'Title match (without namespace), non-main namespace' => [
-			new TitleValue( NS_USER, 'Foobar' ),
-			'User:Foobar',
-			true
-		];
-		yield 'Subpage title match' => [
-			new TitleValue( NS_USER, 'Foobar/baz' ),
-			'baz',
-			true
-		];
-		yield 'Two subpage parts match' => [
-			new TitleValue( NS_USER, 'Foo/bar/baz' ),
-			'bar/baz',
-			true
-		];
-		yield 'No match - no slash nor colon' => [
-			new TitleValue( NS_USER, 'Foobar/baz' ),
-			'bar/baz',
-			false
-		];
-		yield 'Match when caption has HTML entity' => [
-			new TitleValue( NS_USER, '~2025-1' ),
-			'&#126;2025-1',
-			true
-		];
-		yield 'Match when caption has HTML tag' => [
-			new TitleValue( NS_USER, '~2025-1' ),
-			'<b>~2025-1</b>',
-			true
-		];
 	}
 }

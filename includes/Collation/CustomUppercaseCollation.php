@@ -6,11 +6,8 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 use MediaWiki\Language\Language;
 use MediaWiki\Languages\LanguageFactory;
-use UnexpectedValueException;
 
 /**
  * Resort normal UTF-8 order by putting a bunch of stuff in PUA
@@ -106,6 +103,3 @@ class CustomUppercaseCollation extends NumericUppercaseCollation {
 		return parent::getFirstLetter( $string );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( CustomUppercaseCollation::class, 'CustomUppercaseCollation' );

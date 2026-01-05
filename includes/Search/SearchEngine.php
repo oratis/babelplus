@@ -7,23 +7,19 @@
  * @ingroup Search
  */
 
-namespace MediaWiki\Search;
+/**
+ * @defgroup Search Search
+ */
 
-use Closure;
-use InvalidArgumentException;
 use MediaWiki\Config\Config;
 use MediaWiki\Exception\MWUnknownContentModelException;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Search\TitleMatcher;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\Title;
 use MediaWiki\User\User;
-use SplObjectStorage;
-
-/**
- * @defgroup Search Search
- */
 
 /**
  * Contain a class for special pages
@@ -771,11 +767,11 @@ abstract class SearchEngine {
 				continue;
 			}
 			// Several models can have the same handler, so avoid processing it repeatedly
-			if ( $seenHandlers->offsetExists( $handler ) ) {
+			if ( $seenHandlers->contains( $handler ) ) {
 				// We already did this one
 				continue;
 			}
-			$seenHandlers->offsetSet( $handler );
+			$seenHandlers->attach( $handler );
 			$handlerFields = $handler->getFieldsForSearchIndex( $this );
 			foreach ( $handlerFields as $fieldName => $fieldData ) {
 				if ( empty( $fields[$fieldName] ) ) {
@@ -869,6 +865,3 @@ abstract class SearchEngine {
 	}
 
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchEngine::class, 'SearchEngine' );

@@ -681,12 +681,6 @@ class HtmlTest extends MediaWikiIntegrationTestCase {
 		$cases[] = [ '<link>',
 			'link', [ 'media' => 'all' ]
 		];
-		$cases[] = [ '<link>',
-			'link', [ 'type' => 'text/css' ]
-		];
-		$cases[] = [ '<link>',
-			'link', [ 'type' => 'text/css', 'media' => 'all' ]
-		];
 
 		$cases[] = [ '<menu></menu>',
 			'menu', [ 'type' => 'list' ]
@@ -708,6 +702,11 @@ class HtmlTest extends MediaWikiIntegrationTestCase {
 		];
 
 		# ## SPECIFIC CASES
+
+		# <link type="text/css">
+		$cases[] = [ '<link>',
+			'link', [ 'type' => 'text/css' ]
+		];
 
 		# <input> specific handling
 		$cases[] = [ '<input type="checkbox">',

@@ -160,7 +160,7 @@ interface ILoadBalancer {
 	 * @return string Value of $domain if it is foreign or the local domain otherwise
 	 * @since 1.32
 	 */
-	public function resolveDomainID( DatabaseDomain|string|false $domain ): string;
+	public function resolveDomainID( $domain ): string;
 
 	/**
 	 * Indicate whether the tables on this domain are only temporary tables for testing
@@ -184,7 +184,7 @@ interface ILoadBalancer {
 	 * Subsequent calls with the same $group will not need to make new connection attempts
 	 * since the acquired connection for each group is preserved.
 	 *
-	 * @param string|false|string[] $group Query group or false for the generic group
+	 * @param string|false $group Query group or false for the generic group
 	 * @return int|false Specific server index, or false if no DB handle can be obtained
 	 */
 	public function getReaderIndex( $group = false );
@@ -233,7 +233,7 @@ interface ILoadBalancer {
 	 * @param int $flags Bitfield of CONN_* class constants
 	 * @return IDatabase|false This returns false on failure if CONN_SILENCE_ERRORS is set
 	 */
-	public function getConnection( $i, $groups = [], string|false $domain = false, $flags = 0 );
+	public function getConnection( $i, $groups = [], $domain = false, $flags = 0 );
 
 	/**
 	 * Get a DB handle for a specific server index

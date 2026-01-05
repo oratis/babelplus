@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Pager\ContributionsPager;
 
@@ -24,6 +24,3 @@ interface ContribsPager__getQueryInfoHook {
 	 */
 	public function onContribsPager__getQueryInfo( $pager, &$queryInfo );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ContribsPager__getQueryInfoHook::class, 'MediaWiki\\Hook\\ContribsPager__getQueryInfoHook' );

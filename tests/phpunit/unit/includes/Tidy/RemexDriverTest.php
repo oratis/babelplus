@@ -1,13 +1,9 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Tidy;
-
 use MediaWiki\Config\HashConfig;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Parser\Sanitizer;
-use MediaWiki\Tidy\RemexDriver;
-use MediaWikiUnitTestCase;
 
 class RemexDriverTest extends MediaWikiUnitTestCase {
 	private const REMEX_TIDY_TEST_DATA = [
@@ -355,9 +351,9 @@ MathML;
 	 * @covers \MediaWiki\Tidy\RemexMungerData
 	 */
 	public function testTidy( $desc, $input, $expected ) {
-		$r = new RemexDriver(
+		$r = new MediaWiki\Tidy\RemexDriver(
 			new ServiceOptions(
-				RemexDriver::CONSTRUCTOR_OPTIONS,
+				MediaWiki\Tidy\RemexDriver::CONSTRUCTOR_OPTIONS,
 				new HashConfig( [
 					MainConfigNames::TidyConfig => [],
 				] )
@@ -386,9 +382,9 @@ MathML;
 	 * @coversNothing
 	 */
 	public function testHtml5Lib( $desc, $input ) {
-		$r = new RemexDriver(
+		$r = new MediaWiki\Tidy\RemexDriver(
 			new ServiceOptions(
-				RemexDriver::CONSTRUCTOR_OPTIONS,
+				MediaWiki\Tidy\RemexDriver::CONSTRUCTOR_OPTIONS,
 				new HashConfig( [
 					MainConfigNames::TidyConfig => [],
 				] )

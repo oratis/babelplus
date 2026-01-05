@@ -4,14 +4,9 @@
  * @file
  */
 
-namespace MediaWiki\Upload;
-
 use MediaWiki\FileRepo\File\UnregisteredLocalFile;
 use MediaWiki\FileRepo\FileRepo;
-use MediaWiki\FileRepo\LocalRepo;
 use MediaWiki\SpecialPage\SpecialPage;
-use MediaWiki\Upload\Exception\UploadStashBadPathException;
-use MediaWiki\Upload\Exception\UploadStashFileNotFoundException;
 
 /**
  * @ingroup Upload
@@ -32,7 +27,7 @@ class UploadStashFile extends UnregisteredLocalFile {
 	 * UnregisteredLocalFile should be handling its own file repo but that
 	 * class is a bit retarded currently.
 	 *
-	 * @param LocalRepo $repo Repository where we should find the path
+	 * @param FileRepo $repo Repository where we should find the path
 	 * @param string $path Path to file
 	 * @param string $key Key to store the path and any stashed data under
 	 * @param string|null $sha1 SHA1 of file. Will calculate if not set
@@ -226,6 +221,3 @@ class UploadStashFile extends UnregisteredLocalFile {
 		return $this->repo->fileExists( $this->path );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UploadStashFile::class, 'UploadStashFile' );

@@ -214,7 +214,7 @@ class RollbackPageTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $rev2->getId(), $mainSlot->getOrigin(), 'getOrigin' );
 	}
 
-	public function testRollbackFailNotCreateDummyRevision() {
+	public function testRollbackFailNotCreateNullRevision() {
 		$admin = $this->getTestSysop()->getUser();
 		$user1 = $this->getTestUser()->getUser();
 
@@ -234,7 +234,7 @@ class RollbackPageTest extends MediaWikiIntegrationTestCase {
 			->getRollbackPageFactory()
 			->newRollbackPage( $page, $admin, $user1 )
 			->rollbackIfAllowed();
-		$this->assertStatusError( 'rollback-nochange', $rollbackResult );
+		$this->assertStatusError( 'alreadyrolled', $rollbackResult );
 
 		$this->runJobs();
 

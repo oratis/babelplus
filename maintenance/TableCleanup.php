@@ -9,7 +9,6 @@
 
 use MediaWiki\Maintenance\Maintenance;
 use MediaWiki\WikiMap\WikiMap;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
@@ -89,10 +88,10 @@ class TableCleanup extends Maintenance {
 		$this->output(
 			sprintf( "%s %s: %6.2f%% done on %s; ETA %s [%d/%d] %.2f/sec <%.2f%% updated>\n",
 				WikiMap::getCurrentWikiDbDomain()->getId(),
-				wfTimestamp( TS::DB, intval( $now ) ),
+				wfTimestamp( TS_DB, intval( $now ) ),
 				$portion * 100.0,
 				$this->table,
-				wfTimestamp( TS::DB, intval( $eta ) ),
+				wfTimestamp( TS_DB, intval( $eta ) ),
 				$this->processed,
 				$this->count,
 				$this->processed / $delta,

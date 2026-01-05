@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Output\OutputPage;
 
@@ -23,6 +23,3 @@ interface BookInformationHook {
 	 */
 	public function onBookInformation( $isbn, $output );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( BookInformationHook::class, 'MediaWiki\\Hook\\BookInformationHook' );

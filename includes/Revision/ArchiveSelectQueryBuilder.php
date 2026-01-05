@@ -34,6 +34,7 @@ class ArchiveSelectQueryBuilder extends SelectQueryBuilder {
 			'ar_deleted',
 			'ar_len',
 			'ar_parent_id',
+			'ar_sha1',
 			'ar_actor',
 			'ar_user' => 'archive_actor.actor_user',
 			'ar_user_text' => 'archive_actor.actor_name',

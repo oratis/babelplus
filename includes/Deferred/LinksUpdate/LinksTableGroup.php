@@ -50,8 +50,7 @@ class LinksTableGroup {
 			'class' => ExistenceLinksTable::class,
 		],
 		'imagelinks' => [
-			'class' => ImageLinksTable::class,
-			'serviceOptions' => ImageLinksTable::CONSTRUCTOR_OPTIONS
+			'class' => ImageLinksTable::class
 		],
 		'iwlinks' => [
 			'class' => InterwikiLinksTable::class

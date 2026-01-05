@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Page\PageArchive;
 use MediaWiki\Title\Title;
@@ -25,6 +25,3 @@ interface UndeleteForm__showRevisionHook {
 	 */
 	public function onUndeleteForm__showRevision( &$archive, $title );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UndeleteForm__showRevisionHook::class, 'MediaWiki\\Hook\\UndeleteForm__showRevisionHook' );

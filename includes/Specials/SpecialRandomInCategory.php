@@ -15,7 +15,6 @@ use MediaWiki\Title\Title;
 use stdClass;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\SelectQueryBuilder;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Redirect to a random page in a category
@@ -268,7 +267,7 @@ class SpecialRandomInCategory extends FormSpecialPage {
 			return null;
 		}
 
-		return [ (int)wfTimestamp( TS::UNIX, $res->low ), (int)wfTimestamp( TS::UNIX, $res->high ) ];
+		return [ (int)wfTimestamp( TS_UNIX, $res->low ), (int)wfTimestamp( TS_UNIX, $res->high ) ];
 	}
 
 	/**

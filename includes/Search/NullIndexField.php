@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 /**
  * Null index field - means search engine does not implement this field.
  */
@@ -53,6 +51,3 @@ class NullIndexField implements SearchIndexField {
 		return [];
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( NullIndexField::class, 'NullIndexField' );

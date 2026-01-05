@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Context\IContextSource;
 
@@ -23,6 +23,3 @@ interface SpecialPrefixIndexGetFormFiltersHook {
 	 */
 	public function onSpecialPrefixIndexGetFormFilters( IContextSource $contextSource, array &$filters );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialPrefixIndexGetFormFiltersHook::class, 'MediaWiki\\Hook\\SpecialPrefixIndexGetFormFiltersHook' );

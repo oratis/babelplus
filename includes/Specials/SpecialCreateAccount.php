@@ -7,7 +7,6 @@
 namespace MediaWiki\Specials;
 
 use MediaWiki\Auth\AuthManager;
-use MediaWiki\Context\RequestContext;
 use MediaWiki\Exception\ErrorPageError;
 use MediaWiki\Language\FormatterFactory;
 use MediaWiki\Logger\LoggerFactory;
@@ -70,14 +69,6 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 
 		if ( !$status->isGood() ) {
 			$formatter = $this->formatterFactory->getStatusFormatter( $this->getContext() );
-			$messages = [];
-			foreach ( $status->getMessages() as $message ) {
-				$messages[] = $message->getKey();
-			}
-			$this->logAuthResult(
-				false, $performer->getUser(),
-				implode( '|', $messages )
-			);
 			throw new ErrorPageError(
 				'createacct-error',
 				$formatter->getMessage( $status )
@@ -188,8 +179,8 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 			'event' => 'accountcreation',
 			'successful' => $success,
 			'accountType' => $this->identityUtils->getShortUserTypeInternal( $performer ),
-			'status' => strval( $status )
-		] + RequestContext::getMain()->getRequest()->getSecurityLogContext( $performer ) );
+			'status' => strval( $status ),
+		] );
 	}
 }
 

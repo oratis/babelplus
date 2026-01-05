@@ -8,7 +8,7 @@ use MediaWiki\Parser\CacheTime;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Parser\ParserOutputFlags;
 use MediaWiki\Parser\ParserOutputLinkTypes;
-use MediaWiki\Tests\Mocks\Json\JsonDeserializableSubClass;
+use MediaWiki\Tests\Json\JsonDeserializableSubClass;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleValue;
 use MediaWiki\Utils\MWTimestamp;
@@ -16,7 +16,6 @@ use MediaWikiIntegrationTestCase;
 use stdClass;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Tests\SerializationTestUtils;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A collection of serialization test cases for parser cache.
@@ -129,7 +128,7 @@ abstract class ParserCacheSerializationTestCases {
 					$testCase->assertSame( self::FAKE_CACHE_EXPIRY, $object->getCacheExpiry() );
 					$testCase->assertNull( $object->getCacheRevisionId() );
 					$testCase->assertSame(
-						MWTimestamp::convert( TS::MW, self::FAKE_TIME ),
+						MWTimestamp::convert( TS_MW, self::FAKE_TIME ),
 						$object->getCacheTime()
 					);
 					// When the cacheRevisionId is not set, this method always returns true.
@@ -138,7 +137,7 @@ abstract class ParserCacheSerializationTestCases {
 					$testCase->assertTrue( $object->isCacheable() );
 					$testCase->assertSame(
 						$object->getCacheTime(),
-						MWTimestamp::convert( TS::MW, self::FAKE_TIME )
+						MWTimestamp::convert( TS_MW, self::FAKE_TIME )
 					);
 				}
 			],
@@ -288,7 +287,7 @@ abstract class ParserCacheSerializationTestCases {
 		);
 		$parserOutputWithMetadata->addImage(
 			new TitleValue( NS_FILE, 'Image1' ),
-			MWTimestamp::convert( TS::MW, 123456789 ),
+			MWTimestamp::convert( TS_MW, 123456789 ),
 			'test_sha1'
 		);
 		$parserOutputWithMetadata->addExternalLink( 'https://test.org' );
@@ -298,7 +297,7 @@ abstract class ParserCacheSerializationTestCases {
 		$parserOutputWithMetadata->setJsConfigVar( 'key1', 'value1' );
 		$parserOutputWithMetadata->addWarningMsg( 'rawmessage', 'warning1' );
 		$parserOutputWithMetadata->setIndexPolicy( 'noindex' );
-		$parserOutputWithMetadata->setRevisionTimestamp( MWTimestamp::convert( TS::MW, 987654321 ) );
+		$parserOutputWithMetadata->setRevisionTimestamp( MWTimestamp::convert( TS_MW, 987654321 ) );
 		$parserOutputWithMetadata->setLimitReportData( 'limit_report_key1', 'value1' );
 		$parserOutputWithMetadata->setEnableOOUI( true );
 		$parserOutputWithMetadata->setHideNewSection( true );
@@ -317,7 +316,7 @@ abstract class ParserCacheSerializationTestCases {
 		$parserOutputWithMetadataPost1_31->addWrapperDivClass( 'test_wrapper' );
 		$parserOutputWithMetadataPost1_31->setSpeculativePageIdUsed( 4242 );
 		$parserOutputWithMetadataPost1_31->setRevisionTimestampUsed(
-			MWTimestamp::convert( TS::MW, 123456789 )
+			MWTimestamp::convert( TS_MW, 123456789 )
 		);
 		$parserOutputWithMetadataPost1_31->setRevisionUsedSha1Base36( 'test_hash' );
 		$parserOutputWithMetadataPost1_31->setNoGallery( true );
@@ -456,8 +455,8 @@ abstract class ParserCacheSerializationTestCases {
 					self::assertPagePropSame( $testCase, self::MOCK_EXT_DATA['array'], $object->getPageProperty( 'array' ) );
 					self::assertPagePropSame( $testCase, self::MOCK_EXT_DATA['map'], $object->getPageProperty( 'map' ) );
 					$testCase->assertArrayEquals(
-						array_map( self::pagePropEncode( ... ), self::MOCK_EXT_DATA ),
-						array_map( self::pagePropEncode( ... ), $object->getPageProperties() )
+						array_map( fn ( $v )=>self::pagePropEncode( $v ), self::MOCK_EXT_DATA ),
+						array_map( fn ( $v )=>self::pagePropEncode( $v ), $object->getPageProperties() )
 					);
 				}
 			],
@@ -483,7 +482,7 @@ abstract class ParserCacheSerializationTestCases {
 					$testCase->assertSame( 'test_wrapper', $object->getWrapperDivClass() );
 					$testCase->assertSame( 4242, $object->getSpeculativePageIdUsed() );
 					$testCase->assertSame(
-						MWTimestamp::convert( TS::MW, 123456789 ),
+						MWTimestamp::convert( TS_MW, 123456789 ),
 						$object->getRevisionTimestampUsed()
 					);
 					$testCase->assertSame( 'test_hash', $object->getRevisionUsedSha1Base36() );
@@ -551,7 +550,7 @@ abstract class ParserCacheSerializationTestCases {
 					$testCase->assertArrayEquals( [
 						[
 							'link' => '6:Image1',
-							'time' => MWTimestamp::convert( TS::MW, 123456789 ),
+							'time' => MWTimestamp::convert( TS_MW, 123456789 ),
 							'sha1' => 'test_sha1',
 						]
 					], array_map(
@@ -565,7 +564,7 @@ abstract class ParserCacheSerializationTestCases {
 					$testCase->assertArrayEquals( [ 'key1' => 'value1' ], $object->getJsConfigVars() );
 					$testCase->assertArrayEquals( [ MessageValue::new( 'rawmessage', [ 'warning1' ] ) ], $object->getWarningMsgs() );
 					$testCase->assertSame( 'noindex', $object->getIndexPolicy() );
-					$testCase->assertSame( MWTimestamp::convert( TS::MW, 987654321 ), $object->getRevisionTimestamp() );
+					$testCase->assertSame( MWTimestamp::convert( TS_MW, 987654321 ), $object->getRevisionTimestamp() );
 					$testCase->assertArrayEquals(
 						[ 'limit_report_key1' => 'value1' ],
 						$object->getLimitReportData()
@@ -628,7 +627,7 @@ abstract class ParserCacheSerializationTestCases {
 					$testCase->assertArrayEquals( [
 						[
 							'link' => '6:Image1',
-							'time' => MWTimestamp::convert( TS::MW, 123456789 ),
+							'time' => MWTimestamp::convert( TS_MW, 123456789 ),
 							'sha1' => 'test_sha1',
 						]
 					], array_map(
@@ -642,7 +641,7 @@ abstract class ParserCacheSerializationTestCases {
 					$testCase->assertArrayEquals( [ 'key1' => 'value1' ], $object->getJsConfigVars() );
 					$testCase->assertArrayEquals( [ MessageValue::new( 'rawmessage', [ 'warning1' ] ) ], $object->getWarningMsgs() );
 					$testCase->assertSame( 'noindex', $object->getIndexPolicy() );
-					$testCase->assertSame( MWTimestamp::convert( TS::MW, 987654321 ), $object->getRevisionTimestamp() );
+					$testCase->assertSame( MWTimestamp::convert( TS_MW, 987654321 ), $object->getRevisionTimestamp() );
 					$testCase->assertArrayEquals(
 						[ 'limit_report_key1' => 'value1' ],
 						$object->getLimitReportData()
@@ -714,15 +713,17 @@ abstract class ParserCacheSerializationTestCases {
 	 */
 	public static function getSupportedSerializationFormats( string $class ): array {
 		$jsonCodec = new JsonCodec();
-		return [
+		$serializationFormats = [
 			[
 				'ext' => 'json',
-				'serializer' => $jsonCodec->serialize( ... ),
+				'serializer' => static fn ( $obj ) =>
+					$jsonCodec->serialize( $obj ),
 				'deserializer' => static function ( $data ) use ( $jsonCodec ) {
 					MWDebug::filterDeprecationForTest( '/::setOutputFlag with non-standard flag/' );
 					return $jsonCodec->deserialize( $data );
 				},
 			],
 		];
+		return $serializationFormats;
 	}
 }

@@ -3,7 +3,6 @@
 namespace MediaWiki\Rest\Validator;
 
 use MediaWiki\ParamValidator\TypeDef\ArrayDef;
-use MediaWiki\ParamValidator\TypeDef\NamespaceDef;
 use MediaWiki\ParamValidator\TypeDef\TitleDef;
 use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\Permissions\Authority;
@@ -78,10 +77,6 @@ class Validator {
 		'timestamp' => [ 'class' => TimestampDef::class ],
 		'upload' => [ 'class' => UploadDef::class ],
 		'expiry' => [ 'class' => ExpiryDef::class ],
-		'namespace' => [
-			'class' => NamespaceDef::class,
-			'services' => [ 'NamespaceInfo' ],
-		],
 		'title' => [
 			'class' => TitleDef::class,
 			'services' => [ 'TitleFactory' ],
@@ -337,7 +332,6 @@ class Validator {
 		'timestamp-param' => [ 'type' => 'string', 'format' => 'mw-timestamp' ],
 		'upload-param' => [ 'type' => 'string', 'format' => 'mw-upload' ],
 		'expiry-param' => [ 'type' => 'string', 'format' => 'mw-expiry' ],
-		'namespace-param' => [ 'type' => 'integer' ],
 		'title-param' => [ 'type' => 'string', 'format' => 'mw-title' ],
 		'user-param' => [ 'type' => 'string', 'format' => 'mw-user' ],
 		'array-param' => [ 'type' => 'object' ],

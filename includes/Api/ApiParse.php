@@ -71,27 +71,60 @@ class ApiParse extends ApiBase {
 	private bool $contentIsDeleted = false;
 	private bool $contentIsSuppressed = false;
 
+	private RevisionLookup $revisionLookup;
+	private SkinFactory $skinFactory;
+	private LanguageNameUtils $languageNameUtils;
+	private LinkBatchFactory $linkBatchFactory;
+	private LinkCache $linkCache;
+	private IContentHandlerFactory $contentHandlerFactory;
+	private ParserFactory $parserFactory;
+	private WikiPageFactory $wikiPageFactory;
+	private ContentTransformer $contentTransformer;
+	private CommentFormatter $commentFormatter;
+	private ContentRenderer $contentRenderer;
+	private TempUserCreator $tempUserCreator;
+	private UserFactory $userFactory;
+	private UrlUtils $urlUtils;
+	private TitleFormatter $titleFormatter;
+	private JsonCodec $jsonCodec;
+
 	public function __construct(
 		ApiMain $main,
 		string $action,
-		private RevisionLookup $revisionLookup,
-		private SkinFactory $skinFactory,
-		private LanguageNameUtils $languageNameUtils,
-		private LinkBatchFactory $linkBatchFactory,
-		private LinkCache $linkCache,
-		private IContentHandlerFactory $contentHandlerFactory,
-		private ParserFactory $parserFactory,
-		private WikiPageFactory $wikiPageFactory,
-		private ContentRenderer $contentRenderer,
-		private ContentTransformer $contentTransformer,
-		private CommentFormatter $commentFormatter,
-		private TempUserCreator $tempUserCreator,
-		private UserFactory $userFactory,
-		private UrlUtils $urlUtils,
-		private TitleFormatter $titleFormatter,
-		private JsonCodec $jsonCodec,
+		RevisionLookup $revisionLookup,
+		SkinFactory $skinFactory,
+		LanguageNameUtils $languageNameUtils,
+		LinkBatchFactory $linkBatchFactory,
+		LinkCache $linkCache,
+		IContentHandlerFactory $contentHandlerFactory,
+		ParserFactory $parserFactory,
+		WikiPageFactory $wikiPageFactory,
+		ContentRenderer $contentRenderer,
+		ContentTransformer $contentTransformer,
+		CommentFormatter $commentFormatter,
+		TempUserCreator $tempUserCreator,
+		UserFactory $userFactory,
+		UrlUtils $urlUtils,
+		TitleFormatter $titleFormatter,
+		JsonCodec $jsonCodec
 	) {
 		parent::__construct( $main, $action );
+		$this->revisionLookup = $revisionLookup;
+		$this->skinFactory = $skinFactory;
+		$this->languageNameUtils = $languageNameUtils;
+		$this->linkBatchFactory = $linkBatchFactory;
+		$this->linkCache = $linkCache;
+		$this->contentHandlerFactory = $contentHandlerFactory;
+		$this->parserFactory = $parserFactory;
+		$this->wikiPageFactory = $wikiPageFactory;
+		$this->contentRenderer = $contentRenderer;
+		$this->contentTransformer = $contentTransformer;
+		$this->commentFormatter = $commentFormatter;
+		$this->tempUserCreator = $tempUserCreator;
+		$this->userFactory = $userFactory;
+		$this->urlUtils = $urlUtils;
+		$this->titleFormatter = $titleFormatter;
+		$this->jsonCodec = $jsonCodec;
 	}
 
 	private function getPoolKey(): string {
@@ -117,7 +150,7 @@ class ApiParse extends ApiBase {
 						$content, $page, $revision, $popts
 					);
 				},
-				'error' => function (): never {
+				'error' => function () {
 					$this->dieWithError( 'apierror-concurrency-limit' );
 				},
 			]
@@ -147,7 +180,7 @@ class ApiParse extends ApiBase {
 				'doWork' => static function () use ( $page, $revId, $popts, $suppressCache ) {
 					return $page->getParserOutput( $popts, $revId, $suppressCache );
 				},
-				'error' => function (): never {
+				'error' => function () {
 					$this->dieWithError( 'apierror-concurrency-limit' );
 				},
 			]
@@ -466,9 +499,6 @@ class ApiParse extends ApiBase {
 			$outputPage = new OutputPage( $context );
 			// Required for subtitle to appear
 			$outputPage->setArticleFlag( true );
-
-			// Some hooks are conditional on categories
-			$outputPage->addCategoryLinks( $p_result->getCategoryMap() );
 
 			if ( $this->content ) {
 				$outputPage->addContentOverride( $titleObj, $this->content );
@@ -1143,8 +1173,6 @@ class ApiParse extends ApiBase {
 				],
 				EnumDef::PARAM_DEPRECATED_VALUES => [
 					'headitems' => 'apiwarn-deprecation-parse-headitems',
-					// deprecated since 1.46: T319141
-					'sections' => 'apiwarn-deprecation-parse-sections',
 				],
 			],
 			'wrapoutputclass' => 'mw-parser-output',

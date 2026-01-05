@@ -20,10 +20,9 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\File\BadFileLookup;
 use MediaWiki\Specials\SpecialUpload;
 use MediaWiki\Title\Title;
-use MediaWiki\Upload\UploadBase;
+use UploadBase;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A query action to get image information and upload history.
@@ -168,7 +167,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 					if ( count( $pageIds[NS_FILE] ) == 1 ) {
 						// See the 'the user is screwed' comment below
 						$this->setContinueEnumParameter( 'start',
-							$start ?? wfTimestamp( TS::ISO_8601, $img->getTimestamp() )
+							$start ?? wfTimestamp( TS_ISO_8601, $img->getTimestamp() )
 						);
 					} else {
 						$this->setContinueEnumParameter( 'continue',
@@ -194,7 +193,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 						// thing again. When the violating queries have been
 						// out-continued, the result will get through
 						$this->setContinueEnumParameter( 'start',
-							$start ?? wfTimestamp( TS::ISO_8601, $img->getTimestamp() )
+							$start ?? wfTimestamp( TS_ISO_8601, $img->getTimestamp() )
 						);
 					} else {
 						$this->setContinueEnumParameter( 'continue',
@@ -232,7 +231,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 						if ( count( $pageIds[NS_FILE] ) == 1 ) {
 							// See the 'the user is screwed' comment above
 							$this->setContinueEnumParameter( 'start',
-								wfTimestamp( TS::ISO_8601, $img->getTimestamp() ) );
+								wfTimestamp( TS_ISO_8601, $img->getTimestamp() ) );
 						} else {
 							$this->setContinueEnumParameter( 'continue',
 								$this->getContinueStr( $img ) );
@@ -253,7 +252,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 						// Only set a query-continue if there was only one title
 						if ( count( $pageIds[NS_FILE] ) == 1 ) {
 							$this->setContinueEnumParameter( 'start',
-								wfTimestamp( TS::ISO_8601, $oldie->getTimestamp() ) );
+								wfTimestamp( TS_ISO_8601, $oldie->getTimestamp() ) );
 						}
 						break;
 					}
@@ -266,7 +265,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 					if ( !$fit ) {
 						if ( count( $pageIds[NS_FILE] ) == 1 ) {
 							$this->setContinueEnumParameter( 'start',
-								wfTimestamp( TS::ISO_8601, $oldie->getTimestamp() ) );
+								wfTimestamp( TS_ISO_8601, $oldie->getTimestamp() ) );
 						} else {
 							$this->setContinueEnumParameter( 'continue',
 								$this->getContinueStr( $oldie ) );
@@ -438,7 +437,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 		// Timestamp is shown even if the file is revdelete'd in interface
 		// so do same here.
 		if ( isset( $prop['timestamp'] ) && $exists ) {
-			$vals['timestamp'] = wfTimestamp( TS::ISO_8601, $file->getTimestamp() );
+			$vals['timestamp'] = wfTimestamp( TS_ISO_8601, $file->getTimestamp() );
 		}
 
 		// Handle external callers who don't pass revdelUser

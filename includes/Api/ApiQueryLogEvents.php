@@ -27,7 +27,6 @@ use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
 use Wikimedia\Rdbms\IExpression;
 use Wikimedia\Rdbms\LikeValue;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Query action to List the log events, with optional filtering by various parameters.
@@ -388,7 +387,7 @@ class ApiQueryLogEvents extends ApiQueryBase {
 			}
 		}
 		if ( $this->fld_timestamp ) {
-			$vals['timestamp'] = wfTimestamp( TS::ISO_8601, $row->log_timestamp );
+			$vals['timestamp'] = wfTimestamp( TS_ISO_8601, $row->log_timestamp );
 		}
 
 		if ( $this->fld_comment || $this->fld_parsedcomment ) {

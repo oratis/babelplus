@@ -25,8 +25,6 @@ use MediaWiki\Utils\MWTimestamp;
 use stdClass;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\Rdbms\IResultWrapper;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This class handles printing the history page for an article. In order to
@@ -182,7 +180,7 @@ class HistoryAction extends FormlessAction {
 		if ( HTMLFileCache::useFileCache( $this->getContext() ) ) {
 			$cache = new HTMLFileCache( $this->getTitle(), 'history' );
 			if ( !$cache->isCacheGood( /* Assume up to date */ ) ) {
-				ob_start( $cache->saveToFileCache( ... ) );
+				ob_start( [ $cache, 'saveToFileCache' ] );
 			}
 		}
 
@@ -423,7 +421,7 @@ class HistoryAction extends FormlessAction {
 			$this->msg( 'nohistory' )->inContentLanguage()->text(),
 			$this->msg( 'history-feed-empty' )->inContentLanguage()->parseAsBlock(),
 			$this->getTitle()->getFullURL(),
-			ConvertibleTimestamp::now( TS::MW ),
+			wfTimestamp( TS_MW ),
 			'',
 			$this->getTitle()->getTalkPage()->getFullURL()
 		);
@@ -445,7 +443,7 @@ class HistoryAction extends FormlessAction {
 		$revComment = $rev->getComment() === null ? null : $rev->getComment()->text;
 		$text = FeedUtils::formatDiffRow2(
 			$this->getTitle(),
-			$prevRev ? $prevRev->getId() : null,
+			$prevRev ? $prevRev->getId() : false,
 			$rev->getId(),
 			$rev->getTimestamp(),
 			$formattedComment

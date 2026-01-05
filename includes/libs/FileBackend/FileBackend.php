@@ -18,17 +18,17 @@
 namespace Wikimedia\FileBackend;
 
 use InvalidArgumentException;
+use LockManager;
+use NullLockManager;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use ScopedLock;
 use Shellbox\Command\BoxedCommand;
 use StatusValue;
 use Wikimedia\FileBackend\FSFile\FSFile;
 use Wikimedia\FileBackend\FSFile\TempFSFile;
 use Wikimedia\FileBackend\FSFile\TempFSFileFactory;
-use Wikimedia\LockManager\LockManager;
-use Wikimedia\LockManager\NullLockManager;
-use Wikimedia\LockManager\ScopedLock;
 use Wikimedia\Message\MessageParam;
 use Wikimedia\Message\MessageSpecifier;
 use Wikimedia\ScopedCallback;
@@ -1035,7 +1035,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * @param array $params Parameters include:
 	 *   - src    : source storage path
 	 *   - latest : use the latest available data
-	 * @return string|false TS::MW timestamp or false (missing file or I/O error)
+	 * @return string|false TS_MW timestamp or false (missing file or I/O error)
 	 */
 	abstract public function getFileTimestamp( array $params );
 
@@ -1109,7 +1109,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * Get quick information about a file at a storage path in the backend.
 	 * If the file does not exist, then this returns false.
 	 * Otherwise, the result is an associative array that includes:
-	 *   - mtime  : the last-modified timestamp (TS::MW)
+	 *   - mtime  : the last-modified timestamp (TS_MW)
 	 *   - size   : the file size (bytes)
 	 * Additional values may be included for internal use only.
 	 *
@@ -1444,7 +1444,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * @return StatusValue
 	 */
 	final public function lockFiles( array $paths, $type, $timeout = 0 ) {
-		$paths = array_map( self::normalizeStoragePath( ... ), $paths );
+		$paths = array_map( [ self::class, 'normalizeStoragePath' ], $paths );
 
 		return $this->wrapStatus( $this->lockManager->lock( $paths, $type, $timeout ) );
 	}
@@ -1457,7 +1457,7 @@ abstract class FileBackend implements LoggerAwareInterface {
 	 * @return StatusValue
 	 */
 	final public function unlockFiles( array $paths, $type ) {
-		$paths = array_map( self::normalizeStoragePath( ... ), $paths );
+		$paths = array_map( [ self::class, 'normalizeStoragePath' ], $paths );
 
 		return $this->wrapStatus( $this->lockManager->unlock( $paths, $type ) );
 	}
@@ -1483,10 +1483,10 @@ abstract class FileBackend implements LoggerAwareInterface {
 	) {
 		if ( $type === 'mixed' ) {
 			foreach ( $paths as &$typePaths ) {
-				$typePaths = array_map( self::normalizeStoragePath( ... ), $typePaths );
+				$typePaths = array_map( [ self::class, 'normalizeStoragePath' ], $typePaths );
 			}
 		} else {
-			$paths = array_map( self::normalizeStoragePath( ... ), $paths );
+			$paths = array_map( [ self::class, 'normalizeStoragePath' ], $paths );
 		}
 
 		return ScopedLock::factory( $this->lockManager, $paths, $type, $status, $timeout );
@@ -1750,9 +1750,9 @@ abstract class FileBackend implements LoggerAwareInterface {
 
 	/**
 	 * @param string $section
+	 * @return ScopedCallback|null
 	 */
-	#[\NoDiscard]
-	protected function scopedProfileSection( $section ): ?ScopedCallback {
+	protected function scopedProfileSection( $section ) {
 		return $this->profiler ? ( $this->profiler )( $section ) : null;
 	}
 

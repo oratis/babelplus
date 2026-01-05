@@ -1,15 +1,11 @@
 <?php
 
-namespace MediaWiki\Tests\Language;
-
-use InvalidArgumentException;
 use MediaWiki\Api\ApiMessage;
 use MediaWiki\Language\RawMessage;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Message\Message;
 use MediaWiki\Page\PageReferenceValue;
-use MediaWikiLangTestCase;
 use PHPUnit\Framework\TestCase;
 use Wikimedia\Assert\ParameterTypeException;
 use Wikimedia\Bcp47Code\Bcp47CodeValue;

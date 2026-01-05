@@ -4,8 +4,6 @@
  * @file
  */
 
-use MediaWiki\FileRepo\File\FileSelectQueryBuilder;
-use MediaWiki\MainConfigNames;
 use MediaWiki\Maintenance\Maintenance;
 
 // @codeCoverageIgnoreStart
@@ -34,18 +32,15 @@ class FindMissingFiles extends Maintenance {
 		$mtime1 = $dbr->timestampOrNull( $this->getOption( 'mtimeafter', null ) );
 		$mtime2 = $dbr->timestampOrNull( $this->getOption( 'mtimebefore', null ) );
 
-		$migrationStage = $this->getServiceContainer()->getMainConfig()->get(
-			MainConfigNames::FileSchemaMigrationStage
-		);
-		$nameField = ( $migrationStage & SCHEMA_COMPAT_READ_NEW ) ? 'file_name' : 'img_name';
-
-		$queryBuilder = FileSelectQueryBuilder::newForFile( $dbr )
-			->groupBy( $nameField )
-			->orderBy( $nameField )
+		$queryBuilder = $dbr->newSelectQueryBuilder()
+			->select( [ 'name' => 'img_name' ] )
+			->from( 'image' )
+			->groupBy( 'name' )
+			->orderBy( 'name' )
 			->limit( $batchSize );
 
 		if ( $mtime1 || $mtime2 ) {
-			$queryBuilder->join( 'page', null, 'page_title = ' . $nameField );
+			$queryBuilder->join( 'page', null, 'page_title = img_name' );
 			$queryBuilder->andWhere( [ 'page_namespace' => NS_FILE ] );
 
 			$queryBuilder->join( 'logging', null, 'log_page = page_id' );
@@ -60,15 +55,15 @@ class FindMissingFiles extends Maintenance {
 
 		do {
 			$res = ( clone $queryBuilder )
-				->where( $dbr->expr( $nameField, '>', $lastName ) )
+				->where( $dbr->expr( 'img_name', '>', $lastName ) )
 				->caller( __METHOD__ )->fetchResultSet();
 
 			// Check if any of these files are missing...
 			$pathsByName = [];
 			foreach ( $res as $row ) {
-				$file = $repo->newFile( $row->img_name );
-				$pathsByName[$row->img_name] = $file->getPath();
-				$lastName = $row->img_name;
+				$file = $repo->newFile( $row->name );
+				$pathsByName[$row->name] = $file->getPath();
+				$lastName = $row->name;
 			}
 			$be->preloadFileStat( [ 'srcs' => $pathsByName ] );
 			foreach ( $pathsByName as $path ) {
@@ -79,7 +74,9 @@ class FindMissingFiles extends Maintenance {
 
 			// Find all missing old versions of any of the files in this batch...
 			if ( count( $pathsByName ) ) {
-				$ores = FileSelectQueryBuilder::newForOldFile( $dbr )
+				$ores = $dbr->newSelectQueryBuilder()
+					->select( [ 'oi_name', 'oi_archive_name' ] )
+					->from( 'oldimage' )
 					->where( [ 'oi_name' => array_map( 'strval', array_keys( $pathsByName ) ) ] )
 					->caller( __METHOD__ )->fetchResultSet();
 

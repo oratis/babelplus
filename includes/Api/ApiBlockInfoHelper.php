@@ -14,7 +14,6 @@ use MediaWiki\Block\SystemBlock;
 use MediaWiki\Language\Language;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\Utils\MWTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Helper class for API modules that display block information. Intended for use via
@@ -49,20 +48,19 @@ class ApiBlockInfoHelper {
 		UserIdentity $user
 	) {
 		$blocker = $block->getBlocker();
+
+		$vals = [];
+		$vals['blockid'] = $block->getId();
+		$vals['blockedby'] = $blocker ? $blocker->getName() : '';
+		$vals['blockedbyid'] = $blocker ? $blocker->getId() : 0;
+		$vals['blockreason'] = $block->getReasonComment()
+			->message->inLanguage( $language )->plain();
+		$vals['blockedtimestamp'] = wfTimestamp( TS_ISO_8601, $block->getTimestamp() );
 		$expiry = ApiResult::formatExpiry( $block->getExpiry(), 'infinite' );
-
-		$vals = [
-			'blockid' => $block->getId(),
-			'blockedby' => $blocker ? $blocker->getName() : '',
-			'blockedbyid' => $blocker ? $blocker->getId() : 0,
-			'blockreason' => $block->getReasonComment()->message->inLanguage( $language )->plain(),
-			'blockedtimestamp' => wfTimestamp( TS::ISO_8601, $block->getTimestamp() ),
-			'blockexpiry' => $expiry,
-			'blockpartial' => !$block->isSitewide(),
-			'blocknocreate' => $block->isCreateAccountBlocked(),
-			'blockanononly' => !$block->isHardblock(),
-		];
-
+		$vals['blockexpiry'] = $expiry;
+		$vals['blockpartial'] = !$block->isSitewide();
+		$vals['blocknocreate'] = $block->isCreateAccountBlocked();
+		$vals['blockanononly'] = !$block->isHardblock();
 		if ( $block instanceof AbstractBlock ) {
 			$vals['blockemail'] = $block->isEmailBlocked();
 			$vals['blockowntalk'] = !$block->isUsertalkEditAllowed();

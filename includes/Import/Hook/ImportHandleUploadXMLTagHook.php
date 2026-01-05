@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Import\Hook;
+namespace MediaWiki\Hook;
 
 use WikiImporter;
 
@@ -24,6 +24,3 @@ interface ImportHandleUploadXMLTagHook {
 	 */
 	public function onImportHandleUploadXMLTag( $reader, $revisionInfo );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ImportHandleUploadXMLTagHook::class, 'MediaWiki\\Hook\\ImportHandleUploadXMLTagHook' );

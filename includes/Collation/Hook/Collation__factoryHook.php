@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Collation\Hook;
+namespace MediaWiki\Hook;
 
 // phpcs:disable Squiz.Classes.ValidClassName.NotCamelCaps
 use Collation;
@@ -25,6 +25,3 @@ interface Collation__factoryHook {
 	 */
 	public function onCollation__factory( $collationName, &$collationObject );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( Collation__factoryHook::class, 'MediaWiki\\Hook\\Collation__factoryHook' );

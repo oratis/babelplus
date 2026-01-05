@@ -10,20 +10,19 @@
 namespace MediaWiki\Parser;
 
 use BadMethodCallException;
-use DateTime;
-use DateTimeZone;
 use Exception;
+use ImageGalleryBase;
+use ImageGalleryClassNotFoundException;
 use InvalidArgumentException;
 use LogicException;
 use MediaHandler;
+use MediaWiki\Cache\CacheKeyHelper;
 use MediaWiki\Category\TrackingCategories;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Content\TextContent;
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Debug\DeprecationHelper;
 use MediaWiki\FileRepo\File\File;
-use MediaWiki\Gallery\Exception\ImageGalleryClassNotFoundException;
-use MediaWiki\Gallery\ImageGalleryBase;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Html\Html;
@@ -42,7 +41,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Message\Message;
 use MediaWiki\Output\OutputPage;
-use MediaWiki\Page\CacheKeyHelper;
 use MediaWiki\Page\File\BadFileLookup;
 use MediaWiki\Page\PageIdentity;
 use MediaWiki\Page\PageReference;
@@ -292,6 +290,8 @@ class Parser {
 	# Deprecated "dynamic" properties
 	# These used to be dynamic properties added to the parser, but these
 	# have been deprecated since 1.42.
+	/** @deprecated since 1.42: T343230 */
+	public $extCite;
 	/** @deprecated since 1.42: T203531 */
 	public $mExtVariables;
 	/** @deprecated since 1.42: T203532 */
@@ -300,6 +300,8 @@ class Parser {
 	public $mExtHashTables;
 	/** @deprecated since 1.42: T203563 */
 	public $mExtLoopsCounter;
+	/** @deprecated since 1.42: T362664 */
+	public $proofreadRenderingPages;
 
 	/**
 	 * Title context, used for self-link rendering and similar things
@@ -548,27 +550,7 @@ class Parser {
 	 */
 	public function resetOutput() {
 		$this->mOutput = new ParserOutput;
-		$this->mOptions->registerWatcher( $this->mOutput->recordOption( ... ) );
-	}
-
-	/**
-	 * Return the parse time.  This is the timestamp recorded in
-	 * ParserOptions, except that it can also be modified by the
-	 * ParserGetVariableValueTs hook.
-	 * @return DateTime (UTC time zone)
-	 * @since 1.46
-	 */
-	public function getParseTime(): DateTime {
-		$ts = $this->mOptions->getTimestamp(); /* TS::MW */
-		$date = DateTime::createFromFormat(
-			'YmdHis', $ts, new DateTimeZone( 'UTC' )
-		);
-		if ( $this->hookContainer->isRegistered( 'ParserGetVariableValueTs' ) ) {
-			$s = $date->format( 'U' );
-			$this->hookRunner->onParserGetVariableValueTs( $this, $s );
-			$date = ( new MWTimestamp( $s ) )->timestamp;
-		}
-		return $date;
+		$this->mOptions->registerWatcher( [ $this->mOutput, 'recordOption' ] );
 	}
 
 	/**
@@ -1675,7 +1657,7 @@ class Parser {
 
 		$text = $this->mStripState->unstripGeneral( $text );
 
-		$text = $this->tidy->tidy( $text, Sanitizer::armorFrenchSpaces( ... ) );
+		$text = $this->tidy->tidy( $text, [ Sanitizer::class, 'armorFrenchSpaces' ] );
 
 		if ( $isMain ) {
 			$this->hookRunner->onParserAfterTidy( $this, $text );
@@ -2162,6 +2144,7 @@ class Parser {
 			# This was changed in August 2004
 			$s .= $this->getLinkRenderer()->makeExternalLink(
 				$url,
+				// @phan-suppress-next-line SecurityCheck-XSS
 				new HtmlArmor( $text ),
 				$this->getTitle(),
 				$linktype,
@@ -2780,9 +2763,15 @@ class Parser {
 			return $this->mVarCache[$index];
 		}
 
+		$ts = new MWTimestamp( $this->mOptions->getTimestamp() /* TS_MW */ );
+		if ( $this->hookContainer->isRegistered( 'ParserGetVariableValueTs' ) ) {
+			$s = $ts->getTimestamp( TS_UNIX );
+			$this->hookRunner->onParserGetVariableValueTs( $this, $s );
+			$ts = new MWTimestamp( $s );
+		}
+
 		$value = CoreMagicVariables::expand(
-			$this, $index, new MWTimestamp( $this->getParseTime() ),
-			$this->svcOptions, $this->logger
+			$this, $index, $ts, $this->svcOptions, $this->logger
 		);
 
 		if ( $value === null ) {
@@ -4368,7 +4357,7 @@ class Parser {
 
 			// Run Tidy to convert wikitext entities to HTML entities (T355386),
 			// conveniently also giving us a way to handle French spaces (T324763)
-			$fullyParsedHeadline = $this->tidy->tidy( $fullyParsedHeadline, Sanitizer::armorFrenchSpaces( ... ) );
+			$fullyParsedHeadline = $this->tidy->tidy( $fullyParsedHeadline, [ Sanitizer::class, 'armorFrenchSpaces' ] );
 
 			// Wrap the safe headline to parse the heading attributes
 			// Literal HTML tags should be sanitized at this point
@@ -5162,7 +5151,7 @@ class Parser {
 		if ( isset( $params['caption'] ) ) {
 			// NOTE: We aren't passing a frame here or below.  Frame info
 			// is currently opaque to Parsoid, which acts on OT_PREPROCESS.
-			// See T107332#4030582
+			// See T107332#4030581
 			$caption = $this->recursiveTagParse( $params['caption'] );
 			$ig->setCaptionHtml( $caption );
 		}
@@ -6071,7 +6060,7 @@ class Parser {
 	/**
 	 * Get the timestamp associated with the current revision, adjusted for
 	 * the default server-local timestamp
-	 * @return string TS::MW timestamp
+	 * @return string TS_MW timestamp
 	 * @since 1.9
 	 */
 	public function getRevisionTimestamp() {
@@ -6378,9 +6367,10 @@ class Parser {
 	 *
 	 * This is meant to stop someone from calling the parser
 	 * recursively and messing up all the strip state.
+	 *
+	 * @return ScopedCallback The lock will be released once the return value goes out of scope.
 	 */
-	#[\NoDiscard]
-	protected function lock(): ScopedCallback {
+	protected function lock() {
 		if ( $this->mInParse ) {
 			throw new LogicException( "Parser state cleared while parsing. "
 				. "Did you call Parser::parse recursively? Lock is held by: " . $this->mInParse );
@@ -6436,23 +6426,15 @@ class Parser {
 	 * @param string|HtmlArmor $nsText
 	 * @param string|HtmlArmor $nsSeparator
 	 * @param string|HtmlArmor $mainText
-	 * @param ?Language $titleLang If present, the title will be wrapped with
-	 *  a <span> setting appropriate `lang` and `dir` attributes.
 	 * @return string HTML
 	 */
-	public static function formatPageTitle( $nsText, $nsSeparator, $mainText, ?Language $titleLang = null ): string {
+	public static function formatPageTitle( $nsText, $nsSeparator, $mainText ): string {
 		$html = '';
 		if ( $nsText !== '' ) {
 			$html .= '<span class="mw-page-title-namespace">' . HtmlArmor::getHtml( $nsText ) . '</span>';
 			$html .= '<span class="mw-page-title-separator">' . HtmlArmor::getHtml( $nsSeparator ) . '</span>';
 		}
 		$html .= '<span class="mw-page-title-main">' . HtmlArmor::getHtml( $mainText ) . '</span>';
-		if ( $titleLang !== null ) {
-			$html = Html::rawElement( 'span', [
-				'lang' => $titleLang->getHtmlCode(),
-				'dir' => $titleLang->getDir(),
-			], $html );
-		}
 		return $html;
 	}
 

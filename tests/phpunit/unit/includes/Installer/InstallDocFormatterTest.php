@@ -1,8 +1,6 @@
 <?php
-namespace MediaWiki\Tests\Unit\Installer;
 
 use MediaWiki\Installer\InstallDocFormatter;
-use MediaWikiUnitTestCase;
 
 class InstallDocFormatterTest extends MediaWikiUnitTestCase {
 	/**

@@ -11,7 +11,6 @@ namespace MediaWiki\Api;
 use MediaWiki\Session\Token;
 use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\ParamValidator\ParamValidator;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @since 1.25
@@ -47,7 +46,7 @@ class ApiCheckToken extends ApiBase {
 		if ( $ts !== null ) {
 			$mwts = new MWTimestamp();
 			$mwts->timestamp->setTimestamp( $ts );
-			$res['generated'] = $mwts->getTimestamp( TS::ISO_8601 );
+			$res['generated'] = $mwts->getTimestamp( TS_ISO_8601 );
 		}
 
 		$this->getResult()->addValue( null, $this->getModuleName(), $res );

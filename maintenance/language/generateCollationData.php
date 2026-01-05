@@ -280,7 +280,7 @@ class GenerateCollationData extends Maintenance {
 		global $IP;
 		$writer = new StaticArrayWriter();
 		file_put_contents(
-			"$IP/lanuages/data/first-letters-root.php",
+			"$IP/includes/collation/data/first-letters-root.php",
 			$writer->create( $headerChars, 'File created by generateCollationData.php' )
 		);
 		echo "first-letters-root: file written.\n";

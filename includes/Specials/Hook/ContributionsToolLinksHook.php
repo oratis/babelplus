@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Title\Title;
@@ -28,6 +28,3 @@ interface ContributionsToolLinksHook {
 	 */
 	public function onContributionsToolLinks( $id, Title $title, array &$tools, SpecialPage $specialPage );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ContributionsToolLinksHook::class, 'MediaWiki\\Hook\\ContributionsToolLinksHook' );

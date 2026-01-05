@@ -1,12 +1,12 @@
 <?php
 
-namespace MediaWiki\Tests\Integration\Specials;
+namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Exception\ErrorPageError;
 use MediaWiki\Exception\UserNotLoggedIn;
 use MediaWiki\MainConfigNames;
-use MediaWiki\Tests\Specials\SpecialPageTestBase;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+use SpecialPageTestBase;
 
 /**
  * @covers \MediaWiki\Specials\SpecialEmailUser

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Logging\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Title\Title;
 
@@ -35,6 +35,3 @@ interface LogLineHook {
 		&$comment, &$revert, $time
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( LogLineHook::class, 'MediaWiki\\Hook\\LogLineHook' );

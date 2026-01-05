@@ -1,11 +1,8 @@
 <?php
 
-namespace MediaWiki\Tests\Content;
-
 use MediaWiki\Content\WikitextContent;
 use MediaWiki\Content\WikiTextStructure;
 use MediaWiki\Title\Title;
-use MediaWikiLangTestCase;
 
 /**
  * @group Database

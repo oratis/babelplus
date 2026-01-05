@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Language\Converters;
+namespace Tests\Languages\Converters;
 
 use MediaWikiIntegrationTestCase;
 

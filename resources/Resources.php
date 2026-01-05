@@ -125,50 +125,6 @@ return [
 			'searchsuggest-containing-html'
 		]
 	],
-	'mediawiki.languageselector' => [
-		'class' => 'MediaWiki\\ResourceLoader\\CodexModule',
-		'localBasePath' => MW_INSTALL_PATH . '/resources/src/mediawiki.languageselector',
-		'remoteBasePath' => '',
-		'packageFiles' => [
-			'index.js',
-			'useLanguageSelector.js',
-			'LookupLanguageSelector.vue',
-			'MultiselectLookupLanguageSelector.vue',
-			'languageSearch.js',
-			'factory.js',
-			'debounce.js',
-			'menuHelper.js',
-			[
-				'name' => 'supportedLanguages.json',
-				'callback' => static function ( Context $context ) {
-					$services = MediaWikiServices::getInstance();
-
-					return $services->getLanguageNameUtils()
-						->getLanguageNames(
-							$context->getLanguage(),
-							LanguageNameUtils::SUPPORTED
-						);
-				},
-				'versionCallback' => static function ( Context $context ) {
-					return [
-						$context->getLanguage(),
-						// In case a new language is added
-						MediaWikiServices::getInstance()->getMainConfig()->get( 'CacheEpoch' )
-					];
-				},
-			],
-		],
-		'codexComponents' => [
-			'CdxLookup',
-			'CdxMultiselectLookup'
-		],
-		'messages' => [
-			'languageselector-no-results'
-		],
-		'dependencies' => [
-			'vue'
-		]
-	],
 
 	/* Polyfills */
 	'web2017-polyfills' => [
@@ -811,7 +767,6 @@ return [
 		'packageFiles' => [
 			'resources/src/mediawiki.diff/diff.js',
 			'resources/src/mediawiki.diff/inlineFormatToggle.js',
-			'resources/src/mediawiki.diff/undoButtonToggle.js',
 		],
 		'styles' => [
 			'resources/src/mediawiki.diff/styles.less'
@@ -994,7 +949,6 @@ return [
 	],
 	'mediawiki.notification' => [
 		'styles' => [
-			'resources/src/mediawiki.notification/aria-live-region.less',
 			'resources/src/mediawiki.notification/common.css',
 			'resources/src/mediawiki.notification/print.css'
 				=> [ 'media' => 'print' ],
@@ -1263,8 +1217,6 @@ return [
 				MainConfigNames::GenerateThumbnailOnParse,
 				MainConfigNames::LoadScript,
 				MainConfigNames::AutoCreateTempUser,
-				MainConfigNames::ThumbnailSteps,
-				MainConfigNames::ThumbnailStepsRatio,
 			] ],
 			[ 'name' => 'portletLinkOptions.json', 'callback' => [ Skin::class, 'getPortletLinkOptions' ] ],
 			[
@@ -1746,7 +1698,7 @@ return [
 					'searchModule' => 'mediawiki.searchSuggest',
 					'collapsible' => true,
 					'sortable' => true,
-					'selectorLogoutLink' => '#pt-logout a[data-mw="interface"], #pt-logout a[data-mw-interface]'
+					'selectorLogoutLink' => '#pt-logout a[data-mw="interface"]'
 				];
 
 				( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )
@@ -2028,7 +1980,6 @@ return [
 			'rcfilters-view-tags-tooltip',
 			'rcfilters-view-return-to-default-tooltip',
 			'rcfilters-view-tags-help-icon-tooltip',
-			'rcfilters-view-wllabels-help-icon-tooltip',
 			'rcfilters-liveupdates-button',
 			'rcfilters-liveupdates-button-title-on',
 			'rcfilters-liveupdates-button-title-off',
@@ -2116,7 +2067,7 @@ return [
 			'resources/src/mediawiki.special/pagesWithProp.css',
 			'resources/src/mediawiki.special/upload.css',
 			'resources/src/mediawiki.special/uploadstash.css',
-			'resources/src/mediawiki.special/userrights.less',
+			'resources/src/mediawiki.special/userrights.css',
 			'resources/src/mediawiki.special/watchlist.css',
 			'resources/src/mediawiki.special/whatlinkshere.less',
 			'resources/src/mediawiki.special/block.less',
@@ -2225,30 +2176,6 @@ return [
 			'and'
 		],
 	],
-	'mediawiki.special.restsandbox.styles' => [
-		'styles' => [
-			'resources/src/mediawiki.special.restsandbox/restsandbox.css',
-		],
-	],
-	'mediawiki.special.restsandbox' => [
-		'localBasePath' => MW_INSTALL_PATH . '/resources',
-		'remoteBasePath' => "$wgResourceBasePath/resources",
-		'packageFiles' => [
-			"src/mediawiki.special.restsandbox/restsandbox.js",
-			"lib/swagger-ui/swagger-ui-bundle.js",
-			"lib/swagger-ui/swagger-ui-standalone-preset.js",
-			[
-				'name' => 'src/mediawiki.special.restsandbox/config.json',
-				'config' => [ 'RestSandboxSpecs' ],
-			],
-		],
-		'styles' => [
-			'lib/swagger-ui/swagger-ui.css',
-		],
-		'dependencies' => [
-			'mediawiki.special.restsandbox.styles'
-		]
-	],
 	'mediawiki.special.block' => [
 		'localBasePath' => MW_INSTALL_PATH . '/resources/src',
 		'remoteBasePath' => "$wgResourceBasePath/resources/src",
@@ -2267,9 +2194,6 @@ return [
 			'mediawiki.util',
 			'mediawiki.htmlform',
 			'moment',
-		],
-		'messages' => [
-			'block-target-ip-tempuser-info',
 		],
 	],
 	// This bundles various small (under 5 KB?) JavaScript files that:
@@ -2292,7 +2216,6 @@ return [
 			'special.undelete.js',
 			'special.undelete.loadMoreRevisions.js',
 		],
-		'styles' => [ 'styles.less' ],
 		'dependencies' => [
 			'jquery.spinner',
 			'mediawiki.util',
@@ -2302,9 +2225,6 @@ return [
 			'mediawiki.widgets',
 			'oojs-ui-core',
 		],
-		'messages' => [
-			'pagelang-invalid-selection'
-		]
 	],
 	// This bundles various small (under 2 KB?) JavaScript files that:
 	// - .. are only used by logged-in users when a non-default preference was enabled.
@@ -2447,7 +2367,6 @@ return [
 			'block-success',
 			'block-target',
 			'block-target-placeholder',
-			'block-target-ip-tempuser-info',
 			'block-update',
 			'block-updated-message',
 			'block-user-active-blocks',
@@ -2825,6 +2744,7 @@ return [
 		'scripts' => [
 			'resources/src/mediawiki.special.watchlist/watchlist.js',
 			'resources/src/mediawiki.special.watchlist/visitedstatus.js',
+			'resources/src/mediawiki.special.watchlist/editwatchlist.js'
 		],
 		'messages' => [
 			'addedwatchtext',
@@ -2835,14 +2755,9 @@ return [
 			'tooltip-ca-unwatch',
 			'tooltip-ca-unwatch-expiring',
 			'tooltip-ca-unwatch-expiring-hours',
-			'watchlist-filters-labels-title',
-			'watchlist-filters-labels-list-title',
-			'watchlist-filters-tag-prefix-labels',
-			'watchlist-filters-tag-prefix-labels-inverted',
-			'watchlist-filters-view-labels-tooltip',
 			'watchlist-unwatch',
 			'watchlist-unwatch-undo',
-			'watchlistedit-normal-check-all',
+			'watchlistedit-normal-check-all'
 		],
 		'dependencies' => [
 			'mediawiki.api',
@@ -2852,75 +2767,6 @@ return [
 			'oojs-ui-core',
 			'oojs-ui.styles.icons-interactions',
 			'user.options',
-		],
-	],
-	'mediawiki.special.watchlistedit' => [
-		'localBasePath' => MW_INSTALL_PATH . '/resources/src/mediawiki.special.watchlistedit',
-		'packageFiles' => [
-			'init.js',
-			'LabelDialog.vue',
-		],
-		"messages" => [
-			'cancel',
-			'watchlistlabels-editwatchlist-dialog-button',
-			'watchlistlabels-editwatchlist-dialog-intro',
-			'watchlistlabels-editwatchlist-dialog-intro-more',
-			'watchlistlabels-editwatchlist-dialog-assign',
-		],
-		'dependencies' => [
-			'mediawiki.special.watchlistedit.styles',
-			'oojs-ui-core',
-			'vue',
-			'@wikimedia/codex'
-		],
-	],
-	'mediawiki.special.watchlistedit.styles' => [
-		'localBasePath' => MW_INSTALL_PATH . '/resources/src/mediawiki.special.watchlistedit',
-		'styles' => [
-			'editwatchlist.less',
-		],
-	],
-	'mediawiki.special.watchlistlabels' => [
-		'localBasePath' => MW_INSTALL_PATH . '/resources/src/mediawiki.special.watchlistlabels',
-		'packageFiles' => [
-			'labelmanager.js',
-		],
-	],
-	'mediawiki.special.watchlistlabels.styles' => [
-		'class' => CodexModule::class,
-		'localBasePath' => MW_INSTALL_PATH . '/resources/src/mediawiki.special.watchlistlabels',
-		'styles' => [
-			'labelmanager.less',
-		],
-		'codexStyleOnly' => true,
-		'codexComponents' => [
-			'CdxTable',
-			'CdxButton',
-		],
-	],
-	'mediawiki.special.watchlistlabels.onboarding' => [
-		'localBasePath' => MW_INSTALL_PATH . '/resources/src/mediawiki.special.watchlistlabels',
-		'packageFiles' => [
-			'label-onboarding.js',
-			'LabelOnboarding.vue',
-		],
-		'dependencies' => [
-			'vue',
-			'@wikimedia/codex'
-		],
-		"messages" => [
-			"watchlistlabels-onboarding-progress",
-			"watchlistlabels-onboarding-prev",
-			"watchlistlabels-onboarding-next",
-			"watchlistlabels-onboarding-final",
-			"watchlistlabels-onboarding-manage-title",
-			"watchlistlabels-onboarding-manage-body",
-			"watchlistlabels-onboarding-edit-title",
-			"watchlistlabels-onboarding-edit-body",
-			"watchlistlabels-onboarding-editmanage-title",
-			"watchlistlabels-onboarding-editmanage-body",
-			"watchlistlabels-onboarding-filter-title",
-			"watchlistlabels-onboarding-filter-body"
 		],
 	],
 	'mediawiki.tempUserBanner.styles' => [

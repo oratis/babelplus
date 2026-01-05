@@ -10,7 +10,6 @@ use Wikimedia\ParamValidator\TypeDef;
 use Wikimedia\ParamValidator\ValidationException;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
 use Wikimedia\Timestamp\TimestampException;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Type definition for timestamp types
@@ -38,7 +37,7 @@ class TimestampDef extends TypeDef {
 	 * Values include:
 	 *  - 'ConvertibleTimestamp': A ConvertibleTimestamp object.
 	 *  - 'DateTime': A PHP DateTime object
-	 *  - One of ConvertibleTimestamp's TS::* constants.
+	 *  - One of ConvertibleTimestamp's TS_* constants.
 	 *
 	 * This does not affect the format returned by stringifyValue().
 	 */
@@ -56,13 +55,13 @@ class TimestampDef extends TypeDef {
 	 *  - defaultFormat: (string|int) Default for PARAM_TIMESTAMP_FORMAT.
 	 *    Default if not specified is 'ConvertibleTimestamp'.
 	 *  - stringifyFormat: (int) Format to use for stringifyValue().
-	 *    Default is TS::ISO_8601.
+	 *    Default is TS_ISO_8601.
 	 */
 	public function __construct( Callbacks $callbacks, array $options = [] ) {
 		parent::__construct( $callbacks );
 
 		$this->defaultFormat = $options['defaultFormat'] ?? 'ConvertibleTimestamp';
-		$this->stringifyFormat = $options['stringifyFormat'] ?? TS::ISO_8601;
+		$this->stringifyFormat = $options['stringifyFormat'] ?? TS_ISO_8601;
 
 		if ( !$this->isSpecialFormat( $this->defaultFormat ) && !$this->isValidFormat( $this->defaultFormat ) ) {
 			throw new InvalidArgumentException( 'Invalid value for $options[\'defaultFormat\']' );

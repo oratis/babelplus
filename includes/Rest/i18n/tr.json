@@ -2,12 +2,12 @@
 	"@metadata": {
 		"authors": [
 			"BaRaN6161 TURK",
-			"Eleman",
 			"Grkn gll",
 			"Joseph",
 			"MuratTheTurkish",
 			"SaldırganSincap",
-			"Stonecy"
+			"Stonecy",
+			"Eleman"
 		]
 	},
 	"rest-prefix-mismatch": "İstenen yol ($1), REST API temel yolunun ($2) içinde değildi",

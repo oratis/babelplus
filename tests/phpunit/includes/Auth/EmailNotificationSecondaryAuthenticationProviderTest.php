@@ -104,9 +104,7 @@ class EmailNotificationSecondaryAuthenticationProviderTest extends MediaWikiInte
 		$authManager = new AuthManager(
 			new FauxRequest(),
 			new HashConfig(),
-			$mwServices->getChangeTagsStore(),
 			$this->getDummyObjectFactory(),
-			$mwServices->getObjectCacheFactory(),
 			$hookContainer,
 			$mwServices->getReadOnlyMode(),
 			$userNameUtils,
@@ -118,27 +116,34 @@ class EmailNotificationSecondaryAuthenticationProviderTest extends MediaWikiInte
 			$mwServices->getBotPasswordStore(),
 			$mwServices->getUserFactory(),
 			$mwServices->getUserIdentityLookup(),
-			$mwServices->getUserIdentityUtils(),
 			$mwServices->getUserOptionsManager(),
 			$mwServices->getNotificationService(),
 			$mwServices->getSessionManager(),
 		);
 
-		$creator = $this->createNoOpMock( User::class );
-		$userWithoutEmail = $this->createNoOpMock( User::class, [ 'getEmail' ] );
+		$creator = $this->createMock( User::class );
+		$userWithoutEmail = $this->createMock( User::class );
 		$userWithoutEmail->method( 'getEmail' )->willReturn( '' );
+		$userWithoutEmail->method( 'getInstanceForUpdate' )->willReturnSelf();
+		$userWithoutEmail->expects( $this->never() )->method( 'sendConfirmationMail' );
 		$userWithEmailError = $this->createMock( User::class );
 		$userWithEmailError->method( 'getEmail' )->willReturn( 'foo@bar.baz' );
+		$userWithEmailError->method( 'getInstanceForUpdate' )->willReturnSelf();
 		$userWithEmailError->method( 'sendConfirmationMail' )
 			->willReturn( Status::newFatal( 'fail' ) );
 		$userExpectsConfirmation = $this->createMock( User::class );
 		$userExpectsConfirmation->method( 'getEmail' )
 			->willReturn( 'foo@bar.baz' );
+		$userExpectsConfirmation->method( 'getInstanceForUpdate' )
+			->willReturnSelf();
 		$userExpectsConfirmation->expects( $this->once() )->method( 'sendConfirmationMail' )
 			->willReturn( Status::newGood() );
-		$userNotExpectsConfirmation = $this->createNoOpMock( User::class, [ 'getEmail' ] );
+		$userNotExpectsConfirmation = $this->createMock( User::class );
 		$userNotExpectsConfirmation->method( 'getEmail' )
 			->willReturn( 'foo@bar.baz' );
+		$userNotExpectsConfirmation->method( 'getInstanceForUpdate' )
+			->willReturnSelf();
+		$userNotExpectsConfirmation->expects( $this->never() )->method( 'sendConfirmationMail' );
 
 		$provider = $this->getProvider( [
 			'sendConfirmationEmail' => false,

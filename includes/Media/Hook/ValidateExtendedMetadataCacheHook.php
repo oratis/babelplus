@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Media\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\FileRepo\File\File;
 
@@ -25,6 +25,3 @@ interface ValidateExtendedMetadataCacheHook {
 	 */
 	public function onValidateExtendedMetadataCache( $timestamp, $file );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ValidateExtendedMetadataCacheHook::class, 'MediaWiki\\Hook\\ValidateExtendedMetadataCacheHook' );

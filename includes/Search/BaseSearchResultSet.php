@@ -1,9 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
-use ArrayIterator;
-
 /**
  * BaseSearchResultSet is the base class that must be extended by SearchEngine
  * search result set implementations.
@@ -15,7 +11,6 @@ use ArrayIterator;
  *
  * @stable to extend
  * @ingroup Search
- * @method ArrayIterator getIterator()
  */
 abstract class BaseSearchResultSet implements ISearchResultSet {
 
@@ -26,8 +21,8 @@ abstract class BaseSearchResultSet implements ISearchResultSet {
 
 	/**
 	 * Fetches next search result, or false.
-	 * @return SearchResult|false
 	 * @deprecated since 1.32; Use self::extractResults() or foreach
+	 * @return SearchResult|false
 	 */
 	public function next() {
 		wfDeprecated( __METHOD__, '1.32' );
@@ -89,5 +84,3 @@ abstract class BaseSearchResultSet implements ISearchResultSet {
 	public function free() {
 	}
 }
-/** @deprecated class alias since 1.46 */
-class_alias( BaseSearchResultSet::class, 'BaseSearchResultSet' );

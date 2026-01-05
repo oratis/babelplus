@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Specials\SpecialDeletedContributions;

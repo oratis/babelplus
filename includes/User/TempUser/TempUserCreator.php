@@ -94,10 +94,9 @@ class TempUserCreator implements TempUserConfig {
 	 *
 	 * @param string|null $name Previously acquired name
 	 * @param WebRequest $request Request details, used for throttling
-	 * @param string[] $tags Change tags to apply to the autocreation log.
 	 * @return CreateStatus
 	 */
-	public function create( ?string $name, WebRequest $request, array $tags = [] ): CreateStatus {
+	public function create( ?string $name, WebRequest $request ): CreateStatus {
 		$status = new CreateStatus;
 
 		// Check name acquisition rate limits first.
@@ -124,13 +123,14 @@ class TempUserCreator implements TempUserConfig {
 		$result = $this->tempAccountCreationThrottler->increase(
 			null, $ipToThrottle, 'TempUserCreator' );
 		if ( $result ) {
-			$message = wfMessage( 'acct_creation_throttle_hit-temp' )->params( $result['count'] )
+			// TODO: Use a custom message here (T357777, T357802)
+			$message = wfMessage( 'acct_creation_throttle_hit' )->params( $result['count'] )
 				->durationParams( $result['wait'] );
 			$status->fatal( $message );
 			return $status;
 		}
 
-		$createStatus = $this->attemptAutoCreate( $name, false, $tags );
+		$createStatus = $this->attemptAutoCreate( $name );
 
 		if ( $createStatus->isOK() ) {
 			// The temporary account name didn't already exist, so now attempt to login
@@ -201,10 +201,9 @@ class TempUserCreator implements TempUserConfig {
 	 *
 	 * @param string $name
 	 * @param bool $login Whether to also log the user in to this temporary account.
-	 * @param string[] $tags Change tags to apply to the autocreation log.
 	 * @return CreateStatus
 	 */
-	private function attemptAutoCreate( string $name, bool $login = false, array $tags = [] ): CreateStatus {
+	private function attemptAutoCreate( string $name, bool $login = false ): CreateStatus {
 		$createStatus = new CreateStatus;
 		// Verify the $name is usable.
 		$user = $this->userFactory->newFromName( $name, UserRigorOptions::RIGOR_USABLE );
@@ -213,9 +212,7 @@ class TempUserCreator implements TempUserConfig {
 				'Unable to create user with automatically generated name' );
 			return $createStatus;
 		}
-		$status = $this->authManager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_TEMP, $login, true, null, $tags
-		);
+		$status = $this->authManager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_TEMP, $login );
 		$createStatus->merge( $status );
 		// If a userexists warning is a part of the status, then
 		// add the fatal error temp-user-unable-to-acquire.

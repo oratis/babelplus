@@ -7,7 +7,6 @@ import HistoryPage from '../pageobjects/history.page.js';
 import UndoPage from '../pageobjects/undo.page.js';
 import ProtectPage from '../pageobjects/protect.page.js';
 import LoginPage from 'wdio-mediawiki/LoginPage.js';
-import LogoutPage from 'wdio-mediawiki/LogoutPage.js';
 import { getTestString, isTargetNotWikitext } from 'wdio-mediawiki/Util.js';
 
 describe( 'Page', () => {
@@ -30,7 +29,7 @@ describe( 'Page', () => {
 		}
 	} );
 
-	it( 'should be previewable', async () => {
+	it( 'should be previewable @daily', async () => {
 		await LoginPage.loginAdmin();
 		await EditPage.preview( name, content );
 
@@ -67,7 +66,7 @@ describe( 'Page', () => {
 		await expect( EditPage.displayedContent ).toHaveText( content );
 	} );
 
-	it( 'should be editable', async () => {
+	it( 'should be editable @daily', async () => {
 		// create
 		await apiClient.edit( name, content, 'create for edit' );
 
@@ -80,7 +79,7 @@ describe( 'Page', () => {
 		await expect( EditPage.displayedContent ).toHaveText( expect.stringContaining( editContent ) );
 	} );
 
-	it( 'should have history', async () => {
+	it( 'should have history @daily', async () => {
 		// create
 		await apiClient.edit( name, content, `created with "${ content }"` );
 
@@ -131,7 +130,7 @@ describe( 'Page', () => {
 		);
 
 		// Logout
-		await LogoutPage.logout();
+		await browser.deleteAllCookies();
 
 		// Check that we can't edit the page anymore
 		await EditPage.openForEditing( name );
@@ -139,7 +138,7 @@ describe( 'Page', () => {
 		await expect( EditPage.heading ).toHaveText( `View source for ${ name }` );
 	} );
 
-	it( 'should be undoable', async () => {
+	it( 'should be undoable @daily', async () => {
 
 		// create
 		await apiClient.edit( name, content, 'create to edit and undo' );

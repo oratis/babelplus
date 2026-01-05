@@ -12,7 +12,6 @@ use MediaWiki\Rest\RequestData;
 use MediaWiki\Revision\SlotRecord;
 use MediaWikiIntegrationTestCase;
 use Wikimedia\Message\MessageValue;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\Rest\Handler\PageSourceHandler
@@ -145,7 +144,7 @@ class PageSourceHandlerTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $page->getTitle()->getPrefixedText(), $data['title'] );
 		$this->assertSame( $page->getLatest(), $data['latest']['id'] );
 		$this->assertSame(
-			wfTimestampOrNull( TS::ISO_8601, $page->getTimestamp() ),
+			wfTimestampOrNull( TS_ISO_8601, $page->getTimestamp() ),
 			$data['latest']['timestamp']
 		);
 		$this->assertSame( CONTENT_MODEL_WIKITEXT, $data['content_model'] );
@@ -162,7 +161,7 @@ class PageSourceHandlerTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $page->getUser(), $data['items'][0]['user_id'] );
 		$this->assertSame( $page->getUserText(), $data['items'][0]['user_text'] );
 		$this->assertSame(
-			wfTimestampOrNull( TS::ISO_8601, $page->getTimestamp() ),
+			wfTimestampOrNull( TS_ISO_8601, $page->getTimestamp() ),
 			$data['items'][0]['timestamp']
 		);
 		$this->assertSame( $page->getComment(), $data['items'][0]['comment'] );

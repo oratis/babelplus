@@ -321,8 +321,6 @@ class Sanitizer {
 	 *      and not for external use.
 	 *    array $options['attrCallbackArgs'] Additional arguments for the
 	 *      attribute callback
-	 *    string $options['commentRegex'] If present, allow comments with
-	 *      inner text matching the specified regular expression.
 	 * @param-taint $options tainted
 	 * @return string The cleaned up HTML
 	 * @return-taint escaped
@@ -353,8 +351,7 @@ class Sanitizer {
 		$tokenHandler = $dispatcher;
 		$remover = new RemexRemoveTagHandler(
 			$tokenHandler, $text, $tagData,
-			$attrCallback, $attrCallbackArgs,
-			[ 'commentRegex' => $options['commentRegex'] ?? null ]
+			$attrCallback, $attrCallbackArgs
 		);
 		$tokenizer = new RemexTokenizer( $remover, $text, [
 			'ignoreErrors' => true,
@@ -658,7 +655,7 @@ class Sanitizer {
 				)/xu";
 		}
 		$value = preg_replace_callback( $decodeRegex,
-			self::cssDecodeCallback( ... ), $value );
+			[ self::class, 'cssDecodeCallback' ], $value );
 
 		// Let the value through if it's nothing but a single comment, to
 		// allow other functions which may reject it to pass some error
@@ -1180,7 +1177,7 @@ class Sanitizer {
 	public static function normalizeCharReferences( string $text ): string {
 		return preg_replace_callback(
 			self::CHAR_REFS_REGEX,
-			self::normalizeCharReferencesCallback( ... ),
+			[ self::class, 'normalizeCharReferencesCallback' ],
 			$text, -1, $count, PREG_UNMATCHED_AS_NULL
 		);
 	}
@@ -1272,7 +1269,7 @@ class Sanitizer {
 	public static function decodeCharReferences( string $text ): string {
 		return preg_replace_callback(
 			self::CHAR_REFS_REGEX,
-			self::decodeCharReferencesCallback( ... ),
+			[ self::class, 'decodeCharReferencesCallback' ],
 			$text, -1, $count, PREG_UNMATCHED_AS_NULL
 		);
 	}
@@ -1290,7 +1287,7 @@ class Sanitizer {
 	public static function decodeCharReferencesAndNormalize( string $text ): string {
 		$text = preg_replace_callback(
 			self::CHAR_REFS_REGEX,
-			self::decodeCharReferencesCallback( ... ),
+			[ self::class, 'decodeCharReferencesCallback' ],
 			$text, -1, $count, PREG_UNMATCHED_AS_NULL
 		);
 

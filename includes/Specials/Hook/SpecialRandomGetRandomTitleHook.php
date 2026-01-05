@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Title\Title;
 
@@ -31,6 +31,3 @@ interface SpecialRandomGetRandomTitleHook {
 		&$namespaces, &$extra, &$title
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialRandomGetRandomTitleHook::class, 'MediaWiki\\Hook\\SpecialRandomGetRandomTitleHook' );

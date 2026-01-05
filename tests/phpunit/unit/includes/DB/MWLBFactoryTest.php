@@ -5,7 +5,6 @@
  */
 
 use MediaWiki\Config\ServiceOptions;
-use MediaWiki\DB\MWLBFactory;
 use Wikimedia\ObjectCache\EmptyBagOStuff;
 use Wikimedia\ObjectCache\WANObjectCache;
 use Wikimedia\Rdbms\ChronologyProtector;
@@ -21,7 +20,7 @@ use Wikimedia\Telemetry\NoopTracer;
  * @covers \Wikimedia\Rdbms\LBFactory
  * @covers \Wikimedia\Rdbms\LBFactorySimple
  * @covers \Wikimedia\Rdbms\LBFactoryMulti
- * @covers \MediaWiki\DB\MWLBFactory
+ * @covers \MWLBFactory
  */
 class MWLBFactoryTest extends MediaWikiUnitTestCase {
 

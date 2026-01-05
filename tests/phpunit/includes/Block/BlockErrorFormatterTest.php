@@ -1,18 +1,13 @@
 <?php
 
-namespace MediaWiki\Tests\Block;
-
 use MediaWiki\Block\BlockErrorFormatter;
 use MediaWiki\Block\CompositeBlock;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Block\SystemBlock;
-use MediaWiki\Block\UserBlockTarget;
 use MediaWiki\Context\DerivativeContext;
 use MediaWiki\Context\IContextSource;
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Message\Message;
-use MediaWiki\User\UserIdentityValue;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\LBFactory;
 use Wikimedia\Rdbms\LoadBalancer;
@@ -124,8 +119,6 @@ class BlockErrorFormatterTest extends MediaWikiIntegrationTestCase {
 					'00:00, 1 (january) 2001',
 					'',
 					'00:00, 1 (january) 2000',
-					(string)false,
-					(string)false,
 				],
 			],
 			'Database block (autoblock)' => [
@@ -145,8 +138,6 @@ class BlockErrorFormatterTest extends MediaWikiIntegrationTestCase {
 					'00:00, 1 (january) 2001',
 					'',
 					'00:00, 1 (january) 2000',
-					(string)false,
-					(string)false,
 				],
 			],
 			'Database block (partial block)' => [
@@ -166,102 +157,6 @@ class BlockErrorFormatterTest extends MediaWikiIntegrationTestCase {
 					'00:00, 1 (january) 2001',
 					'',
 					'00:00, 1 (january) 2000',
-					// These parameters are booleans in a string format (empty string for false and '1' for true)
-					(string)false,
-					(string)false,
-				],
-			],
-			'Database block (talk page and email allowed)' => [
-				DatabaseBlock::class,
-				[
-					'timestamp' => $timestamp,
-					'expiry' => $expiry,
-					'allowUsertalk' => true,
-					'blockEmail' => false,
-					'targetName' => 'Alice'
-				],
-				'blockedtext',
-				[
-					'',
-					'(blockednoreason)',
-					'1.2.3.4',
-					'',
-					null, // Block not inserted
-					'00:00, 1 (january) 2001',
-					"\u{202A}Alice\u{202C}",
-					'00:00, 1 (january) 2000',
-					(string)false,
-					(string)false,
-				],
-			],
-			'Database block (talk page only allowed)' => [
-				DatabaseBlock::class,
-				[
-					'timestamp' => $timestamp,
-					'expiry' => $expiry,
-					'allowUsertalk' => true,
-					'blockEmail' => true,
-					'targetName' => 'Alice'
-				],
-				'blockedtext',
-				[
-					'',
-					'(blockednoreason)',
-					'1.2.3.4',
-					'',
-					null, // Block not inserted
-					'00:00, 1 (january) 2001',
-					//
-					"\u{202A}Alice\u{202C}",
-					'00:00, 1 (january) 2000',
-					(string)false,
-					(string)true,
-				],
-			],
-			'Database block (email only allowed)' => [
-				DatabaseBlock::class,
-				[
-					'timestamp' => $timestamp,
-					'expiry' => $expiry,
-					'allowUsertalk' => false,
-					'blockEmail' => false,
-					'targetName' => 'Alice'
-				],
-				'blockedtext',
-				[
-					'',
-					'(blockednoreason)',
-					'1.2.3.4',
-					'',
-					null, // Block not inserted
-					'00:00, 1 (january) 2001',
-					"\u{202A}Alice\u{202C}",
-					'00:00, 1 (january) 2000',
-					(string)true,
-					(string)false,
-				],
-			],
-			'Database block (talk page and email disallowed)' => [
-				DatabaseBlock::class,
-				[
-					'timestamp' => $timestamp,
-					'expiry' => $expiry,
-					'allowUsertalk' => false,
-					'blockEmail' => true,
-					'targetName' => 'Alice'
-				],
-				'blockedtext',
-				[
-					'',
-					'(blockednoreason)',
-					'1.2.3.4',
-					'',
-					null, // Block not inserted
-					'00:00, 1 (january) 2001',
-					"\u{202A}Alice\u{202C}",
-					'00:00, 1 (january) 2000',
-					(string)true,
-					(string)true,
 				],
 			],
 			'System block (type \'test\')' => [
@@ -277,8 +172,6 @@ class BlockErrorFormatterTest extends MediaWikiIntegrationTestCase {
 					'(infiniteblock)',
 					'',
 					'00:00, 1 (january) 2000',
-					(string)false,
-					(string)false,
 				],
 			],
 			'System block (type \'test\') with reason parameters' => [
@@ -298,8 +191,6 @@ class BlockErrorFormatterTest extends MediaWikiIntegrationTestCase {
 					'(infiniteblock)',
 					'',
 					'00:00, 1 (january) 2000',
-					(string)false,
-					(string)false,
 				],
 			],
 			'Composite block (original blocks not inserted)' => [
@@ -315,8 +206,6 @@ class BlockErrorFormatterTest extends MediaWikiIntegrationTestCase {
 					'(infiniteblock)',
 					'',
 					'00:00, 1 (january) 2000',
-					(string)false,
-					(string)false,
 				],
 			],
 		];
@@ -439,12 +328,6 @@ class BlockErrorFormatterTest extends MediaWikiIntegrationTestCase {
 	private function makeBlock( $blockClass, $blockData ) {
 		foreach ( $blockData['originalBlocks'] ?? [] as $key => $originalBlock ) {
 			$blockData['originalBlocks'][$key] = $this->makeBlock( ...$originalBlock );
-		}
-		// PHPUnit data providers should return plain data (T332865), so this needs to be done in the test
-		// not the data provider
-		if ( isset( $blockData['targetName'] ) ) {
-			$blockData['target'] = new UserBlockTarget( new UserIdentityValue( 0, $blockData['targetName'] ) );
-			unset( $blockData['targetName'] );
 		}
 
 		return new $blockClass( $blockData );

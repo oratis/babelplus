@@ -11,7 +11,6 @@ use MediaWiki\Tests\Site\TestSites;
 use MediaWiki\Tests\Unit\FakeQqxMessageLocalizer;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\Title\Title;
-use MediaWiki\Title\TitleValue;
 use MediaWiki\User\TempUser\TempUserDetailsLookup;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityLookup;
@@ -67,8 +66,6 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 
 		$this->outputPage = $this->createMock( OutputPage::class );
 		$this->context = $this->createMock( IContextSource::class );
-		$this->context->method( 'getUser' )
-			->willReturn( $this->getTestUser()->getUser() );
 		$this->context->method( 'getOutput' )
 			->willReturn( $this->outputPage );
 		$this->context->method( 'msg' )
@@ -83,8 +80,7 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 			$this->getServiceContainer()->getSpecialPageFactory(),
 			$this->getServiceContainer()->getLinkRenderer(),
 			$this->tempUserDetailsLookup,
-			$this->userIdentityLookup,
-			$this->getServiceContainer()->getUserNameUtils()
+			$this->userIdentityLookup
 		);
 	}
 
@@ -275,7 +271,7 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 			# Temporary accounts
 			'Temporary user' => [
 				'expected' => '<a href="/wiki/Special:Contributions/~2025-1" '
-				. 'class="mw-tempuserlink mw-userlink" '
+				. 'class="mw-userlink mw-tempuserlink" '
 				. 'title="Special:Contributions/~2025-1" '
 				. 'data-mw-target="~2025-1"><bdi>~2025-1</bdi></a>',
 				'userIdentity' => new UserIdentityValue( 2, '~2025-1' ),
@@ -283,7 +279,7 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 			],
 			'Temporary user link with custom class' => [
 				'expected' => '<a href="/wiki/Special:Contributions/~2025-1" '
-				. 'class="mw-tempuserlink mw-userlink custom-class" '
+				. 'class="mw-userlink mw-tempuserlink custom-class" '
 				. 'title="Special:Contributions/~2025-1" '
 				. 'data-mw-target="~2025-1"><bdi>~2025-1</bdi></a>',
 				'userIdentity' => new UserIdentityValue( 2, '~2025-1' ),
@@ -293,7 +289,7 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 			],
 			'Expired temporary user link' => [
 				'expected' => '<a href="/wiki/Special:Contributions/~2023-1" '
-				. 'class="mw-tempuserlink mw-userlink mw-tempuserlink-expired" '
+				. 'class="mw-userlink mw-tempuserlink mw-tempuserlink-expired" '
 				. 'data-mw-target="~2023-1" '
 				. 'aria-description="(tempuser-expired-link-tooltip)">'
 				. '<bdi>~2023-1</bdi>'
@@ -336,7 +332,7 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 			'Temp user from an external wiki' => [
 				'expected' => '<a '
 				. 'data-mw-target="~2025-1" '
-				. 'class="mw-tempuserlink mw-userlink external" '
+				. 'class="mw-userlink mw-tempuserlink external" '
 				. 'rel="nofollow" href="//external.wiki.org/wiki/User:~2025-1">'
 				. '<bdi>~2025-1</bdi></a>',
 				'userIdentity' => new UserIdentityValue(
@@ -350,7 +346,7 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 				'expected' => sprintf(
 					'<a data-mw-target="%1$s" '
 					. 'aria-description="(tempuser-expired-link-tooltip)" '
-					. 'class="mw-tempuserlink mw-userlink '
+					. 'class="mw-userlink mw-tempuserlink '
 					. 'mw-tempuserlink-expired external" rel="nofollow" '
 					. 'href="//external.wiki.org/wiki/User:%1$s">'
 					. '<bdi>%1$s</bdi>'
@@ -481,59 +477,5 @@ class UserLinkRendererTest extends MediaWikiLangTestCase {
 		$this->assertStringContainsString( '<span>foo</span>', $usernameHtml );
 		$this->assertStringContainsString( '<span>bar</span>', $usernameHtml );
 		$this->assertStringContainsString( '<span>test</span>', $usernameHtml );
-	}
-
-	/** @dataProvider provideGetLinkClasses */
-	public function testGetLinkClasses( int $ns, string $title, bool $isDefaultCaption, array $expected ) {
-		$linkTarget = new TitleValue( $ns, $title );
-		$classes = $this->userLinkRenderer->getLinkClasses( $linkTarget, $isDefaultCaption );
-		sort( $classes );
-		sort( $expected );
-		$this->assertSame( $expected, $classes );
-	}
-
-	public function provideGetLinkClasses(): iterable {
-		yield 'Link to a permanent account page, non-default caption' => [
-			'ns' => NS_USER,
-			'title' => 'ExampleUser',
-			'isDefaultCaption' => false,
-			'expected' => [],
-		];
-		yield 'Link to a permanent account page, default caption' => [
-			'ns' => NS_USER,
-			'title' => 'ExampleUser',
-			'isDefaultCaption' => true,
-			'expected' => [],
-		];
-		yield 'Link to a temporary account page, non-default caption' => [
-			'ns' => NS_USER,
-			'title' => '~2025-1',
-			'isDefaultCaption' => false,
-			'expected' => [],
-		];
-		yield 'Link to a temporary account page, default caption' => [
-			'ns' => NS_USER,
-			'title' => '~2025-1',
-			'isDefaultCaption' => true,
-			'expected' => [ 'mw-tempuserlink' ],
-		];
-		yield 'Link to a permanent account contribs, default caption' => [
-			'ns' => NS_SPECIAL,
-			'title' => 'Contributions/ExampleUser',
-			'isDefaultCaption' => true,
-			'expected' => [],
-		];
-		yield 'Link to a temporary account contribs, default caption' => [
-			'ns' => NS_SPECIAL,
-			'title' => 'Contributions/~2025-1',
-			'isDefaultCaption' => true,
-			'expected' => [ 'mw-tempuserlink' ],
-		];
-		yield 'Link to a temporary account contribs, non-default caption' => [
-			'ns' => NS_SPECIAL,
-			'title' => 'Contributions/~2025-1',
-			'isDefaultCaption' => false,
-			'expected' => [],
-		];
 	}
 }

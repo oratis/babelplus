@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials\Contribute;
 
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Context\RequestContext;
@@ -9,7 +8,6 @@ use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Specials\Contribute\Card\ContributeCard;
 use MediaWiki\Specials\Contribute\Card\ContributeCardActionLink;
 use MediaWiki\Specials\Contribute\ContributeFactory;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @author MAbualruz

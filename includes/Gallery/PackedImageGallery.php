@@ -4,9 +4,6 @@
  * @file
  */
 
-namespace MediaWiki\Gallery;
-
-use MediaTransformOutput;
 use MediaWiki\Context\IContextSource;
 use MediaWiki\FileRepo\File\File;
 
@@ -108,6 +105,3 @@ class PackedImageGallery extends TraditionalImageGallery {
 	public function setPerRow( $num ) {
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PackedImageGallery::class, 'PackedImageGallery' );

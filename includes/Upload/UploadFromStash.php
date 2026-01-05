@@ -7,13 +7,9 @@
  * @ingroup Upload
  */
 
-namespace MediaWiki\Upload;
-
-use LogicException;
-use MediaWiki\FileRepo\LocalRepo;
+use MediaWiki\FileRepo\FileRepo;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Request\WebRequest;
-use MediaWiki\Upload\Exception\UploadStashBadPathException;
 use MediaWiki\User\UserIdentity;
 
 /**
@@ -33,13 +29,13 @@ class UploadFromStash extends UploadBase {
 	/** @var UploadStash */
 	private $stash;
 
-	/** @var LocalRepo */
+	/** @var FileRepo */
 	private $repo;
 
 	/**
 	 * @param UserIdentity|null $user Default: null Sometimes this won't exist, as when running from cron.
 	 * @param UploadStash|false $stash Default: false
-	 * @param LocalRepo|false $repo Default: false
+	 * @param FileRepo|false $repo Default: false
 	 */
 	public function __construct( ?UserIdentity $user = null, $stash = false, $repo = false ) {
 		if ( $repo ) {
@@ -167,6 +163,3 @@ class UploadFromStash extends UploadBase {
 		$this->unsaveUploadedFile();
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UploadFromStash::class, 'UploadFromStash' );

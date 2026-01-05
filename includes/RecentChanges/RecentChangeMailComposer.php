@@ -9,7 +9,7 @@ namespace MediaWiki\RecentChanges;
 use MediaWiki\Config\Config;
 use MediaWiki\Language\Language;
 use MediaWiki\Language\MessageParser;
-use MediaWiki\Mail\IEmailer;
+use MediaWiki\Mail\Emailer;
 use MediaWiki\Mail\MailAddress;
 use MediaWiki\Mail\UserEmailContact;
 use MediaWiki\MainConfigNames;
@@ -76,7 +76,7 @@ class RecentChangeMailComposer {
 	private UrlUtils $urlUtils;
 	private MessageParser $messageParser;
 	private Language $contentLanguage;
-	private IEmailer $emailer;
+	private Emailer $emailer;
 
 	public function __construct(
 		Authority $editor,

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Title\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -28,6 +28,3 @@ interface CanonicalNamespacesHook {
 	 */
 	public function onCanonicalNamespaces( &$namespaces );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( CanonicalNamespacesHook::class, 'MediaWiki\\Hook\\CanonicalNamespacesHook' );

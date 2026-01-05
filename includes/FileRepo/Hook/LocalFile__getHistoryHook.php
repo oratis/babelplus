@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\FileRepo\Hook;
+namespace MediaWiki\Hook;
 
 // phpcs:disable Squiz.Classes.ValidClassName.NotCamelCaps
 use MediaWiki\FileRepo\File\File;
@@ -30,6 +30,3 @@ interface LocalFile__getHistoryHook {
 		&$opts, &$join_conds
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( LocalFile__getHistoryHook::class, 'MediaWiki\\Hook\\LocalFile__getHistoryHook' );

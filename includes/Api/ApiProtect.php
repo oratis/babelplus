@@ -19,7 +19,6 @@ use MediaWiki\Watchlist\WatchedItemStoreInterface;
 use MediaWiki\Watchlist\WatchlistManager;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\ExpiryDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @ingroup API
@@ -111,11 +110,11 @@ class ApiProtect extends ApiBase {
 			}
 
 			try {
-				$expiries[$p[0]] = ExpiryDef::normalizeExpiry( $expiry[$i], TS::MW );
+				$expiries[$p[0]] = ExpiryDef::normalizeExpiry( $expiry[$i], TS_MW );
 			} catch ( InvalidArgumentException ) {
 				$this->dieWithError( [ 'apierror-invalidexpiry', wfEscapeWikiText( $expiry[$i] ) ] );
 			}
-			if ( $expiries[$p[0]] < MWTimestamp::now( TS::MW ) ) {
+			if ( $expiries[$p[0]] < MWTimestamp::now( TS_MW ) ) {
 				$this->dieWithError( [ 'apierror-pastexpiry', wfEscapeWikiText( $expiry[$i] ) ] );
 			}
 

@@ -56,7 +56,6 @@ use Wikimedia\Assert\Assert;
 use Wikimedia\ObjectCache\WANObjectCache;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\Rdbms\ILBFactory;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A handle for managing updates for derived page data on edit, import, purge, etc.
@@ -151,7 +150,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 	 *
 	 * @var array
 	 * @phpcs:ignore Generic.Files.LineLength
-	 * @phan-var array{changed:bool,created:bool,cause:string,oldrevision:null|RevisionRecord,triggeringUser:null|UserIdentity,oldredirect:bool|null|string,oldcountable:bool|null|string,causeAction:null|string,causeAgent:null|string,editResult:null|EditResult,newrev:bool,oldtitle:null|PageIdentity,rcPatrolStatus:int,tags:array<string>,reason:null|string,emitEvents:bool}
+	 * @phan-var array{changed:bool,created:bool,moved:bool,cause:string,oldrevision:null|RevisionRecord,triggeringUser:null|UserIdentity,oldredirect:bool|null|string,oldcountable:bool|null|string,causeAction:null|string,causeAgent:null|string,editResult:null|EditResult}
 	 */
 	private $options = [
 		'changed' => true,
@@ -443,7 +442,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 			throw new InvalidArgumentException( '$parentId should match the parent of $revision' );
 		}
 
-		// NOTE: For dummy revisions, $user may be different from $this->revision->getUser
+		// NOTE: For null revisions, $user may be different from $this->revision->getUser
 		// and also from $revision->getUser.
 		// But $user should always match $this->user.
 		if ( $user && $this->user && $user->getName() !== $this->user->getName() ) {
@@ -491,7 +490,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 
 	/**
 	 * Set whether null-edits should create a revision. Enabling this allows the creation of dummy
-	 * revisions (aka null revisions) to mark events such as renaming in the page history.
+	 * revisions ("null revisions") to mark events such as renaming in the page history.
 	 *
 	 * Must not be called once prepareContent() or prepareUpdate() have been called.
 	 *
@@ -865,7 +864,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 
 		// NOTE: user and timestamp must be set, so they can be used for
 		// {{subst:REVISIONUSER}} and {{subst:REVISIONTIMESTAMP}} in PST!
-		$this->revision->setTimestamp( MWTimestamp::now( TS::MW ) );
+		$this->revision->setTimestamp( MWTimestamp::now( TS_MW ) );
 		$this->revision->setUser( $user );
 
 		// Set up ParserOptions to operate on the new revision
@@ -1034,7 +1033,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 	/**
 	 * Whether the content of the current revision after the edit is different from the content of the
 	 * current revision before the edit. This will return false for a null-edit (no revision created),
-	 * as well as for a dummy revision (a revision that has the same content as its parent).
+	 * as well as for a dummy revision (a "null-revision" that has the same content as its parent).
 	 *
 	 * @warning at present, dummy revision would return false after prepareContent(),
 	 * but true after prepareUpdate()!
@@ -1259,7 +1258,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 			// and "new revision without new content" (dummy revision).
 
 			if ( $oldId === $revision->getParentId() ) {
-				// NOTE: this may still be a dummy revision!
+				// NOTE: this may still be a NullRevision!
 				// New revision!
 				$this->options['changed'] = true;
 			} elseif ( $oldId === $revision->getId() ) {
@@ -1449,6 +1448,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 			$this->isRedirect() || $this->wasRedirect()
 		);
 		if ( $this->options['cause'] === PageLatestRevisionChangedEvent::CAUSE_MOVE ) {
+			// @phan-suppress-next-line PhanTypeMismatchArgument Oldtitle is set along with moved
 			$linksUpdate->setMoveDetails( $this->options['oldtitle'] );
 		}
 
@@ -1838,7 +1838,7 @@ class DerivedPageDataUpdater implements LoggerAwareInterface, PreparedUpdate {
 	 *   - defer: one of the DeferredUpdates constants, or false to run immediately after waiting
 	 *     for replication of the changes from the SecondaryDataUpdates hooks (default: false)
 	 *   - freshness: used with 'defer'; forces an update if the last update was before the given timestamp,
-	 *     even if the page and its dependencies didn't change since then (TS::MW; default: false)
+	 *     even if the page and its dependencies didn't change since then (TS_MW; default: false)
 	 * @since 1.32
 	 */
 	public function doSecondaryDataUpdates( array $options = [] ) {

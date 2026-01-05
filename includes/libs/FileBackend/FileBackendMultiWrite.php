@@ -10,10 +10,10 @@
 namespace Wikimedia\FileBackend;
 
 use InvalidArgumentException;
+use LockManager;
 use LogicException;
 use Shellbox\Command\BoxedCommand;
 use StatusValue;
-use Wikimedia\LockManager\LockManager;
 use Wikimedia\StringUtils\StringUtils;
 
 /**
@@ -294,7 +294,7 @@ class FileBackendMultiWrite extends FileBackend {
 
 		return array_values( array_unique( array_filter(
 			$paths,
-			FileBackend::isStoragePath( ... )
+			[ FileBackend::class, 'isStoragePath' ]
 		) ) );
 	}
 

@@ -18,7 +18,6 @@ use MediaWiki\User\UserIdentity;
 use stdClass;
 use Wikimedia\AtEase\AtEase;
 use Wikimedia\Rdbms\IReadableDatabase;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A value class to process existing log entries. In other words, this class caches a log
@@ -157,7 +156,7 @@ class DatabaseLogEntry extends LogEntryBase {
 	}
 
 	/** @inheritDoc */
-	public function isLegacy(): bool {
+	public function isLegacy() {
 		// This extracts the property
 		$this->getParameters();
 		return $this->legacy;
@@ -236,7 +235,7 @@ class DatabaseLogEntry extends LogEntryBase {
 
 	/** @inheritDoc */
 	public function getTimestamp() {
-		return wfTimestamp( TS::MW, $this->row->log_timestamp );
+		return wfTimestamp( TS_MW, $this->row->log_timestamp );
 	}
 
 	/** @inheritDoc */

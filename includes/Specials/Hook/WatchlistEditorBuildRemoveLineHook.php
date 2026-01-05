@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Skin\Skin;
 use MediaWiki\Title\Title;
@@ -29,6 +29,3 @@ interface WatchlistEditorBuildRemoveLineHook {
 		$skin, &$link
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( WatchlistEditorBuildRemoveLineHook::class, 'MediaWiki\\Hook\\WatchlistEditorBuildRemoveLineHook' );

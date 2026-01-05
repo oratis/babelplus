@@ -124,7 +124,7 @@ $( () => {
 		mw.hook( 'wikipage.content' ).fire( $content );
 	}
 
-	let $nodes = $( '.catlinks[data-mw="interface"],.catlinks[data-mw-interface]' );
+	let $nodes = $( '.catlinks[data-mw="interface"]' );
 	if ( $nodes.length ) {
 		/**
 		 * Fired when categories are being added to the DOM.
@@ -144,7 +144,7 @@ $( () => {
 		mw.hook( 'wikipage.categories' ).fire( $nodes );
 	}
 
-	$nodes = $( 'table.diff[data-mw="interface"], table.diff[data-mw-interface]' );
+	$nodes = $( 'table.diff[data-mw="interface"]' );
 	if ( $nodes.length ) {
 		/**
 		 * Fired when the diff is added to a page containing a diff.
@@ -193,17 +193,16 @@ $( () => {
 
 		if ( mw.user.isTemp() ) {
 			// Since temporary accounts cannot be logged into again, show a confirmation dialog.
-			confirmedPromise = mw.loader.using( [ 'oojs-ui-windows', 'mediawiki.jqueryMsg' ] ).then( () => {
-				// Keep in sync with SpecialUserLogout
+			confirmedPromise = mw.loader.using( 'oojs-ui-windows' ).then( () => {
 				const $confirmDialogContent = $( '<div>' ).append(
-					$( '<p>' ).append( mw.message( 'userlogout-temp' ).parseDom() ),
-					$( '<p>' ).append( mw.message( 'userlogout-temp-moreinfo' ).parseDom() ),
+					$( '<p>' ).text( mw.msg( 'userlogout-temp' ) ),
+					$( '<p>' ).text( mw.msg( 'userlogout-temp-moreinfo' ) ),
 					new OO.ui.MessageWidget( {
 						type: 'notice',
 						label: $( '<div>' ).append(
 							$( '<strong>' ).text( mw.msg( 'userlogout-temp-messagebox-title' ) ),
 							$( '<br>' ),
-							mw.message( 'userlogout-temp-messagebox-body' ).parseDom()
+							document.createTextNode( mw.msg( 'userlogout-temp-messagebox-body' ) )
 						)
 					} ).$element
 				);

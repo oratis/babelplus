@@ -2,7 +2,7 @@
 	"$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
 	"bomFormat": "CycloneDX",
 	"specVersion": "1.6",
-	"serialNumber": "urn:uuid:b4bb0088-e14d-481b-9227-253dcde9d3e1",
+	"serialNumber": "urn:uuid:e6bad5cc-16d4-4474-a9d2-0786850fd460",
 	"version": 1,
 	"components": [
 		{
@@ -32,7 +32,7 @@
 		{
 			"type": "library",
 			"name": "codex",
-			"version": "2.3.3",
+			"version": "2.3.2",
 			"licenses": [
 				{
 					"license": {
@@ -40,7 +40,7 @@
 					}
 				}
 			],
-			"purl": "pkg:npm/@wikimedia/codex@2.3.3",
+			"purl": "pkg:npm/@wikimedia/codex@2.3.2",
 			"authors": [
 				{
 					"name": "Design System team"
@@ -59,7 +59,7 @@
 		{
 			"type": "library",
 			"name": "codex-design-tokens",
-			"version": "2.3.3",
+			"version": "2.3.2",
 			"licenses": [
 				{
 					"license": {
@@ -67,7 +67,7 @@
 					}
 				}
 			],
-			"purl": "pkg:npm/@wikimedia/codex-design-tokens@2.3.3",
+			"purl": "pkg:npm/@wikimedia/codex-design-tokens@2.3.2",
 			"authors": [
 				{
 					"name": "Design System team"
@@ -86,7 +86,7 @@
 		{
 			"type": "library",
 			"name": "codex-icons",
-			"version": "2.3.3",
+			"version": "2.3.2",
 			"licenses": [
 				{
 					"license": {
@@ -94,7 +94,7 @@
 					}
 				}
 			],
-			"purl": "pkg:npm/@wikimedia/codex-icons@2.3.3",
+			"purl": "pkg:npm/@wikimedia/codex-icons@2.3.2",
 			"authors": [
 				{
 					"name": "Design System team"
@@ -411,7 +411,7 @@
 		{
 			"type": "library",
 			"name": "ooui",
-			"version": "0.53.1",
+			"version": "0.53.0",
 			"licenses": [
 				{
 					"license": {
@@ -419,7 +419,7 @@
 					}
 				}
 			],
-			"purl": "pkg:npm/oojs-ui@0.53.1",
+			"purl": "pkg:npm/oojs-ui@0.53.0",
 			"authors": [
 				{
 					"name": "OOUI Team and other contributors"
@@ -535,38 +535,6 @@
 			"externalReferences": [
 				{
 					"url": "https://sinonjs.org/",
-					"type": "website"
-				}
-			]
-		},
-		{
-			"type": "library",
-			"name": "swagger-ui",
-			"version": "4.15.5",
-			"licenses": [
-				{
-					"license": {
-						"id": "Apache-2.0"
-					}
-				}
-			],
-			"authors": [
-				{
-					"name": "Kyle Shockey"
-				},
-				{
-					"name": "Tony Tam"
-				},
-				{
-					"name": "Vladimír Gorej"
-				},
-				{
-					"name": "others"
-				}
-			],
-			"externalReferences": [
-				{
-					"url": "https://swagger.io/tools/swagger-ui/",
 					"type": "website"
 				}
 			]

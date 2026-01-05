@@ -16,7 +16,6 @@ use UnexpectedValueException;
 use Wikimedia\Message\ListParam;
 use Wikimedia\Message\ParamType;
 use Wikimedia\Message\ScalarParam;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This class represents the result of the API operations.
@@ -968,6 +967,7 @@ class ApiResult implements ApiSerializable {
 
 				$data = array_values( $data );
 				$metadata[self::META_TYPE] = 'array';
+				// @phan-suppress-next-line PhanTypeMismatchReturnNullable Type mismatch on pass-by-ref args
 				return $data + $keepMetadata;
 
 			case 'kvp':
@@ -1018,6 +1018,7 @@ class ApiResult implements ApiSerializable {
 				}
 				$metadata[self::META_TYPE] = 'array';
 
+				// @phan-suppress-next-line PhanTypeMismatchReturnNullable Type mismatch on pass-by-ref args
 				return $ret + $keepMetadata;
 
 			default:
@@ -1229,7 +1230,7 @@ class ApiResult implements ApiSerializable {
 		) {
 			return $infinity;
 		} else {
-			return wfTimestamp( TS::ISO_8601, $expiry );
+			return wfTimestamp( TS_ISO_8601, $expiry );
 		}
 	}
 

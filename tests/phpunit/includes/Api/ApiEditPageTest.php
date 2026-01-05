@@ -11,9 +11,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Page\WikiPage;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Status\Status;
-use MediaWiki\Tests\Mocks\Content\DummyContentHandlerForTesting;
-use MediaWiki\Tests\Mocks\Content\DummyNonTextContentHandler;
-use MediaWiki\Tests\Mocks\Content\DummySerializeErrorContentHandler;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleValue;
@@ -23,7 +20,6 @@ use MediaWiki\Utils\MWTimestamp;
 use RevisionDeleter;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Tests for MediaWiki api.php?action=edit.
@@ -58,9 +54,9 @@ class ApiEditPageTest extends ApiTestCase {
 			MainConfigNames::WatchlistExpiryMaxDuration => '6 months',
 		] );
 		$this->mergeMwGlobalArrayValue( 'wgContentHandlers', [
-			'testing' => DummyContentHandlerForTesting::class,
-			'testing-nontext' => DummyNonTextContentHandler::class,
-			'testing-serialize-error' => DummySerializeErrorContentHandler::class,
+			'testing' => 'DummyContentHandlerForTesting',
+			'testing-nontext' => 'DummyNonTextContentHandler',
+			'testing-serialize-error' => 'DummySerializeErrorContentHandler',
 		] );
 	}
 
@@ -1429,7 +1425,7 @@ class ApiEditPageTest extends ApiTestCase {
 		$title = Title::makeTitle( NS_HELP, 'TestEditWithStartTimestamp' );
 		$this->expectApiErrorCode( 'pagedeleted' );
 
-		$startTime = MWTimestamp::convert( TS::MW, time() - 1 );
+		$startTime = MWTimestamp::convert( TS_MW, time() - 1 );
 
 		$this->editPage( $title, 'Some text' );
 
@@ -1470,7 +1466,7 @@ class ApiEditPageTest extends ApiTestCase {
 	public function testEditRecreate() {
 		$title = Title::makeTitle( NS_HELP, 'TestEditRecreate' );
 
-		$startTime = MWTimestamp::convert( TS::MW, time() - 1 );
+		$startTime = MWTimestamp::convert( TS_MW, time() - 1 );
 
 		$this->editPage( $title, 'Some text' );
 

@@ -9,9 +9,6 @@
  * @file
  * @ingroup Search
  */
-
-namespace MediaWiki\Search;
-
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\SlotRecord;
 use Wikimedia\Rdbms\IDatabase;
@@ -220,6 +217,3 @@ class SearchPostgres extends SearchDatabase {
 		return true;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchPostgres::class, 'SearchPostgres' );

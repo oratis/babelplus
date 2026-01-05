@@ -6,7 +6,6 @@ use MediaWiki\Rest\HeaderParser\HttpDate;
 use MediaWiki\Rest\HeaderParser\IfNoneMatch;
 use RuntimeException;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 class ConditionalHeaderUtil {
 	/** @var bool */
@@ -101,7 +100,7 @@ class ConditionalHeaderUtil {
 		if ( is_string( $this->lastModified ) ) {
 			// normalize to int
 			$this->lastModified = (int)ConvertibleTimestamp::convert(
-				TS::UNIX,
+				TS_UNIX,
 				$this->lastModified
 			);
 		}

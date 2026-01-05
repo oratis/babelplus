@@ -1,16 +1,12 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
-use DatabaseTestHelper;
 use MediaWiki\Context\DerivativeContext;
 use MediaWiki\Exception\UserNotLoggedIn;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Specials\SpecialWatchlist;
-use MediaWiki\User\Registration\UserRegistrationLookup;
 use MediaWiki\User\StaticUserOptionsLookup;
-use TestUser;
 use Wikimedia\Rdbms\LBFactorySingle;
 use Wikimedia\TestingAccessWrapper;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
@@ -47,8 +43,7 @@ class SpecialWatchlistTest extends SpecialPageTestBase {
 					'watchlistunwatchlinks' => 0,
 					'timecorrection' => '0'
 				],
-			MainConfigNames::WatchlistExpiry => true,
-			MainConfigNames::EnableWatchlistLabels => true
+			MainConfigNames::WatchlistExpiry => true
 		] );
 	}
 
@@ -67,7 +62,6 @@ class SpecialWatchlistTest extends SpecialPageTestBase {
 			$services->getTempUserConfig(),
 			$services->getRecentChangeFactory(),
 			$services->getChangesListQueryFactory(),
-			$services->getWatchlistLabelStore(),
 		);
 	}
 
@@ -237,13 +231,6 @@ class SpecialWatchlistTest extends SpecialPageTestBase {
 			'UserOptionsLookup',
 			$userOptionsLookup
 		);
-		$userRegistrationLookup = $this->createMock( UserRegistrationLookup::class );
-		$userRegistrationLookup->method( 'getRegistration' )
-			->willReturn( '20250101000000' );
-		$this->setService(
-			'UserRegistrationLookup',
-			$userRegistrationLookup
-		);
 		$page = $this->newSpecialPage();
 		TestingAccessWrapper::newFromObject( $page )->userOptionsLookup
 			= $userOptionsLookup;
@@ -272,6 +259,7 @@ SELECT
 	rc_id,
 	rc_cur_id,
 	rc_last_oldid,
+	rc_type,
 	rc_patrolled,
 	rc_ip,
 	rc_old_len,

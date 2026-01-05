@@ -118,10 +118,9 @@ class LogEventsList extends ContextSource {
 	 *  preselected.
 	 * @param int|string $day A day in the 1..31 range. Use 0 to start with no month
 	 *  preselected.
-	 * @param string $username Name of the filter-by performer, as typed in the form
 	 * @return bool Whether the options are valid
 	 */
-	public function showOptions( $type = '', $year = 0, $month = 0, $day = 0, $username = '' ) {
+	public function showOptions( $type = '', $year = 0, $month = 0, $day = 0 ) {
 		$formDescriptor = [];
 
 		// Basic selectors
@@ -151,7 +150,7 @@ class LogEventsList extends ContextSource {
 		}
 
 		// Add extra inputs if any
-		$extraInputsDescriptor = $this->getExtraInputsDesc( $type, $username );
+		$extraInputsDescriptor = $this->getExtraInputsDesc( $type );
 
 		// Single inputs (array of attributes) and multiple inputs (array of arrays)
 		// are supported. Distinguish between the two by checking if the first element
@@ -278,10 +277,9 @@ class LogEventsList extends ContextSource {
 
 	/**
 	 * @param string $type
-	 * @param string $username The name of the filter-by performer, as typed in the form
 	 * @return array Form descriptor
 	 */
-	private function getExtraInputsDesc( $type, $username ) {
+	private function getExtraInputsDesc( $type ) {
 		$formDescriptor = [];
 
 		if ( $type === 'suppress' ) {
@@ -293,20 +291,17 @@ class LogEventsList extends ContextSource {
 			return $formDescriptor;
 		}
 
-		if ( $this->tempUserConfig->isKnown() ) {
+		if ( $type === 'newusers' || $type === '' ) {
 			// Add option to exclude/include temporary account creations in results,
-			// excluding them by default. If we're on a different log, use a hidden field
-			// to preserve the checked by default behavior.
-			$fieldType = 'hidden';
-			if ( $type === 'newusers' || $type === '' ) {
-				$fieldType = 'check';
+			// excluding them by default.
+			if ( $this->tempUserConfig->isKnown() ) {
+				$formDescriptor[] = [
+						'type' => 'check',
+						'label-message' => 'newusers-excludetempacct',
+						'name' => 'excludetempacct',
+						'default' => true,
+					];
 			}
-			$formDescriptor[] = [
-				'type' => $fieldType,
-				'label-message' => 'newusers-excludetempacct',
-				'name' => 'excludetempacct',
-				'default' => !$this->tempUserConfig->isTempName( $username ),
-			];
 		}
 
 		// Allow extensions to add an extra input into the descriptor array.
@@ -417,7 +412,7 @@ class LogEventsList extends ContextSource {
 		// hook interface consistent with DiffTools and HistoryTools.
 		$this->hookRunner->onLogEventsListLineEnding( $this, $ret, $entry, $classes, $attribs );
 		$attribs = array_filter( $attribs,
-			Sanitizer::isReservedDataAttribute( ... ),
+			[ Sanitizer::class, 'isReservedDataAttribute' ],
 			ARRAY_FILTER_USE_KEY
 		);
 		$ret .= Html::closeElement( 'span' );

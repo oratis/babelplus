@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Search\SearchWidgets;
 
-use MediaWiki\Search\ISearchResultSet;
+use ISearchResultSet;
 
 /**
  * Renders a set of search results to HTML

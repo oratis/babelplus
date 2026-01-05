@@ -556,7 +556,7 @@ abstract class LBFactory implements ILBFactory {
 	}
 
 	/** @inheritDoc */
-	public function getReplicaDatabase( string|false $domain = false, $group = null ): IReadableDatabase {
+	public function getReplicaDatabase( $domain = false, $group = null ): IReadableDatabase {
 		if ( $group === null ) {
 			$groups = [];
 		} else {
@@ -591,15 +591,17 @@ abstract class LBFactory implements ILBFactory {
 	 * @param string|false $domain
 	 * @return IDatabase
 	 */
-	private function getMappedDatabase( $index, $groups, string|false $domain ) {
+	private function getMappedDatabase( $index, $groups, $domain ) {
 		return $this->getLoadBalancer( $domain )
 			->getConnection( $index, $groups, $this->getMappedDomain( $domain ) );
 	}
 
 	/**
 	 * @internal For installer and getMappedDatabase
+	 * @param string|false $domain
+	 * @return string|false
 	 */
-	public function getMappedDomain( string|false $domain ): string|false {
+	public function getMappedDomain( $domain ) {
 		if ( $domain !== false && in_array( $domain, $this->virtualDomains ) ) {
 			return $this->virtualDomainsMapping[$domain]['db'] ?? false;
 		} else {

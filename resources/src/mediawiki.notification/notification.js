@@ -10,61 +10,6 @@
 	const preReadyNotifQueue = [];
 
 	/**
-	 * Announce notification message to dedicated ARIA live region for assistive technology.
-	 *
-	 * For notifications with form controls/widgets, callers should provide
-	 * options.ariaText with a clean text message. Otherwise, the announcement
-	 * will be skipped to avoid announcing widget noise.
-	 *
-	 * @param {jQuery} $notificationContent The notification content element
-	 * @param {mw.notification.NotificationOptions} options The options for the notification
-	 */
-	function announceToAriaLive( $notificationContent, options ) {
-		const ariaLiveRegion = document.getElementById( 'mw-aria-live-region' );
-		if ( !ariaLiveRegion ) {
-			return;
-		}
-
-		let announcementText;
-
-		// Use explicit ariaText if provided.
-		if ( options.ariaText ) {
-			announcementText = options.ariaText;
-		} else {
-			// Check if notification was marked as complex during construction.
-			if ( $notificationContent[ 0 ].classList.contains( 'mw-notification-complex-content' ) ) {
-				// Skip announcement for complex notifications without explicit ariaText
-				// to avoid announcing all widget options and labels.
-				return;
-			}
-
-			// For simple notifications extract all text.
-			announcementText = $notificationContent[ 0 ].textContent.trim();
-		}
-
-		if ( !announcementText ) {
-			return;
-		}
-
-		// Change aria-live to assertive for errors.
-		if ( options.type === 'error' ) {
-			ariaLiveRegion.setAttribute( 'aria-live', 'assertive' );
-		}
-
-		// Clear first to force a DOM change, ensuring screen readers detect and
-		// announce the update.
-		// Without this, setting the same text twice would be detected as "no change" and
-		// not announced.
-		ariaLiveRegion.textContent = '';
-		ariaLiveRegion.textContent = announcementText;
-
-		// Reset to polite for next notification if we changed it.
-		if ( options.type === 'error' ) {
-			ariaLiveRegion.setAttribute( 'aria-live', 'polite' );
-		}
-	}
-
-	/**
 	 * @typedef {Object} mw.notification~Notification
 	 * @property {mw.Message|jQuery|HTMLElement|string} message
 	 * @property {mw.notification.NotificationOptions} options
@@ -88,6 +33,7 @@
 
 		const $notification = $( '<div>' )
 			.data( 'mw-notification', this )
+			.attr( 'role', 'status' )
 			.addClass( [
 				'mw-notification',
 				options.autoHide ? 'mw-notification-autohide' : 'mw-notification-noautohide'
@@ -139,9 +85,6 @@
 				$notificationContent.html( message.parse() );
 			} else {
 				$notificationContent.append( message );
-				// Mark DOM/jQuery objects as complex to skip aria-live announcements
-				// unless explicit ariaText is provided.
-				$notificationContent.addClass( 'mw-notification-complex-content' );
 			}
 		} else {
 			$notificationContent.text( message );
@@ -196,9 +139,6 @@
 
 		this.isOpen = true;
 		openNotificationCount++;
-
-		// Announce to screen readers when notification becomes visible
-		announceToAriaLive( this.$notification.find( '.mw-notification-content' ), this.options );
 
 		const options = this.options;
 		const $notification = this.$notification;
@@ -377,9 +317,7 @@
 
 		// Look for a preset notification area in the skin.
 		// 'data-mw*' attributes are banned from user content in Sanitizer.
-		$area = $(
-			'.mw-notification-area[data-mw-interface], .mw-notification-area[data-mw="interface"]'
-		).first();
+		$area = $( '.mw-notification-area[data-mw="interface"]' ).first();
 		if ( !$area.length ) {
 			$area = $( '<div>' ).addClass( 'mw-notification-area' );
 			// Create overlay div for the notification area
@@ -516,10 +454,6 @@
 		 *   above the content. Usually in bold.
 		 * @property {string|null} type The type of the message used for styling.
 		 *   Examples: `info`, `warn`, `error`, `success`, `notice`.
-		 * @property {string|null} ariaText Optional text to announce to screen readers
-		 *   via the aria-live region. Use this for notifications containing form controls
-		 *   or widgets to provide a clean text alternative. If not provided, notifications
-		 *   with form controls will not be announced automatically.
 		 * @property {boolean} visibleTimeout Whether the autoHide timeout should be
 		 *   based on time the page was visible to user. Or if it should use wall
 		 *   clock time.
@@ -540,7 +474,6 @@
 			tag: null,
 			title: null,
 			type: null,
-			ariaText: null,
 			visibleTimeout: true,
 			id: false,
 			classes: false

@@ -38,7 +38,6 @@ use MediaWiki\Cache\LinkCache;
 use MediaWiki\Cache\UserCache;
 use MediaWiki\Category\TrackingCategories;
 use MediaWiki\ChangeTags\ChangeTagsStore;
-use MediaWiki\ChangeTags\ChangeTagsStoreFactory;
 use MediaWiki\Collation\CollationFactory;
 use MediaWiki\CommentFormatter\CommentFormatter;
 use MediaWiki\CommentFormatter\CommentParserFactory;
@@ -52,7 +51,6 @@ use MediaWiki\Content\ContentJsonCodec;
 use MediaWiki\Content\IContentHandlerFactory;
 use MediaWiki\Content\Renderer\ContentRenderer;
 use MediaWiki\Content\Transform\ContentTransformer;
-use MediaWiki\DB\MWLBFactory;
 use MediaWiki\DomainEvent\DomainEventDispatcher;
 use MediaWiki\DomainEvent\DomainEventSource;
 use MediaWiki\Edit\ParsoidOutputStash;
@@ -78,7 +76,6 @@ use MediaWiki\Json\JwtCodec;
 use MediaWiki\Language\FormatterFactory;
 use MediaWiki\Language\Language;
 use MediaWiki\Language\LanguageCode;
-use MediaWiki\Language\LanguageNameSearch;
 use MediaWiki\Language\LeximorphFactory;
 use MediaWiki\Language\MessageParser;
 use MediaWiki\Languages\LanguageConverterFactory;
@@ -91,8 +88,6 @@ use MediaWiki\Linker\LinksMigration;
 use MediaWiki\Linker\LinkTargetLookup;
 use MediaWiki\Linker\UserLinkRenderer;
 use MediaWiki\Logging\LogFormatterFactory;
-use MediaWiki\Mail\ConfirmEmail\ConfirmEmailBuilderFactory;
-use MediaWiki\Mail\ConfirmEmail\ConfirmEmailSender;
 use MediaWiki\Mail\EmailUserFactory;
 use MediaWiki\Mail\IEmailer;
 use MediaWiki\Notification\NotificationService;
@@ -151,9 +146,6 @@ use MediaWiki\Revision\RevisionRenderer;
 use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\RevisionStoreFactory;
 use MediaWiki\Revision\SlotRoleRegistry;
-use MediaWiki\Search\SearchEngine;
-use MediaWiki\Search\SearchEngineConfig;
-use MediaWiki\Search\SearchEngineFactory;
 use MediaWiki\Search\SearchResultThumbnailProvider;
 use MediaWiki\Search\TitleMatcher;
 use MediaWiki\Session\SessionManagerInterface;
@@ -191,7 +183,6 @@ use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\Options\UserOptionsManager;
 use MediaWiki\User\PasswordReset;
 use MediaWiki\User\Registration\UserRegistrationLookup;
-use MediaWiki\User\RestrictedUserGroupChecker;
 use MediaWiki\User\TalkPageNotificationManager;
 use MediaWiki\User\TempUser\RealTempUserConfig;
 use MediaWiki\User\TempUser\TempUserCreator;
@@ -210,11 +201,14 @@ use MediaWiki\User\UserRequirementsConditionCheckerFactory;
 use MediaWiki\Utils\UrlUtils;
 use MediaWiki\Watchlist\WatchedItemQueryService;
 use MediaWiki\Watchlist\WatchedItemStoreInterface;
-use MediaWiki\Watchlist\WatchlistLabelStore;
 use MediaWiki\Watchlist\WatchlistManager;
 use MessageCache;
+use MWLBFactory;
 use ObjectCacheFactory;
 use OldRevisionImporter;
+use SearchEngine;
+use SearchEngineConfig;
+use SearchEngineFactory;
 use UploadRevisionImporter;
 use WikiImporterFactory;
 use Wikimedia\EventRelayer\EventRelayerGroup;
@@ -930,13 +924,6 @@ class MediaWikiServices extends ServiceContainer {
 	}
 
 	/**
-	 * @since 1.46
-	 */
-	public function getChangeTagsStoreFactory(): ChangeTagsStoreFactory {
-		return $this->getService( 'ChangeTagsStoreFactory' );
-	}
-
-	/**
 	 * @since 1.41
 	 */
 	public function getChronologyProtector(): ChronologyProtector {
@@ -992,14 +979,6 @@ class MediaWikiServices extends ServiceContainer {
 	 */
 	public function getConfigSchema(): ConfigSchema {
 		return $this->getService( 'ConfigSchema' );
-	}
-
-	public function getConfirmEmailBuilderFactory(): ConfirmEmailBuilderFactory {
-		return $this->getService( 'ConfirmEmailBuilderFactory' );
-	}
-
-	public function getConfirmEmailSender(): ConfirmEmailSender {
-		return $this->getService( 'ConfirmEmailSender' );
 	}
 
 	/**
@@ -1391,13 +1370,6 @@ class MediaWikiServices extends ServiceContainer {
 	 */
 	public function getLanguageNameUtils(): LanguageNameUtils {
 		return $this->getService( 'LanguageNameUtils' );
-	}
-
-	/**
-	 * @since 1.46
-	 */
-	public function getLanguageNameSearch(): LanguageNameSearch {
-		return $this->getService( 'LanguageNameSearch' );
 	}
 
 	/** @since 1.45 */
@@ -1922,13 +1894,6 @@ class MediaWikiServices extends ServiceContainer {
 	}
 
 	/**
-	 * @since 1.46
-	 */
-	public function getRestrictedUserGroupChecker(): RestrictedUserGroupChecker {
-		return $this->getService( 'RestrictedUserGroupChecker' );
-	}
-
-	/**
 	 * @since 1.37
 	 */
 	public function getRestrictionStore(): RestrictionStore {
@@ -2293,7 +2258,6 @@ class MediaWikiServices extends ServiceContainer {
 
 	/**
 	 * @since 1.44
-	 * @internal
 	 */
 	public function getUserLinkRenderer(): UserLinkRenderer {
 		return $this->getService( 'UserLinkRenderer' );
@@ -2360,13 +2324,6 @@ class MediaWikiServices extends ServiceContainer {
 	 */
 	public function getWatchedItemStore(): WatchedItemStoreInterface {
 		return $this->getService( 'WatchedItemStore' );
-	}
-
-	/**
-	 * @since 1.46
-	 */
-	public function getWatchlistLabelStore(): WatchlistLabelStore {
-		return $this->getService( 'WatchlistLabelStore' );
 	}
 
 	/**

@@ -173,7 +173,7 @@ abstract class PoolCounter implements LoggerAwareInterface {
 				 */
 				return Status::newFatal(
 					'poolcounter-usage-error',
-					'You may only acquire a single non-nowait lock.'
+					'You may only aquire a single non-nowait lock.'
 				);
 			}
 		} elseif ( $this->timeout !== 0 ) {
@@ -225,7 +225,7 @@ abstract class PoolCounter implements LoggerAwareInterface {
 	 * @return string Slot key with the type and slot number
 	 */
 	protected function hashKeyIntoSlots( $type, $key, $slots ) {
-		return $type . ':' . ( (int)hexdec( substr( sha1( $key ), 0, 4 ) ) % $slots );
+		return $type . ':' . ( hexdec( substr( sha1( $key ), 0, 4 ) ) % $slots );
 	}
 
 	/**

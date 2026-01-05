@@ -12,7 +12,6 @@
  */
 
 use MediaWiki\Maintenance\Maintenance;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
@@ -71,7 +70,7 @@ class FixTimestamps extends Maintenance {
 		$numGoodRevs = 0;
 
 		foreach ( $res as $row ) {
-			$timestamp = (int)wfTimestamp( TS::UNIX, $row->rev_timestamp );
+			$timestamp = (int)wfTimestamp( TS_UNIX, $row->rev_timestamp );
 			$delta = $timestamp - $lastNormal;
 			$sign = $delta == 0 ? 0 : $delta / abs( $delta );
 			if ( $sign == 0 || $sign == $expectedSign ) {

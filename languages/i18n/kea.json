@@ -2,9 +2,9 @@
 	"@metadata": {
 		"authors": [
 			"Fitoschido",
-			"Letra.berdi",
 			"Quintino Lopes Castro Tavares",
-			"Waldyrious"
+			"Waldyrious",
+			"Letra.berdi"
 		]
 	},
 	"pagecategories": "{{PLURAL:$1|Katiguria|Katigurias}}",
@@ -286,8 +286,8 @@
 	"previewerrortext": "Okóre un éru nkuantu es pájina ta tentaba mostra privizualizason di bus alterason.",
 	"blockedtitle": "Es uzuáriu sta blokiadu",
 	"loginreqlink": "entra",
-	"noarticletext": "Inda ka izisti testu na es pájina.\nBu pode [[Special:Search/{{PAGENAME}}|piskiza pa títulu di es pájina]] na otus pájina,\n<span class=\"plainlinks\"> [{{fullurl:{{#Special:Log}}|page={{urlencode:{{FULLPAGENAME}}}}}} buska na rajistus ralasionadu],\no [{{fullurl:{{FULLPAGENAME}}|action=edit}} kiria es pájina]</span>.",
-	"noarticletext-nopermission": "Es pájina sta vaziu.\nBu podi [[Special:Search/{{PAGENAME}}|piskiza pa títulu des pájina]] na otus pájina,\no <span class=\"plainlinks\"> [{{fullurl:{{#Special:Log}}|page={{urlencode:{{FULLPAGENAME}}}}}} buska na rejistus relasionadus],\nma bu ka tene permisãu pa kria es pájina.",
+	"noarticletext": "Es pájina sta vaziu.\nBu podi [[Special:Search/{{PAGENAME}}|piskiza pa títulu des pájina]] na otus pájina,\n<span class=\"plainlinks\"> [{{fullurl:{{#Special:Log}}|page={{FULLPAGENAMEE}}}} buska na rejistus relasionadus],\no [{{fullurl:{{FULLPAGENAME}}|action=edit}} kria es pájina]</span>.",
+	"noarticletext-nopermission": "Es pájina sta vaziu.\nBu podi [[Special:Search/{{PAGENAME}}|piskiza pa títulu des pájina]] na otus pájina,\no <span class=\"plainlinks\"> [{{fullurl:{{#Special:Log}}|page={{FULLPAGENAMEE}}}} buska na rejistus relasionadus],\nma bu ka tene permisãu pa kria es pájina.",
 	"usercssyoucanpreview": "<strong>Dika:</strong> Uza es buton \"{{int:showpreview}}\" pa spurmenta bu CSS nobu anti di publika.",
 	"userjsonyoucanpreview": "<strong>Dika:</strong> Uza es buton \"{{int:showpreview}}\" pa spurmenta bu JSON nobu anti di publika.",
 	"userjsyoucanpreview": "<strong>Dika:</strong> Uza es buton \"{{int:showpreview}}\" pa spurmenta bu JavaScript nobu anti di publika.",
@@ -301,6 +301,8 @@
 	"previewconflict": "Es privizualizason di bus alterason ta rafliti kel testu di kaxa di idison tálikual el ta ser mostradu si bu disidi publika-l.",
 	"semiprotectedpagewarning": "<strong>Nota:</strong> Es página sta protegidu pa ki so uzuárius autorizadu podi edital.\nPa fins di referensia, últimu entrada di rejistu é aprizentadu abaixu:",
 	"templatesusedpreview": "{{PLURAL:$1|Pájina|Pájinas}} nkluídu na es privizualizason:",
+	"template-protected": "(protejidu)",
+	"template-semiprotected": "(semi-protegidu)",
 	"permissionserrors": "Eru di permison",
 	"postedit-confirmation-created": "Bu pájina foi [[Special:Diff/$2|kriadu]].",
 	"postedit-confirmation-saved": "[[Special:Diff/$2|Bu idison]] foi grabadu.",

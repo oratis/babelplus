@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Content;
-
 use MediaWiki\Content\JsonContent;
 use MediaWiki\Content\ValidationParams;
 use MediaWiki\Json\FormatJson;
@@ -10,8 +8,6 @@ use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Title\Title;
-use MediaWikiLangTestCase;
-use StatusValue;
 
 /**
  * @covers \MediaWiki\Content\JsonContentHandler

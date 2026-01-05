@@ -135,9 +135,9 @@ class TransactionProfiler implements LoggerAwareInterface {
 	 * warnings about getting any primary/replica connections at all.
 	 *
 	 * @param string $type Class EXPECTATION_* constant [default: TransactionProfiler::EXPECTATION_ANY]
+	 * @return ScopedCallback
 	 */
-	#[\NoDiscard]
-	public function silenceForScope( string $type = self::EXPECTATION_ANY ): ScopedCallback {
+	public function silenceForScope( string $type = self::EXPECTATION_ANY ) {
 		if ( $type === self::EXPECTATION_REPLICAS_ONLY ) {
 			$events = [];
 			foreach ( [ 'writes', 'masterConns' ] as $event ) {
@@ -158,28 +158,6 @@ class TransactionProfiler implements LoggerAwareInterface {
 				--$this->silenced[$event];
 			}
 		} );
-	}
-
-	/**
-	 * Get whether a given event is currently ignoring expectations.
-	 *
-	 * An event will be ignoring expectations if {@link self::silenceForScope} has been
-	 * called, the expectation was zero (for {@link self::EXPECTATION_REPLICAS_ONLY}), and
-	 * the returned {@link ScopedCallback} has not gone out of scope.
-	 *
-	 * The use of this method is intended for PHPUnit tests who want to validate if
-	 * the scope returned by {@link self::silenceForScope} is still in scope.
-	 *
-	 * @param string $event Event name. Valid event names are defined in {@see self::EVENT_NAMES}
-	 * @return bool Whether the given event is currently ignoring expectations.
-	 * @throws InvalidArgumentException If the provided event name is not one in {@see self::EVENT_NAMES}
-	 */
-	public function isSilenced( string $event ): bool {
-		if ( !isset( $this->silenced[$event] ) ) {
-			throw new InvalidArgumentException( "Unrecognised event name '$event' provided." );
-		}
-
-		return $this->silenced[$event] > 0;
 	}
 
 	/**
@@ -541,6 +519,7 @@ class TransactionProfiler implements LoggerAwareInterface {
 			$this->statsFactory->getCounter( 'rdbms_trxprofiler_warnings_total' )
 				->setLabel( 'event', $event )
 				->setLabel( 'method', $this->method )
+				->copyToStatsdAt( "rdbms_trxprofiler_warnings.$event.{$this->method}" )
 				->increment();
 		}
 

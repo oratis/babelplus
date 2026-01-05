@@ -19,7 +19,7 @@ class ValidateRegistrationFile extends Maintenance {
 	}
 
 	public function execute() {
-		$validator = new ExtensionJsonValidator( function ( $msg ): never {
+		$validator = new ExtensionJsonValidator( function ( $msg ) {
 			$this->fatalError( $msg );
 		} );
 		$validator->checkDependencies();

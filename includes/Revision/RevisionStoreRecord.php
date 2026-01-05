@@ -16,7 +16,6 @@ use MediaWiki\Permissions\Authority;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\Utils\MWTimestamp;
 use Wikimedia\Assert\Assert;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * A RevisionRecord representing an existing revision persisted in the revision table.
@@ -72,7 +71,7 @@ class RevisionStoreRecord extends RevisionRecord {
 
 		// Don't use MWTimestamp::convert, instead let any detailed exception from MWTimestamp
 		// bubble up (T254210)
-		$timestamp = ( new MWTimestamp( $row->rev_timestamp ) )->getTimestamp( TS::MW );
+		$timestamp = ( new MWTimestamp( $row->rev_timestamp ) )->getTimestamp( TS_MW );
 
 		$this->mUser = $user;
 		$this->mMinorEdit = (bool)$row->rev_minor_edit;
@@ -84,6 +83,7 @@ class RevisionStoreRecord extends RevisionRecord {
 		// allows rev_parent_id to be NULL.
 		$this->mParentId = isset( $row->rev_parent_id ) ? intval( $row->rev_parent_id ) : null;
 		$this->mSize = isset( $row->rev_len ) ? intval( $row->rev_len ) : null;
+		$this->mSha1 = !empty( $row->rev_sha1 ) ? $row->rev_sha1 : null;
 
 		// NOTE: we must not call $this->mTitle->getLatestRevID() here, since the state of
 		// page_latest may be in limbo during revision creation. In that case, calling
@@ -178,7 +178,11 @@ class RevisionStoreRecord extends RevisionRecord {
 	 * @return string The revision hash, never null. May be computed on the fly.
 	 */
 	public function getSha1() {
-		return $this->mSlots->computeSha1();
+		// If hash is null, calculate it and remember (potentially SLOW!)
+		// This is for compatibility with old database rows that don't have the field set.
+		$this->mSha1 ??= $this->mSlots->computeSha1();
+
+		return $this->mSha1;
 	}
 
 	/**

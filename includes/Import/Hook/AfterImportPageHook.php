@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Import\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Title\ForeignTitle;
 use MediaWiki\Title\Title;
@@ -29,6 +29,3 @@ interface AfterImportPageHook {
 		$sRevCount, $pageInfo
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( AfterImportPageHook::class, 'MediaWiki\\Hook\\AfterImportPageHook' );

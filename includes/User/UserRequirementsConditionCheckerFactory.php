@@ -7,10 +7,8 @@
 namespace MediaWiki\User;
 
 use MediaWiki\Config\ServiceOptions;
-use MediaWiki\Context\IContextSource;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\Permissions\GroupPermissionsLookup;
-use MediaWiki\User\Registration\UserRegistrationLookup;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -27,9 +25,6 @@ class UserRequirementsConditionCheckerFactory {
 		private readonly HookContainer $hookContainer,
 		private readonly LoggerInterface $logger,
 		private readonly UserEditTracker $userEditTracker,
-		private readonly UserRegistrationLookup $userRegistrationLookup,
-		private readonly UserFactory $userFactory,
-		private readonly IContextSource $context,
 	) {
 	}
 
@@ -50,9 +45,6 @@ class UserRequirementsConditionCheckerFactory {
 				$this->hookContainer,
 				$this->logger,
 				$this->userEditTracker,
-				$this->userRegistrationLookup,
-				$this->userFactory,
-				$this->context,
 				$userGroupManager,
 				$wikiId,
 			);

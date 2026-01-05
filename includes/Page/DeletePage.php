@@ -766,6 +766,7 @@ class DeletePage {
 					'ar_len'        => $row->rev_len,
 					'ar_page_id'    => $id,
 					'ar_deleted'    => $this->suppress ? $bitfield : $row->rev_deleted,
+					'ar_sha1'       => $row->rev_sha1,
 				] + $this->commentStore->insert( $dbw, 'ar_comment', $comment );
 
 			$rowsInsert[] = $rowInsert;

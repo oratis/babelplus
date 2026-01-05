@@ -1,13 +1,8 @@
 <?php
 
-namespace MediaWiki\Tests\Language\Converters;
-
-use MediaWiki\Tests\Language\LanguageConverterTestTrait;
-use MediaWikiIntegrationTestCase;
-
 /**
  * @group Language
- * @covers \ZghConverter
+ * @covers \ShiConverter
  */
 class ZghConverterTest extends MediaWikiIntegrationTestCase {
 
@@ -25,10 +20,10 @@ class ZghConverterTest extends MediaWikiIntegrationTestCase {
 		return [
 			[
 				[
-					'zgh'      => 'ⴰⴱⴳⴳⵯⴷⴹⴻⴼⴽⴽⵯ ⵀⵃⵄⵅⵇⵉⵊⵍⵎⵏⵒ ⵓⵔⵕⵖⵙⵚⵛⵜⵟⵡ ⵢⵣⵥ',
-					'zgh-latn' => 'abggʷdḍefkkʷ hḥɛxqijlmnp urṛɣsṣctṭw yzẓ',
+					'zgh'      => 'ⴰⴱⴳⴳⵯⴷⴹⴻⴼⴽⴽⵯ ⵀⵃⵄⵅⵇⵉⵊⵍⵎⵏ ⵓⵔⵕⵖⵙⵚⵛⵜⵟⵡ ⵢⵣⵥ',
+					'zgh-latn' => 'abggʷdḍefkkʷ hḥɛxqijlmn urṛɣsṣctṭw yzẓ',
 				],
-				'ⴰⴱⴳⴳⵯⴷⴹⴻⴼⴽⴽⵯ ⵀⵃⵄⵅⵇⵉⵊⵍⵎⵏⵒ ⵓⵔⵕⵖⵙⵚⵛⵜⵟⵡ ⵢⵣⵥ'
+				'ⴰⴱⴳⴳⵯⴷⴹⴻⴼⴽⴽⵯ ⵀⵃⵄⵅⵇⵉⵊⵍⵎⵏ ⵓⵔⵕⵖⵙⵚⵛⵜⵟⵡ ⵢⵣⵥ'
 			],
 		];
 	}

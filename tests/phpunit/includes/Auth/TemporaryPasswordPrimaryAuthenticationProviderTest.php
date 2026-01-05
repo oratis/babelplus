@@ -51,9 +51,7 @@ class TemporaryPasswordPrimaryAuthenticationProviderTest extends MediaWikiIntegr
 		$this->manager = new AuthManager(
 			new FauxRequest(),
 			$mwServices->getMainConfig(),
-			$mwServices->getChangeTagsStore(),
 			$this->getDummyObjectFactory(),
-			$mwServices->getObjectCacheFactory(),
 			$hookContainer,
 			$mwServices->getReadOnlyMode(),
 			$this->createNoOpMock( UserNameUtils::class ),
@@ -65,7 +63,6 @@ class TemporaryPasswordPrimaryAuthenticationProviderTest extends MediaWikiIntegr
 			$mwServices->getBotPasswordStore(),
 			$mwServices->getUserFactory(),
 			$mwServices->getUserIdentityLookup(),
-			$mwServices->getUserIdentityUtils(),
 			$mwServices->getUserOptionsManager(),
 			$mwServices->getNotificationService(),
 			$mwServices->getSessionManager()

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Parser\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Parser\Parser;
 use MediaWiki\Parser\StripState;
@@ -26,6 +26,3 @@ interface InternalParseBeforeLinksHook {
 	 */
 	public function onInternalParseBeforeLinks( $parser, &$text, $stripState );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( InternalParseBeforeLinksHook::class, 'MediaWiki\\Hook\\InternalParseBeforeLinksHook' );

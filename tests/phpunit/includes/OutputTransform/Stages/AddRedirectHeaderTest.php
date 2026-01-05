@@ -6,7 +6,6 @@ namespace MediaWiki\Tests\OutputTransform\Stages;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\OutputTransform\OutputTransformStage;
 use MediaWiki\OutputTransform\Stages\AddRedirectHeader;
-use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Parser\ParserOutput;
 use MediaWiki\Tests\OutputTransform\OutputTransformStageTestBase;
 use Psr\Log\NullLogger;
@@ -28,11 +27,11 @@ class AddRedirectHeaderTest extends OutputTransformStageTestBase {
 	public static function provideShouldRun(): iterable {
 		$po = new ParserOutput();
 		$po->setRedirectHeader( 'xyz' );
-		yield [ $po, ParserOptions::newFromAnon(), [] ];
+		yield [ $po, null, [] ];
 	}
 
 	public static function provideShouldNotRun(): array {
-		return [ [ new ParserOutput(), ParserOptions::newFromAnon(), [] ] ];
+		return [ [ new ParserOutput(), null, [] ] ];
 	}
 
 	public static function provideTransform(): array {
@@ -46,6 +45,6 @@ EOF;
 		$po->setRedirectHeader( $redirect );
 		$expected = new ParserOutput( $expectedText );
 		$expected->setRedirectHeader( $redirect );
-		return [ [ $po, ParserOptions::newFromAnon(), [], $expected ] ];
+		return [ [ $po, null, [], $expected ] ];
 	}
 }

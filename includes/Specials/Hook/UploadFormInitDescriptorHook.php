@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -20,6 +20,3 @@ interface UploadFormInitDescriptorHook {
 	 */
 	public function onUploadFormInitDescriptor( &$descriptor );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UploadFormInitDescriptorHook::class, 'MediaWiki\\Hook\\UploadFormInitDescriptorHook' );

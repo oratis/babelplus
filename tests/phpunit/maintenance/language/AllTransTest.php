@@ -4,7 +4,7 @@ namespace MediaWiki\Tests\Maintenance;
 
 use AllTrans;
 use MediaWiki\Json\FormatJson;
-use MediaWiki\Tests\Mocks\Language\MockLocalisationCacheTrait;
+use MediaWiki\Tests\Language\MockLocalisationCacheTrait;
 
 /**
  * @covers \AllTrans

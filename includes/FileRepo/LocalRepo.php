@@ -20,8 +20,6 @@ use MediaWiki\Permissions\Authority;
 use MediaWiki\Status\Status;
 use MediaWiki\Storage\BlobStore;
 use MediaWiki\Title\Title;
-use MediaWiki\Upload\UploadStash;
-use MediaWiki\User\UserIdentity;
 use MediaWiki\WikiMap\WikiMap;
 use stdClass;
 use Wikimedia\ObjectCache\WANObjectCache;
@@ -83,7 +81,7 @@ class LocalRepo extends FileRepo {
 	public function __construct( ?array $info = null ) {
 		parent::__construct( $info );
 
-		$this->dbDomain = WikiMap::getCurrentWikiDbDomain()->getId();
+		$this->dbDomain = WikiMap::getCurrentWikiDbDomain();
 		$this->hasAccessibleSharedCache = true;
 
 		$this->hasSha1Storage = ( $info['storageLayout'] ?? null ) === 'sha1';
@@ -681,16 +679,6 @@ class LocalRepo extends FileRepo {
 				->newBlobStore( $this->dbDomain );
 		}
 		return $this->blobStore;
-	}
-
-	/**
-	 * Get an UploadStash associated with this repo.
-	 *
-	 * @param UserIdentity|null $user
-	 * @return UploadStash
-	 */
-	public function getUploadStash( ?UserIdentity $user = null ) {
-		return new UploadStash( $this, $user );
 	}
 }
 

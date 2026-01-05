@@ -8,7 +8,6 @@ namespace MediaWiki\Linker;
 
 use MediaWiki\Cache\LinkCache;
 use MediaWiki\Config\ServiceOptions;
-use MediaWiki\Context\IContextSource;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Html\Html;
@@ -21,11 +20,6 @@ use MediaWiki\SpecialPage\SpecialPageFactory;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleFormatter;
 use MediaWiki\Title\TitleValue;
-use MediaWiki\User\TempUser\TempUserConfig;
-use MediaWiki\User\TempUser\TempUserDetailsLookup;
-use MediaWiki\User\UserIdentity;
-use MediaWiki\User\UserIdentityLookup;
-use MediaWiki\User\UserNameUtils;
 use Wikimedia\Assert\Assert;
 use Wikimedia\HtmlArmor\HtmlArmor;
 use Wikimedia\Parsoid\Core\LinkTarget;
@@ -82,20 +76,20 @@ class LinkRenderer {
 	 */
 	private $specialPageFactory;
 
-	private UserLinkRenderer $userLinkRenderer;
-
 	/**
 	 * @internal For use by LinkRendererFactory
+	 *
+	 * @param TitleFormatter $titleFormatter
+	 * @param LinkCache $linkCache
+	 * @param SpecialPageFactory $specialPageFactory
+	 * @param HookContainer $hookContainer
+	 * @param ServiceOptions $options
 	 */
 	public function __construct(
 		TitleFormatter $titleFormatter,
 		LinkCache $linkCache,
 		SpecialPageFactory $specialPageFactory,
 		HookContainer $hookContainer,
-		TempUserConfig $tempUserConfig,
-		TempUserDetailsLookup $tempUserDetailsLookup,
-		UserIdentityLookup $userIdentityLookup,
-		UserNameUtils $userNameUtils,
 		ServiceOptions $options
 	) {
 		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
@@ -105,15 +99,6 @@ class LinkRenderer {
 		$this->linkCache = $linkCache;
 		$this->specialPageFactory = $specialPageFactory;
 		$this->hookRunner = new HookRunner( $hookContainer );
-		$this->userLinkRenderer = new UserLinkRenderer(
-			$hookContainer,
-			$tempUserConfig,
-			$specialPageFactory,
-			$this,
-			$tempUserDetailsLookup,
-			$userIdentityLookup,
-			$userNameUtils
-		);
 	}
 
 	/**
@@ -298,7 +283,7 @@ class LinkRenderer {
 		if ( $isExternal ) {
 			$classes[] = 'extiw';
 		}
-		$colour = $this->getLinkClasses( $target, $this->isDefaultLinkCaption( $target, $text ) );
+		$colour = $this->getLinkClasses( $target );
 		if ( $colour !== '' ) {
 			$classes[] = $colour;
 		}
@@ -354,9 +339,8 @@ class LinkRenderer {
 		}
 
 		$url = $this->getLinkURL( $target, $query );
-		$classes = rtrim( 'new ' . $this->getLinkClasses( $target, $this->isDefaultLinkCaption( $target, $text ) ) );
 		// Define empty attributes here for consistent order in the output
-		$attribs = [ 'href' => null, 'class' => $classes, 'title' => null ];
+		$attribs = [ 'href' => null, 'class' => [], 'title' => null ];
 
 		$prefixedText = $this->titleFormatter->getPrefixedText( $target );
 		if ( $prefixedText !== '' ) {
@@ -491,30 +475,6 @@ class LinkRenderer {
 	}
 
 	/**
-	 * Render a user page link (or user contributions for anonymous and
-	 * temporary users). Returns potentially cached link HTML.
-	 *
-	 * @param UserIdentity $targetUser The user to render a link for.
-	 * @param IContextSource $context
-	 * @param ?string $altUserName Optional text to display instead of the user
-	 *   name, or `null` to use the user name.
-	 * @param array<string,string> $attributes Optional extra HTML attributes
-	 *   for the link.
-	 * @return string HTML fragment
-	 * @since 1.45
-	 */
-	public function makeUserLink(
-		UserIdentity $targetUser,
-		IContextSource $context,
-		?string $altUserName = null,
-		array $attributes = []
-	): string {
-		return $this->userLinkRenderer->userLink(
-			$targetUser, $context, $altUserName, $attributes
-		);
-	}
-
-	/**
 	 * Builds the final <a> element
 	 *
 	 * @param LinkTarget|PageReference $target Page that will be visited when the user clicks on the link.
@@ -609,33 +569,28 @@ class LinkRenderer {
 	 * makeKnownLink() or in LinkHolderArray).
 	 *
 	 * @param LinkTarget|PageReference $target Page that will be visited when the user clicks on the link.
-	 * @param bool $isDefaultCaption Whether the link text is the default caption for the target.
 	 * @return string CSS class
 	 */
-	public function getLinkClasses( $target, bool $isDefaultCaption = false ) {
+	public function getLinkClasses( $target ) {
 		Assert::parameterType( [ LinkTarget::class, PageReference::class ], $target, '$target' );
 		$target = $this->castToLinkTarget( $target );
 		// Don't call LinkCache if the target is "non-proper"
-		if ( $target->isExternal() || $target->getText() === '' ) {
+		if ( $target->isExternal() || $target->getText() === '' || $target->getNamespace() < 0 ) {
 			return '';
-		}
-		$classes = $this->userLinkRenderer->getLinkClasses( $target, $isDefaultCaption );
-		if ( $target->getNamespace() < 0 ) {
-			return implode( ' ', $classes );
 		}
 		// Make sure the target is in the cache
 		$id = $this->linkCache->addLinkObj( $target );
 		if ( $id == 0 ) {
 			// Doesn't exist
-			return implode( ' ', $classes );
+			return '';
 		}
 
 		if ( $this->linkCache->getGoodLinkFieldObj( $target, 'redirect' ) ) {
 			# Page is a redirect
-			$classes[] = 'mw-redirect';
+			return 'mw-redirect';
 		}
 
-		return implode( ' ', $classes );
+		return '';
 	}
 
 	/**
@@ -662,64 +617,5 @@ class LinkRenderer {
 			return $target;
 		}
 		return TitleValue::newFromLinkTarget( $target );
-	}
-
-	/**
-	 * Checks if the provided caption can be considered a default link caption
-	 * for the given target page.
-	 *
-	 * A caption is default if, after stripping HTML tags and decoding HTML entities in it:
-	 *   - it's a suffix of the target's prefixed title, and
-	 *   - the target's prefixed title, after stripping the caption from the end,
-	 *     ends with a colon, slash, or is empty.
-	 *
-	 * NOTE: For a given title, there may be multiple captions that are considered default.
-	 *   For example, for "User:Admin/Sandbox", the default captions will be: "Sandbox",
-	 *   "Admin/Sandbox", and "User:Admin/Sandbox".
-	 *
-	 * Examples:
-	 *  - Target: "Help:Contents", Caption: "Contents" => true
-	 *  - Target: "Help:Contents", Caption: "Help:Contents" => true
-	 *  - Target: "Help:Contents", Caption: "ents" => false
-	 *  - Target: "User:~2025-1", Caption: "&#126;2025-1" => true
-	 *
-	 * @return bool
-	 */
-	public function isDefaultLinkCaption(
-		LinkTarget|PageReference|null $targetPage,
-		string|HtmlArmor|null $caption
-	): bool {
-		// If the target page is invalid, it has no default caption
-		if ( $targetPage === null ) {
-			return false;
-		}
-		if ( $caption instanceof HtmlArmor ) {
-			$caption = HtmlArmor::getHtml( $caption );
-		}
-		$caption ??= $this->getLinkText( $targetPage );
-		$caption = html_entity_decode( strip_tags( $caption ) );
-		$captionLength = mb_strlen( $caption );
-
-		$prefixedTitle = $this->titleFormatter->getPrefixedText( $targetPage );
-		$titleLength = mb_strlen( $prefixedTitle );
-
-		if ( $captionLength > $titleLength ) {
-			return false;
-		}
-
-		$titleSuffix = mb_substr( $prefixedTitle, -$captionLength );
-		if ( $titleSuffix !== $caption ) {
-			return false;
-		}
-
-		if ( $titleLength === $captionLength ) {
-			return true;
-		}
-
-		$precedingChar = mb_substr( $prefixedTitle, -$captionLength - 1, 1 );
-		if ( $precedingChar === ':' || $precedingChar === '/' ) {
-			return true;
-		}
-		return false;
 	}
 }

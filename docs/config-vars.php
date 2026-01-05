@@ -963,12 +963,6 @@ $wgNewPasswordExpiry = null;
 $wgUserEmailConfirmationTokenExpiry = null;
 
 /**
- * Config variable stub for the UserEmailConfirmationUseHTML setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::UserEmailConfirmationUseHTML
- */
-$wgUserEmailConfirmationUseHTML = null;
-
-/**
  * Config variable stub for the PasswordExpirationDays setting, for use by phpdoc and IDEs.
  * @see MediaWiki\MainConfigSchema::PasswordExpirationDays
  */
@@ -1243,12 +1237,6 @@ $wgVirtualDomainsMapping = null;
  * @see MediaWiki\MainConfigSchema::FileSchemaMigrationStage
  */
 $wgFileSchemaMigrationStage = null;
-
-/**
- * Config variable stub for the ImageLinksSchemaMigrationStage setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::ImageLinksSchemaMigrationStage
- */
-$wgImageLinksSchemaMigrationStage = null;
 
 /**
  * Config variable stub for the ExternalLinksDomainGaps setting, for use by phpdoc and IDEs.
@@ -2418,12 +2406,6 @@ $wgNoFollowDomainExceptions = null;
 $wgRegisterInternalExternals = null;
 
 /**
- * Config variable stub for the ExternalLinksIgnoreDomains setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::ExternalLinksIgnoreDomains
- */
-$wgExternalLinksIgnoreDomains = null;
-
-/**
  * Config variable stub for the AllowDisplayTitle setting, for use by phpdoc and IDEs.
  * @see MediaWiki\MainConfigSchema::AllowDisplayTitle
  */
@@ -2658,12 +2640,6 @@ $wgConditionalUserOptions = null;
 $wgHiddenPrefs = null;
 
 /**
- * Config variable stub for the UserJsPrefLimit setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::UserJsPrefLimit
- */
-$wgUserJsPrefLimit = null;
-
-/**
  * Config variable stub for the InvalidUsernameCharacters setting, for use by phpdoc and IDEs.
  * @see MediaWiki\MainConfigSchema::InvalidUsernameCharacters
  */
@@ -2806,12 +2782,6 @@ $wgGroupsAddToSelf = null;
  * @see MediaWiki\MainConfigSchema::GroupsRemoveFromSelf
  */
 $wgGroupsRemoveFromSelf = null;
-
-/**
- * Config variable stub for the RestrictedGroups setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::RestrictedGroups
- */
-$wgRestrictedGroups = null;
 
 /**
  * Config variable stub for the RestrictionTypes setting, for use by phpdoc and IDEs.
@@ -3166,6 +3136,12 @@ $wgRestAllowCrossOriginCookieAuth = null;
  * @see MediaWiki\MainConfigSchema::SessionSecret
  */
 $wgSessionSecret = null;
+
+/**
+ * Config variable stub for the EnableUnsafeXsltOption setting, for use by phpdoc and IDEs.
+ * @see MediaWiki\MainConfigSchema::EnableUnsafeXsltOption
+ */
+$wgEnableUnsafeXsltOption = null;
 
 /**
  * Config variable stub for the CookieExpiration setting, for use by phpdoc and IDEs.
@@ -3781,18 +3757,6 @@ $wgRecentChangesFlags = null;
 $wgWatchlistExpiry = null;
 
 /**
- * Config variable stub for the EnableWatchlistLabels setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::EnableWatchlistLabels
- */
-$wgEnableWatchlistLabels = null;
-
-/**
- * Config variable stub for the WatchlistLabelsMaxPerUser setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::WatchlistLabelsMaxPerUser
- */
-$wgWatchlistLabelsMaxPerUser = null;
-
-/**
  * Config variable stub for the WatchlistPurgeRate setting, for use by phpdoc and IDEs.
  * @see MediaWiki\MainConfigSchema::WatchlistPurgeRate
  */
@@ -3803,6 +3767,12 @@ $wgWatchlistPurgeRate = null;
  * @see MediaWiki\MainConfigSchema::WatchlistExpiryMaxDuration
  */
 $wgWatchlistExpiryMaxDuration = null;
+
+/**
+ * Config variable stub for the EditWatchlistPaginate setting, for use by phpdoc and IDEs.
+ * @see MediaWiki\MainConfigSchema::EditWatchlistPaginate
+ */
+$wgEditWatchlistPaginate = null;
 
 /**
  * Config variable stub for the EnableChangesListQueryPartitioning setting, for use by phpdoc and IDEs.
@@ -4251,6 +4221,13 @@ $wgAPIMaxUncachedDiffs = null;
 $wgAPIMaxLagThreshold = null;
 
 /**
+ * Config variable stub for the APIRequestLog setting, for use by phpdoc and IDEs.
+ * @see MediaWiki\MainConfigSchema::APIRequestLog
+ * @deprecated since 1.43; use api or api-request $wgDebugLogGroups channel
+ */
+$wgAPIRequestLog = null;
+
+/**
  * Config variable stub for the APICacheHelpTimeout setting, for use by phpdoc and IDEs.
  * @see MediaWiki\MainConfigSchema::APICacheHelpTimeout
  */
@@ -4291,12 +4268,6 @@ $wgAllowedCorsHeaders = null;
  * @see MediaWiki\MainConfigSchema::RestAPIAdditionalRouteFiles
  */
 $wgRestAPIAdditionalRouteFiles = null;
-
-/**
- * Config variable stub for the RestSandboxSpecs setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::RestSandboxSpecs
- */
-$wgRestSandboxSpecs = null;
 
 /**
  * Config variable stub for the MaxShellMemory setting, for use by phpdoc and IDEs.
@@ -4551,19 +4522,7 @@ $wgOutputPipelineStages = null;
 $wgFeatureShutdown = null;
 
 /**
- * Config variable stub for the CloneArticleParserOutput setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::CloneArticleParserOutput
- */
-$wgCloneArticleParserOutput = null;
-
-/**
  * Config variable stub for the UseLeximorph setting, for use by phpdoc and IDEs.
  * @see MediaWiki\MainConfigSchema::UseLeximorph
  */
 $wgUseLeximorph = null;
-
-/**
- * Config variable stub for the UsePostprocCache setting, for use by phpdoc and IDEs.
- * @see MediaWiki\MainConfigSchema::UsePostprocCache
- */
-$wgUsePostprocCache = null;

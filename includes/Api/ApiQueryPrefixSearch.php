@@ -8,9 +8,9 @@
 
 namespace MediaWiki\Api;
 
-use MediaWiki\Search\SearchEngine;
-use MediaWiki\Search\SearchEngineConfig;
-use MediaWiki\Search\SearchEngineFactory;
+use SearchEngine;
+use SearchEngineConfig;
+use SearchEngineFactory;
 
 /**
  * @ingroup API

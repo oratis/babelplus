@@ -2,6 +2,8 @@
 
 namespace MediaWiki\FileBackend\LockManager;
 
+use LockManagerGroup;
+
 /**
  * Service to construct LockManagerGroups.
  */

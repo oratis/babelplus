@@ -14,7 +14,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Title\Title;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\IntegerDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Query module to enumerate all create-protected pages.
@@ -130,7 +129,7 @@ class ApiQueryProtectedTitles extends ApiQueryGeneratorBase {
 				$vals = [];
 				ApiQueryBase::addTitleInfo( $vals, $title );
 				if ( isset( $prop['timestamp'] ) ) {
-					$vals['timestamp'] = wfTimestamp( TS::ISO_8601, $row->pt_timestamp );
+					$vals['timestamp'] = wfTimestamp( TS_ISO_8601, $row->pt_timestamp );
 				}
 
 				if ( isset( $prop['user'] ) && $row->user_name !== null ) {

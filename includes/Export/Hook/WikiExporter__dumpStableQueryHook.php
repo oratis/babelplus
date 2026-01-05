@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Export\Hook;
+namespace MediaWiki\Hook;
 
 // phpcs:disable Squiz.Classes.ValidClassName.NotCamelCaps
 /**
@@ -24,6 +24,3 @@ interface WikiExporter__dumpStableQueryHook {
 	 */
 	public function onWikiExporter__dumpStableQuery( &$tables, &$opts, &$join );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( WikiExporter__dumpStableQueryHook::class, 'MediaWiki\\Hook\\WikiExporter__dumpStableQueryHook' );

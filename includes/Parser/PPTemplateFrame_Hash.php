@@ -197,7 +197,6 @@ class PPTemplateFrame_Hash extends PPFrame_Hash {
 
 	/** @inheritDoc */
 	public function setTTL( $ttl ) {
-		wfDeprecated( __METHOD__, '1.46' );
 		parent::setTTL( $ttl );
 		$this->parent->setTTL( $ttl );
 	}

@@ -7,8 +7,6 @@
  * @ingroup Upload
  */
 
-namespace MediaWiki\Upload;
-
 use MediaWiki\Request\WebRequest;
 use MediaWiki\Request\WebRequestUpload;
 
@@ -66,14 +64,6 @@ class UploadFromFile extends UploadBase {
 		return 'file';
 	}
 
-	public function skipStashFileAttempt(): bool {
-		$tempName = $this->mUpload?->getTempName();
-		if ( $tempName !== null ) {
-			return !file_exists( $tempName );
-		}
-		return parent::skipStashFileAttempt();
-	}
-
 	/**
 	 * @return array
 	 */
@@ -95,6 +85,3 @@ class UploadFromFile extends UploadBase {
 		return parent::verifyUpload();
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UploadFromFile::class, 'UploadFromFile' );

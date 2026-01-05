@@ -16,7 +16,6 @@ use MediaWiki\Request\WebRequest;
 use Wikimedia\AtEase\AtEase;
 use Wikimedia\IPUtils;
 use Wikimedia\ObjectCache\BagOStuff;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Base class for data storage in the file system.
@@ -109,13 +108,13 @@ abstract class FileCacheBase {
 
 	/**
 	 * Get the last-modified timestamp of the cache file
-	 * @return string|bool TS::MW timestamp
+	 * @return string|bool TS_MW timestamp
 	 */
 	public function cacheTimestamp() {
 		$timestamp = filemtime( $this->cachePath() );
 
 		return ( $timestamp !== false )
-			? wfTimestamp( TS::MW, $timestamp )
+			? wfTimestamp( TS_MW, $timestamp )
 			: false;
 	}
 

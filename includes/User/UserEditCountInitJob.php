@@ -4,8 +4,6 @@
  * @file
  */
 
-namespace MediaWiki\User;
-
 use MediaWiki\JobQueue\GenericParameterJob;
 use MediaWiki\JobQueue\Job;
 use MediaWiki\MediaWikiServices;
@@ -41,8 +39,7 @@ class UserEditCountInitJob extends Job implements GenericParameterJob {
 				'user_id' => $this->params['userId'],
 				$dbw->expr( 'user_editcount', '=', null )->or( 'user_editcount', '<', $this->params['editCount'] )
 			] )
-			->caller( __METHOD__ )
-			->execute();
+			->caller( __METHOD__ )->execute();
 
 		return true;
 	}

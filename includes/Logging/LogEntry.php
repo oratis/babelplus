@@ -69,7 +69,7 @@ interface LogEntry {
 	/**
 	 * Get the timestamp when the action was executed.
 	 *
-	 * @return string TS::MW timestamp, a string with 14 digits
+	 * @return string TS_MW timestamp, a string with 14 digits
 	 */
 	public function getTimestamp();
 
@@ -92,12 +92,6 @@ interface LogEntry {
 	 * @return bool
 	 */
 	public function isDeleted( $field );
-
-	/**
-	 * Whether the parameters for this log are stored in new or
-	 * old format.
-	 */
-	public function isLegacy(): bool;
 }
 
 /** @deprecated class alias since 1.44 */

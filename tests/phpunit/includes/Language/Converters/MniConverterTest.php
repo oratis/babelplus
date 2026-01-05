@@ -8,11 +8,6 @@
  * @author Nokib Sarkar
  */
 
-namespace MediaWiki\Tests\Language\Converters;
-
-use MediaWiki\Tests\Language\LanguageConverterTestTrait;
-use MediaWikiIntegrationTestCase;
-
 /**
  * @covers \MniConverter
  */

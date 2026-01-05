@@ -21,8 +21,8 @@ use MediaWiki\Request\WebRequest;
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleArrayFromResult;
-use MediaWiki\Upload\UploadBase;
 use stdClass;
+use UploadBase;
 use Wikimedia\Rdbms\IResultWrapper;
 
 /**
@@ -883,30 +883,14 @@ class ImagePage extends Article {
 	 * @return IResultWrapper
 	 */
 	protected function queryImageLinks( $target, $limit ) {
-		$dbr = $this->dbProvider->getReplicaDatabase( ImageLinksTable::VIRTUAL_DOMAIN );
-
-		$migrationStage = MediaWikiServices::getInstance()->getMainConfig()->get(
-			MainConfigNames::ImageLinksSchemaMigrationStage
-		);
-
-		$qb = $dbr->newSelectQueryBuilder()
-			->select( [ 'page_namespace', 'page_title' ] )
+		return $this->dbProvider->getReplicaDatabase( ImageLinksTable::VIRTUAL_DOMAIN )->newSelectQueryBuilder()
+			->select( [ 'page_namespace', 'page_title', 'il_to' ] )
 			->from( 'imagelinks' )
 			->join( 'page', null, 'il_from = page_id' )
+			->where( [ 'il_to' => $target ] )
 			->orderBy( 'il_from' )
 			->limit( $limit + 1 )
-			->caller( __METHOD__ );
-
-		if ( $migrationStage & SCHEMA_COMPAT_READ_OLD ) {
-			$qb->select( 'il_to' );
-			$qb->where( [ 'il_to' => $target ] );
-		} else {
-			$qb->select( [ 'il_to' => 'lt_title' ] );
-			$qb->join( 'linktarget', null, 'il_target_id = lt_id' );
-			$qb->where( [ 'lt_title' => $target, 'lt_namespace' => NS_FILE ] );
-		}
-
-		return $qb->fetchResultSet();
+			->caller( __METHOD__ )->fetchResultSet();
 	}
 
 	protected function imageLinks() {

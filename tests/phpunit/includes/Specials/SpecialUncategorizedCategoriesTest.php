@@ -1,10 +1,8 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Language\RawMessage;
 use MediaWiki\Specials\SpecialUncategorizedCategories;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\Rdbms\Expression;
 
 /**

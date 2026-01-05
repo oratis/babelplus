@@ -554,7 +554,7 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 	}
 
 	/**
-	 * @param string $timestamp TS::MW timestamp
+	 * @param string $timestamp TS_MW timestamp
 	 * @since 1.34
 	 */
 	public function setRevisionTimestampUsed( $timestamp ): void {
@@ -562,7 +562,7 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 	}
 
 	/**
-	 * @return string|null TS::MW timestamp or null if not used
+	 * @return string|null TS_MW timestamp or null if not used
 	 * @since 1.34
 	 */
 	public function getRevisionTimestampUsed() {
@@ -1041,14 +1041,14 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 	}
 
 	/**
-	 * @return string|null TS::MW timestamp of the revision content
+	 * @return string|null TS_MW timestamp of the revision content
 	 */
 	public function getRevisionTimestamp(): ?string {
 		return $this->mTimestamp;
 	}
 
 	/**
-	 * @return string|null TS::MW timestamp of the revision content
+	 * @return string|null TS_MW timestamp of the revision content
 	 * @deprecated since 1.42; use ::getRevisionTimestamp() instead
 	 */
 	public function getTimestamp() {
@@ -1207,14 +1207,14 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 	}
 
 	/**
-	 * @param ?string $timestamp TS::MW timestamp of the revision content
+	 * @param ?string $timestamp TS_MW timestamp of the revision content
 	 */
 	public function setRevisionTimestamp( ?string $timestamp ): void {
 		$this->mTimestamp = $timestamp;
 	}
 
 	/**
-	 * @param ?string $timestamp TS::MW timestamp of the revision content
+	 * @param ?string $timestamp TS_MW timestamp of the revision content
 	 *
 	 * @return ?string The previous value of the timestamp
 	 * @deprecated since 1.42; use ::setRevisionTimestamp() instead
@@ -1391,8 +1391,6 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 		$config = MediaWikiServices::getInstance()->getMainConfig();
 		$server = $config->get( MainConfigNames::Server );
 		$registerInternalExternals = $config->get( MainConfigNames::RegisterInternalExternals );
-		$ignoreDomains = $config->get( MainConfigNames::ExternalLinksIgnoreDomains );
-
 		# Replace unnecessary URL escape codes with the referenced character
 		# This prevents spammers from hiding links from the filters
 		$url = Parser::normalizeLinkUrl( $url );
@@ -1400,11 +1398,6 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 		$registerExternalLink = true;
 		if ( !$registerInternalExternals ) {
 			$registerExternalLink = !self::isLinkInternal( $server, $url );
-		}
-		if (
-			MediaWikiServices::getInstance()->getUrlUtils()->matchesDomainList( $url, $ignoreDomains )
-		) {
-			$registerExternalLink = false;
 		}
 		if ( $registerExternalLink ) {
 			$this->mExternalLinks[$url] = 1;
@@ -2748,10 +2741,6 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 			$this->mExtensionData,
 			$source->mExtensionData
 		);
-
-		if ( $source->mCacheExpiry !== null ) {
-			$this->updateCacheExpiry( $source->mCacheExpiry );
-		}
 	}
 
 	/**
@@ -2911,6 +2900,9 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 				wfDeprecated( __METHOD__ . ' with unusual page property', '1.45' );
 			}
 		}
+		foreach ( $this->mWarningMsgs as $key => $msg ) {
+			$metadata->addWarningMsgVal( $msg, (string)$key );
+		}
 		foreach ( $this->mLimitReportData as $key => $value ) {
 			$metadata->setLimitReportData( (string)$key, $value );
 		}
@@ -2961,9 +2953,6 @@ class ParserOutput extends CacheTime implements ContentMetadataCollector {
 				foreach ( $this->getLinkList( $linkType ) as $linkItem ) {
 					$metadata->appendLinkList( $linkType, $linkItem );
 				}
-			}
-			foreach ( $this->mWarningMsgs as $key => $msg ) {
-				$metadata->addWarningMsgVal( $msg, (string)$key );
 			}
 		}
 	}

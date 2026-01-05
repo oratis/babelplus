@@ -8,6 +8,8 @@
 
 namespace MediaWiki\Api;
 
+use MediaWiki\MainConfigNames;
+use MediaWiki\Title\Title;
 use MediaWiki\Xml\Xml;
 use Wikimedia\ParamValidator\ParamValidator;
 
@@ -23,6 +25,8 @@ class ApiFormatXml extends ApiFormatBase {
 	public static $namespace = 'http://www.mediawiki.org/xml/api/';
 	/** @var bool */
 	private $mIncludeNamespace = false;
+	/** @var string|null */
+	private $mXslt = null;
 
 	/** @inheritDoc */
 	public function getMimeType() {
@@ -36,8 +40,12 @@ class ApiFormatXml extends ApiFormatBase {
 	public function execute() {
 		$params = $this->extractRequestParams();
 		$this->mIncludeNamespace = $params['includexmlnamespace'];
+		$this->mXslt = $params['xslt'];
 
 		$this->printText( '<?xml version="1.0"?>' );
+		if ( $this->mXslt !== null ) {
+			$this->addXslt();
+		}
 
 		$result = $this->getResult();
 		if ( $this->mIncludeNamespace && $result->getResultData( 'xmlns' ) === null ) {
@@ -164,7 +172,7 @@ class ApiFormatXml extends ApiFormatBase {
 					$retval .= $indstr . Xml::element( $name, $attributes, $content );
 				} else {
 					if ( $name !== null ) {
-						$retval .= $indstr . Xml::openElement( $name, $attributes );
+						$retval .= $indstr . Xml::element( $name, $attributes, null );
 					}
 					$retval .= static::recXmlPrint( null, $content, $indent );
 					if ( $name !== null ) {
@@ -177,7 +185,7 @@ class ApiFormatXml extends ApiFormatBase {
 				}
 			} else {
 				if ( $name !== null ) {
-					$retval .= $indstr . Xml::openElement( $name, $attributes );
+					$retval .= $indstr . Xml::element( $name, $attributes, null );
 				}
 				foreach ( $subelements as $k => $v ) {
 					$retval .= static::recXmlPrint( $k, $v, $indent );
@@ -246,9 +254,37 @@ class ApiFormatXml extends ApiFormatBase {
 		);
 	}
 
+	protected function addXslt() {
+		if ( !$this->getConfig()->get( MainConfigNames::EnableUnsafeXsltOption ) ) {
+			$this->addWarning( 'apiwarn-xslt-disabled' );
+			return;
+		}
+		$nt = Title::newFromText( $this->mXslt );
+		if ( $nt === null || !$nt->exists() ) {
+			$this->addWarning( 'apiwarn-invalidxmlstylesheet' );
+
+			return;
+		}
+		if ( $nt->getNamespace() !== NS_MEDIAWIKI ) {
+			$this->addWarning( 'apiwarn-invalidxmlstylesheetns' );
+
+			return;
+		}
+		if ( !str_ends_with( $nt->getText(), '.xsl' ) ) {
+			$this->addWarning( 'apiwarn-invalidxmlstylesheetext' );
+
+			return;
+		}
+		$this->printText( '<?xml-stylesheet href="' .
+			htmlspecialchars( $nt->getLocalURL( 'action=raw' ) ) . '" type="text/xsl" ?>' );
+	}
+
 	/** @inheritDoc */
 	public function getAllowedParams() {
 		return parent::getAllowedParams() + [
+			'xslt' => [
+				ApiBase::PARAM_HELP_MSG => 'apihelp-xml-param-xslt',
+			],
 			'includexmlnamespace' => [
 				ParamValidator::PARAM_DEFAULT => false,
 				ApiBase::PARAM_HELP_MSG => 'apihelp-xml-param-includexmlnamespace',

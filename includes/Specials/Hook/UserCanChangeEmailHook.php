@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Status\Status;
 use MediaWiki\User\User;
@@ -26,6 +26,3 @@ interface UserCanChangeEmailHook {
 	 */
 	public function onUserCanChangeEmail( $user, $oldaddr, $newaddr, &$status );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( UserCanChangeEmailHook::class, 'MediaWiki\\Hook\\UserCanChangeEmailHook' );

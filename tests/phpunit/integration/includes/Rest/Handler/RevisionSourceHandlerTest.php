@@ -13,7 +13,6 @@ use MediaWiki\Revision\SlotRecord;
 use MediaWikiIntegrationTestCase;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\ObjectCache\BagOStuff;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\Rest\Handler\RevisionSourceHandler
@@ -130,7 +129,7 @@ class RevisionSourceHandlerTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $rev->getSize(), $data['size'] );
 		$this->assertSame( $rev->isMinor(), $data['minor'] );
 		$this->assertSame(
-			wfTimestampOrNull( TS::ISO_8601, $rev->getTimestamp() ),
+			wfTimestampOrNull( TS_ISO_8601, $rev->getTimestamp() ),
 			$data['timestamp']
 		);
 		$this->assertSame( $rev->getPage()->getId(), $data['page']['id'] );
@@ -158,7 +157,7 @@ class RevisionSourceHandlerTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( $page->getUser(), $data['user_id'] );
 		$this->assertSame( $page->getUserText(), $data['user_text'] );
 		$this->assertSame(
-			wfTimestampOrNull( TS::ISO_8601, $page->getTimestamp() ),
+			wfTimestampOrNull( TS_ISO_8601, $page->getTimestamp() ),
 			$data['timestamp']
 		);
 		$this->assertSame( $rev->getComment()->text, $data['comment'] );

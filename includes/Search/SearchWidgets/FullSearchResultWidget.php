@@ -13,11 +13,11 @@ use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Parser\Sanitizer;
 use MediaWiki\Search\Entity\SearchResultThumbnail;
-use MediaWiki\Search\SearchResult;
 use MediaWiki\Search\SearchResultThumbnailProvider;
 use MediaWiki\Specials\SpecialSearch;
 use MediaWiki\Title\Title;
 use MediaWiki\User\Options\UserOptionsManager;
+use SearchResult;
 use ThumbnailImage;
 use Wikimedia\HtmlArmor\HtmlArmor;
 
@@ -110,7 +110,7 @@ class FullSearchResultWidget implements SearchResultWidget {
 			$related = '';
 			// TODO: remove this instanceof and always pass [], let implementors do the cast if
 			// they want to be SearchDatabase specific
-			$terms = $result instanceof \MediaWiki\Search\SqlSearchResult ? $result->getTermMatches() : [];
+			$terms = $result instanceof \SqlSearchResult ? $result->getTermMatches() : [];
 			if ( !$this->hookRunner->onShowSearchHit( $this->specialPage, $result,
 				$terms, $link, $redirect, $section, $extract, $score,
 				// @phan-suppress-next-line PhanTypeMismatchArgument Type mismatch on pass-by-ref args
@@ -181,7 +181,7 @@ class FullSearchResultWidget implements SearchResultWidget {
 
 		$attributes = [ 'data-serp-pos' => $position ];
 		$this->hookRunner->onShowSearchHitTitle( $title, $snippet, $result,
-			$result instanceof \MediaWiki\Search\SqlSearchResult ? $result->getTermMatches() : [],
+			$result instanceof \SqlSearchResult ? $result->getTermMatches() : [],
 			// @phan-suppress-next-line PhanTypeMismatchArgument Type mismatch on pass-by-ref args
 			$this->specialPage, $query, $attributes );
 
@@ -374,21 +374,19 @@ class FullSearchResultWidget implements SearchResultWidget {
 		if ( $thumb ) {
 			if ( $title->getNamespace() === NS_FILE ) {
 				// don't use a custom link, just use traditional thumbnail HTML
-				// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 				return $thumb->toHtml( [
 					'desc-link' => true,
 					'loading' => 'lazy',
-					'alt' => $this->specialPage->msg( 'search-thumbnail-alt' )->params( $title->getPrefixedText() ),
+					'alt' => $this->specialPage->msg( 'search-thumbnail-alt' )->params( $title ),
 				] );
 			}
 
 			// thumbnails for non-file results should link to the relevant title
-			// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 			return $thumb->toHtml( [
 				'desc-link' => true,
 				'custom-title-link' => $title,
 				'loading' => 'lazy',
-				'alt' => $this->specialPage->msg( 'search-thumbnail-alt' )->params( $title->getPrefixedText() ),
+				'alt' => $this->specialPage->msg( 'search-thumbnail-alt' )->params( $title ),
 			] );
 		}
 

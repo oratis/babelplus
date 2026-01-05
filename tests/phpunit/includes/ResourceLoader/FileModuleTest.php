@@ -8,8 +8,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\ResourceLoader\FileModule;
 use MediaWiki\ResourceLoader\FilePath;
-use MediaWiki\ResourceLoader\LessVarFileModule;
-use MediaWiki\ResourceLoader\MessageBlobStore;
 use MediaWiki\ResourceLoader\ResourceLoader;
 use MediaWiki\Skin\SkinFactory;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
@@ -983,70 +981,6 @@ class FileModuleTest extends ResourceLoaderTestCase {
 			[ 'resources/mymodule/pink.less' ],
 			$module->getFileDependencies( $context )
 		);
-	}
-
-	public function testGetMessagesOverride() {
-		$context = $this->getResourceLoaderContext();
-
-		$msgBlobStore = $this->createMock( MessageBlobStore::class );
-		$msgBlobStore->method( 'getBlob' )->willReturn( '{"test-message":"Hello",' .
-			'"test-world":"World"}' );
-		$context->getResourceLoader()->setMessageBlobStore( $msgBlobStore );
-
-		$options = [
-			'messages' => [ 'test-message' ]
-		];
-
-		$module = new class( $options ) extends FileModule {
-			public function __construct( $options = [] ) {
-				parent::__construct( $options );
-			}
-
-			public function getMessages() {
-				$messages = parent::getMessages();
-				$messages[] = 'test-world';
-				return $messages;
-			}
-		};
-		$module->setName( 'testing' );
-
-		$this->assertEquals( '{"test-message":"Hello","test-world":"World"}',
-			$module->getModuleContent( $context )['messagesBlob'] );
-	}
-
-	public function testGetMessagesOverrideWithLessMessages() {
-		$context = $this->getResourceLoaderContext();
-
-		$msgBlobStore = $this->createMock( MessageBlobStore::class );
-		$msgBlobStore->method( 'getBlob' )->willReturn( '{"test-hello":"Hello",' .
-			'"test-world":"World","parentheses-start":"{","parentheses-end":"}",' .
-			'"colon-separator":":"}' );
-		$context->getResourceLoader()->setMessageBlobStore( $msgBlobStore );
-
-		$options = [
-			'messages' => [ 'test-hello', 'parentheses-start', 'parentheses-end' ],
-			'lessMessages' => [ 'test-world', 'colon-separator', 'parentheses-start',
-				'parentheses-end' ]
-		];
-		$module = new class( $options ) extends LessVarFileModule {
-			public function __construct( $options = [] ) {
-				parent::__construct( $options );
-			}
-
-			public function getMessages() {
-				$messages = parent::getMessages();
-				$messages[] = 'test-world';
-				return $messages;
-			}
-
-		};
-		$module->setName( 'testing-two' );
-
-		$this->assertEquals( '{"test-hello":"Hello","test-world":"World",' .
-			'"parentheses-start":"{","parentheses-end":"}"}', $module->getModuleContent( $context )['messagesBlob'] );
-		$this->assertEquals( [ 'msg-colon-separator' => '":"', 'msg-parentheses-end' => '"}"',
-				'msg-parentheses-start' => '"{"', 'msg-test-world' => '"World"' ],
-				$module->getDefinitionSummary( $context )[1]['lessVars'] );
 	}
 
 	public function newModuleRequest( $moduleInfo, $context ) {

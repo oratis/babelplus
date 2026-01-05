@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Mail\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\RecentChanges\RecentChangeNotifier;
 use MediaWiki\Title\Title;
@@ -27,6 +27,3 @@ interface SendWatchlistEmailNotificationHook {
 	 */
 	public function onSendWatchlistEmailNotification( $targetUser, $title, $enotif );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SendWatchlistEmailNotificationHook::class, 'MediaWiki\\Hook\\SendWatchlistEmailNotificationHook' );

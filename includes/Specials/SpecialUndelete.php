@@ -42,7 +42,6 @@ use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionRenderer;
 use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\SlotRecord;
-use MediaWiki\Search\SearchEngineFactory;
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Storage\NameTableAccessException;
 use MediaWiki\Storage\NameTableStore;
@@ -64,10 +63,10 @@ use OOUI\Layout;
 use OOUI\PanelLayout;
 use OOUI\TextInputWidget;
 use OOUI\Widget;
+use SearchEngineFactory;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\Rdbms\IResultWrapper;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Special page allowing users with the appropriate permissions to view
@@ -204,7 +203,7 @@ class SpecialUndelete extends SpecialPage {
 
 		$this->mSearchPrefix = $request->getText( 'prefix' );
 		$time = $request->getVal( 'timestamp' );
-		$this->mTimestamp = $time ? wfTimestamp( TS::MW, $time ) : '';
+		$this->mTimestamp = $time ? wfTimestamp( TS_MW, $time ) : '';
 		$this->mFilename = $request->getVal( 'file' );
 
 		$posted = $request->wasPosted() &&
@@ -388,8 +387,7 @@ class SpecialUndelete extends SpecialPage {
 	 * redirect the request
 	 */
 	private function redirectToRevDel() {
-		$revisionIds = [];
-		$fileArchiveIds = [];
+		$revisions = [];
 
 		foreach ( $this->getRequest()->getValues() as $key => $val ) {
 			$matches = [];
@@ -397,51 +395,19 @@ class SpecialUndelete extends SpecialPage {
 				$revisionRecord = $this->archivedRevisionLookup
 					->getRevisionRecordByTimestamp( $this->mTargetObj, $matches[1] );
 				if ( $revisionRecord ) {
-					$revisionIds[] = (int)$revisionRecord->getId();
+					// Can return null
+					$revisions[ $revisionRecord->getId() ] = 1;
 				}
-			} elseif ( preg_match( '/^fileid(\d+)$/', $key, $matches ) ) {
-				$fileArchiveIds[] = (int)$matches[1];
 			}
 		}
 
-		$hasRevisions = count( $revisionIds ) > 0;
-		$hasFiles = count( $fileArchiveIds ) > 0;
-
-		// Check selection validity, see if mixed or nothing selected
-		if ( $hasRevisions && $hasFiles ) {
-			$this->renderUndeleteSelectionError( 'mixed' );
-			return;
-		} elseif ( !$hasRevisions && !$hasFiles ) {
-			$this->renderUndeleteSelectionError( 'none' );
-			return;
-		}
-
-		// Exp. assoc array of id => 1 (ids[123]=1)
-		$idsForQuery = $hasFiles
-			? array_fill_keys( $fileArchiveIds, 1 )
-			: array_fill_keys( $revisionIds, 1 );
-
 		$query = [
-			'type' => $hasFiles ? 'filearchive' : 'revision',
-			'ids' => $idsForQuery,
+			'type' => 'revision',
+			'ids' => $revisions,
 			'target' => $this->mTargetObj->getPrefixedText()
 		];
-
 		$url = SpecialPage::getTitleFor( 'Revisiondelete' )->getFullURL( $query );
 		$this->getOutput()->redirect( $url );
-	}
-
-	/**
-	 * Render a clearer error box for undelete selection problems
-	 *
-	 * @param string $case 'mixed' = both page and file selected, 'none' = nothing selected
-	 */
-	private function renderUndeleteSelectionError( string $case ): void {
-		$msg = $case === 'mixed'
-			? $this->msg( 'undelete-error-mixed' )
-			: $this->msg( 'undelete-error-none' );
-
-		$this->getOutput()->addHTML( Html::errorBox( $msg->parse() ) );
 	}
 
 	private function showSearchForm() {
@@ -495,12 +461,12 @@ class SpecialUndelete extends SpecialPage {
 		);
 
 		$out->addHTML(
-			( new PanelLayout( [
+			new PanelLayout( [
 				'expanded' => false,
 				'padded' => true,
 				'framed' => true,
 				'content' => $form,
-			] ) )->toString()
+			] )
 		);
 
 		# List undeletable articles
@@ -610,7 +576,7 @@ class SpecialUndelete extends SpecialPage {
 
 		if ( $revRecord->isDeleted( RevisionRecord::DELETED_TEXT ) ) {
 			// Used in wikilinks, should not contain whitespaces
-			$titleText = $this->mTargetObj->getPrefixedURL();
+			$titleText = $this->mTargetObj->getPrefixedDBkey();
 			if ( !$revRecord->userCan( RevisionRecord::DELETED_TEXT, $this->getAuthority() ) ) {
 				$msg = $revRecord->isDeleted( RevisionRecord::DELETED_RESTRICTED )
 					? [ 'rev-suppressed-text-permission', $titleText ]
@@ -858,7 +824,7 @@ class SpecialUndelete extends SpecialPage {
 			$targetPage = $this->getPageTitle();
 			$targetQuery = [
 				'target' => $this->mTargetObj->getPrefixedText(),
-				'timestamp' => wfTimestamp( TS::MW, $revRecord->getTimestamp() )
+				'timestamp' => wfTimestamp( TS_MW, $revRecord->getTimestamp() )
 			];
 		} else {
 			// Revision in the revision table, viewable by oldid
@@ -1355,7 +1321,7 @@ class SpecialUndelete extends SpecialPage {
 			);
 
 		$revTextSize = '';
-		$ts = wfTimestamp( TS::MW, $row->ar_timestamp );
+		$ts = wfTimestamp( TS_MW, $row->ar_timestamp );
 		// Build checkboxen...
 		if ( $this->mAllowed ) {
 			if ( $this->mInvert ) {
@@ -1442,7 +1408,7 @@ class SpecialUndelete extends SpecialPage {
 
 	private function formatFileRow( \stdClass $row ): string {
 		$file = ArchivedFile::newFromRow( $row );
-		$ts = wfTimestamp( TS::MW, $row->fa_timestamp );
+		$ts = wfTimestamp( TS_MW, $row->fa_timestamp );
 		$user = $this->getUser();
 
 		$checkBox = '';

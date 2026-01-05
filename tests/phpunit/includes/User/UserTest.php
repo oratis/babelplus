@@ -20,7 +20,6 @@ use Wikimedia\Assert\PreconditionException;
 use Wikimedia\Rdbms\IDBAccessObject;
 use Wikimedia\TestingAccessWrapper;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @covers \MediaWiki\User\User
@@ -442,14 +441,14 @@ class UserTest extends MediaWikiIntegrationTestCase {
 		$initialTouchUnix = ( new MWTimestamp( $initialTouchMW ) )->getTimestamp();
 
 		$earlierUnix = $initialTouchUnix - 1000;
-		$earlierMW = ( new MWTimestamp( $earlierUnix ) )->getTimestamp( TS::MW );
+		$earlierMW = ( new MWTimestamp( $earlierUnix ) )->getTimestamp( TS_MW );
 		$this->assertFalse(
 			$user->validateCache( $earlierMW ),
 			'Caches from before the value of getTouched() are not valid'
 		);
 
 		$laterUnix = $initialTouchUnix + 1000;
-		$laterMW = ( new MWTimestamp( $laterUnix ) )->getTimestamp( TS::MW );
+		$laterMW = ( new MWTimestamp( $laterUnix ) )->getTimestamp( TS_MW );
 		$this->assertTrue(
 			$user->validateCache( $laterMW ),
 			'Caches from after the value of getTouched() are valid'
@@ -1062,7 +1061,7 @@ class UserTest extends MediaWikiIntegrationTestCase {
 		$this->getServiceContainer()->getDatabaseBlockStore()
 			->insertBlockWithParams( [
 				'targetUser' => $user,
-				'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+				'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 				'sitewide' => true,
 				'blockEmail' => $blockFromEmail,
 				'createAccount' => $blockFromAccountCreation,
@@ -1093,7 +1092,7 @@ class UserTest extends MediaWikiIntegrationTestCase {
 		$this->getServiceContainer()->getDatabaseBlockStore()
 			->insertBlockWithParams( [
 				'targetUser' => $user,
-				'expiry' => wfTimestamp( TS::MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
+				'expiry' => wfTimestamp( TS_MW, wfTimestamp() + ( 40 * 60 * 60 ) ),
 				'sitewide' => $sitewide,
 				'by' => $this->getTestSysop()->getUser(),
 			] );
@@ -1535,7 +1534,7 @@ class UserTest extends MediaWikiIntegrationTestCase {
 
 	public function testSpreadAnyEditBlockForAnonUser() {
 		$hookCalled = false;
-		$this->setTemporaryHook( 'SpreadAnyEditBlock', static function () use ( &$hookCalled ) {
+		$this->setTemporaryHook( 'SpreadAnyEditBlock', static function () use ( &$hookCalled ){
 			$hookCalled = true;
 		} );
 		$user = new User;

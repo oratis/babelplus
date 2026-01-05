@@ -1,8 +1,6 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Specials\SpecialRedirect;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @covers \MediaWiki\Specials\SpecialRedirect
@@ -10,7 +8,6 @@ use MediaWikiIntegrationTestCase;
  * @license GPL-2.0-or-later
  */
 class SpecialRedirectTest extends MediaWikiIntegrationTestCase {
-	private const CLAZZ = 'SpecialRedirectTest';
 
 	private const CREATE_USER = 'create_user';
 
@@ -26,7 +23,7 @@ class SpecialRedirectTest extends MediaWikiIntegrationTestCase {
 
 		// setup the user object
 		if ( $value === self::CREATE_USER ) {
-			$user = $userFactory->newFromName( self::CLAZZ );
+			$user = $userFactory->newFromName( __CLASS__ );
 			$user->addToDatabase();
 			$value = $user->getId();
 		}

@@ -7,8 +7,6 @@
  * @ingroup Search
  */
 
-namespace MediaWiki\Search;
-
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Title\Title;
@@ -55,6 +53,3 @@ class SqlSearchResult extends RevisionSearchResult {
 	}
 
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SqlSearchResult::class, 'SqlSearchResult' );

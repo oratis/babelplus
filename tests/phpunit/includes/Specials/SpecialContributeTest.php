@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Permissions\UltimateAuthority;
 use MediaWiki\Specials\SpecialContribute;
@@ -11,10 +10,8 @@ use MediaWiki\User\User;
  * @covers \MediaWiki\Specials\SpecialContribute
  */
 class SpecialContributeTest extends SpecialPageTestBase {
-	private const CLAZZ = 'SpecialContributeTest';
-
 	/** @var string */
-	private $pageName = self::CLAZZ . 'BlaBlaTest';
+	private $pageName = __CLASS__ . 'BlaBlaTest';
 
 	/** @var User */
 	private $admin;

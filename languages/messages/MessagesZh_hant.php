@@ -244,8 +244,7 @@ $specialPageAliases = [
 	'Redirect'                   => [ '重新導向', '重定向' ],
 	'RemoveCredentials'          => [ '移除憑證' ],
 	'Renameuser'                 => [ '重新命名使用者' ],
-	'ResetTokens'                => [ '重設密鑰', '覆寫令牌', '重設金鑰' ],
-	'RestSandbox'                => [ 'REST沙盒' ],
+	'ResetTokens'                => [ '重設密鑰', '覆寫令牌' ],
 	'Revisiondelete'             => [ '修訂刪除', '刪除或恢復版本' ],
 	'RunJobs'                    => [ '執行作業', '運行工作' ],
 	'Search'                     => [ '搜尋' ],
@@ -278,7 +277,6 @@ $specialPageAliases = [
 	'Wantedpages'                => [ '需要的頁面', '待撰頁面' ],
 	'Wantedtemplates'            => [ '需要的模板' ],
 	'Watchlist'                  => [ '監視清單', '監視列表' ],
-	'WatchlistLabels'            => [ '監視清單標籤', '監視列表標籤' ],
 	'Whatlinkshere'              => [ '連入頁面', '鏈入頁面' ],
 	'Withoutinterwiki'           => [ '沒有跨語言連結的頁面', '無跨wiki連結頁面', '無跨維基連結頁面' ],
 ];

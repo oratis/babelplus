@@ -129,10 +129,17 @@ trait MockTitleTrait {
 	}
 
 	private function makeMockTitleFactory(): TitleFactory {
-		$factory = $this->createNoOpMock( TitleFactory::class, [ 'newFromText' ] );
-		$factory->method( 'newFromText' )->willReturnCallback(
-			fn ( $text ) => $this->makeMockTitle( $text )
+		$factory = $this->createNoOpMock(
+			TitleFactory::class,
+			[ 'newFromText' ]
 		);
+
+		$factory->method( 'newFromText' )->willReturnCallback(
+			function ( $text ) {
+				return $this->makeMockTitle( $text );
+			}
+		);
+
 		return $factory;
 	}
 }

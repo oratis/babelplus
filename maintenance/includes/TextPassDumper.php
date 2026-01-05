@@ -15,7 +15,7 @@ namespace MediaWiki\Maintenance;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/BackupDumper.php';
-require_once __DIR__ . '/../../includes/Export/WikiExporter.php';
+require_once __DIR__ . '/../../includes/export/WikiExporter.php';
 // @codeCoverageIgnoreEnd
 
 use BaseDump;
@@ -35,8 +35,6 @@ use MediaWiki\Xml\Xml;
 use RuntimeException;
 use WikiExporter;
 use Wikimedia\AtEase\AtEase;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 use XmlDumpWriter;
 use XMLParser;
 
@@ -268,17 +266,34 @@ TEXT
 	protected function processFileOpt( string $opt ): string {
 		$split = explode( ':', $opt, 2 );
 		$val = $split[0];
-		$param = $split[1] ?? '';
-		$newFileURIs = [];
-		foreach ( explode( ';', $param ) as $uri ) {
-			$newFileURIs[] = match ( $val ) {
-				'gzip' => "compress.zlib://$uri",
-				'bzip2' => "compress.bzip2://$uri",
-				'7zip' => "mediawiki.compress.7z://$uri",
-				default => $uri,
-			};
+		$param = '';
+		if ( count( $split ) === 2 ) {
+			$param = $split[1];
 		}
-		return implode( ';', $newFileURIs );
+		$fileURIs = explode( ';', $param );
+		$newFileURIs = [];
+		foreach ( $fileURIs as $URI ) {
+			switch ( $val ) {
+				case "file":
+					$newURI = $URI;
+					break;
+				case "gzip":
+					$newURI = "compress.zlib://$URI";
+					break;
+				case "bzip2":
+					$newURI = "compress.bzip2://$URI";
+					break;
+				case "7zip":
+					$newURI = "mediawiki.compress.7z://$URI";
+					break;
+				default:
+					$newURI = $URI;
+			}
+			$newFileURIs[] = $newURI;
+		}
+		$val = implode( ';', $newFileURIs );
+
+		return $val;
 	}
 
 	/**
@@ -292,7 +307,7 @@ TEXT
 		}
 
 		if ( $this->reporting ) {
-			$now = ConvertibleTimestamp::now( TS::DB );
+			$now = wfTimestamp( TS_DB );
 			$nowts = microtime( true );
 			$deltaAll = $nowts - $this->startTime;
 			$deltaPart = $nowts - $this->lastTime;
@@ -302,7 +317,7 @@ TEXT
 			if ( $deltaAll ) {
 				$portion = $this->revCount / $this->maxCount;
 				$eta = $this->startTime + $deltaAll / $portion;
-				$etats = wfTimestamp( TS::DB, intval( $eta ) );
+				$etats = wfTimestamp( TS_DB, intval( $eta ) );
 				if ( $this->fetchCount ) {
 					$fetchRate = 100.0 * $this->prefetchCount / $this->fetchCount;
 				} else {
@@ -729,7 +744,7 @@ TEXT
 		}
 		if ( file_exists( $mwscriptpath ) ) {
 			$cmd = implode( " ",
-				array_map( Shell::escape( ... ),
+				array_map( [ Shell::class, 'escape' ],
 					[
 						$this->php[0],
 						$mwscriptpath,
@@ -737,7 +752,7 @@ TEXT
 						'--wiki', $wiki ] ) );
 		} else {
 			$cmd = implode( " ",
-				array_map( Shell::escape( ... ),
+				array_map( [ Shell::class, 'escape' ],
 					[
 						$this->php[0],
 						"$IP/maintenance/fetchText.php",

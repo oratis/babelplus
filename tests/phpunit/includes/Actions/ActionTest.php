@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Actions;
-
 use MediaWiki\Actions\Action;
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\Block\UserBlockTarget;
@@ -18,7 +16,6 @@ use MediaWiki\Permissions\PermissionManager;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Title\Title;
 use MediaWiki\User\User;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @covers \MediaWiki\Actions\Action
@@ -43,9 +40,9 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 				'view' => true,
 				'edit' => true,
 				'dummy' => true,
-				'access' => ControlledAccessDummyAction::class,
-				'unblock' => RequiresUnblockDummyAction::class,
-				'string' => NamedDummyAction::class,
+				'access' => 'ControlledAccessDummyAction',
+				'unblock' => 'RequiresUnblockDummyAction',
+				'string' => 'NamedDummyAction',
 				'declared' => 'NonExistingClassName',
 				'callable' => $this->dummyActionCallback( ... ),
 				'object' => new InstantiatedDummyAction(
@@ -117,14 +114,14 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 
 	public static function provideActions() {
 		return [
-			[ 'dummy', DummyAction::class ],
-			[ 'string', NamedDummyAction::class ],
-			[ 'callable', CalledDummyAction::class ],
-			[ 'object', InstantiatedDummyAction::class ],
+			[ 'dummy', 'DummyAction' ],
+			[ 'string', 'NamedDummyAction' ],
+			[ 'callable', 'CalledDummyAction' ],
+			[ 'object', 'InstantiatedDummyAction' ],
 
 			// Capitalization is ignored
-			[ 'DUMMY', DummyAction::class ],
-			[ 'STRING', NamedDummyAction::class ],
+			[ 'DUMMY', 'DummyAction' ],
+			[ 'STRING', 'NamedDummyAction' ],
 
 			// non-existing values
 			[ 'null', null ],
@@ -232,7 +229,6 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 		$user = $this->createMock( User::class );
 
 		$user->method( 'getWikiId' )->willReturn( WikiAwareEntity::LOCAL );
-		$user->method( 'getName' )->willReturn( 'Alice' );
 
 		$block = new DatabaseBlock( [
 			'target' => new UserBlockTarget( $user ),
@@ -258,7 +254,7 @@ class ActionTest extends MediaWikiIntegrationTestCase {
 class DummyAction extends Action {
 
 	public function getName() {
-		return preg_replace( '/^.*\\\\/', '', static::class );
+		return static::class;
 	}
 
 	public function show() {
@@ -271,8 +267,6 @@ class DummyAction extends Action {
 		$this->checkCanExecute( $user );
 	}
 }
-// Old-style: spec=true => Action subclass in root namespace
-class_alias( DummyAction::class, 'DummyAction' );
 
 class NamedDummyAction extends DummyAction {
 }

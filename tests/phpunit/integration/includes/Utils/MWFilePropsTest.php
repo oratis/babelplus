@@ -1,9 +1,5 @@
 <?php
 
-namespace MediaWiki\Tests\Integration\Utils;
-
-use MediaWikiIntegrationTestCase;
-use MWFileProps;
 use Wikimedia\FileBackend\FileBackend;
 
 /**

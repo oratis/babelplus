@@ -8,11 +8,6 @@
  * @author Amir E. Aharoni
  */
 
-namespace MediaWiki\Tests\Language\Converters;
-
-use MediaWiki\Tests\Language\LanguageConverterTestTrait;
-use MediaWikiIntegrationTestCase;
-
 /**
  * @group Language
  * @covers \MediaWiki\Language\LanguageConverter

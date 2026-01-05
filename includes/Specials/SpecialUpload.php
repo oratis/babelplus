@@ -7,16 +7,15 @@
 namespace MediaWiki\Specials;
 
 use BitmapHandler;
+use ImageGalleryBase;
 use MediaWiki\ChangeTags\ChangeTags;
 use MediaWiki\Config\Config;
 use MediaWiki\Exception\ErrorPageError;
 use MediaWiki\Exception\PermissionsError;
 use MediaWiki\Exception\UserBlockedError;
-use MediaWiki\FileRepo\File\File;
 use MediaWiki\FileRepo\File\LocalFile;
 use MediaWiki\FileRepo\LocalRepo;
 use MediaWiki\FileRepo\RepoGroup;
-use MediaWiki\Gallery\ImageGalleryBase;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Html\Html;
 use MediaWiki\HTMLForm\HTMLForm;
@@ -33,15 +32,15 @@ use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\NamespaceInfo;
 use MediaWiki\Title\Title;
-use MediaWiki\Upload\Exception\UploadStashException;
-use MediaWiki\Upload\UploadBase;
-use MediaWiki\Upload\UploadFromStash;
 use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\User;
 use MediaWiki\Watchlist\WatchlistManager;
 use Psr\Log\LoggerInterface;
 use UnexpectedValueException;
+use UploadBase;
 use UploadForm;
+use UploadFromStash;
+use UploadStashException;
 
 /**
  * Form for uploading media files.
@@ -188,7 +187,7 @@ class SpecialUpload extends SpecialPage {
 		// If this is an upload from Url and we're allowing async processing,
 		// check for the presence of the cache key parameter, or compute it. Else, it should be empty.
 		if ( $this->isAsyncUpload() ) {
-			$this->mCacheKey = \MediaWiki\Upload\UploadFromUrl::getCacheKeyFromRequest( $request );
+			$this->mCacheKey = \UploadFromUrl::getCacheKeyFromRequest( $request );
 		} else {
 			$this->mCacheKey = '';
 		}
@@ -357,9 +356,6 @@ class SpecialUpload extends SpecialPage {
 						break;
 					default:
 						// unknown result, just show a generic error
-						if ( $status->isOK() ) {
-							$status = Status::newFatal( 'upload-progress-unknown' );
-						}
 						$this->showUploadError( $this->getOutput()->parseAsInterface(
 							$status->getWikiText( false, false, $this->getLanguage() ) )
 						);
@@ -372,7 +368,7 @@ class SpecialUpload extends SpecialPage {
 				break;
 			case 'fetching':
 				switch ( $result ) {
-					case 'Poll':
+					case 'Success':
 						// The file is being downloaded from a URL
 						// TODO: show active progress bar saying we're downloading the file
 						$this->showUploadProgress( [ 'active' => true, 'msg' => 'upload-progress-downloading' ] );
@@ -385,9 +381,6 @@ class SpecialUpload extends SpecialPage {
 						break;
 					default:
 						// unknown result, just show a generic error
-						if ( $status->isOK() ) {
-							$status = Status::newFatal( 'upload-progress-unknown' );
-						}
 						$this->showUploadError( $this->getOutput()->parseAsInterface(
 							$status->getWikiText( false, false, $this->getLanguage() ) )
 						);
@@ -402,7 +395,7 @@ class SpecialUpload extends SpecialPage {
 				$statusmsg = $this->getOutput()->parseAsInterface(
 					$status->getWikiText( false, false, $this->getLanguage() )
 				);
-				$message = '<h2>' . $this->msg( 'uploaderror' )->escaped() . '</h2>' . Html::errorBox( $statusmsg );
+				$message = '<h2>' . $this->msg( 'uploaderror' )->escaped() . '</h2>' . HTML::errorBox( $statusmsg );
 				$this->addMessageBoxStyling();
 				$this->showUploadForm( $this->getUploadForm( $message ) );
 				break;
@@ -442,6 +435,9 @@ class SpecialUpload extends SpecialPage {
 			$destName = $this->mRequest->getText( 'wpDestFile' );
 		}
 
+		// Needed if we have warnings to show
+		$sourceURL = $this->mRequest->getText( 'wpUploadFileURL' );
+
 		$form = new HTMLForm( [
 			'CacheKey' => [
 				'type' => 'hidden',
@@ -459,6 +455,10 @@ class SpecialUpload extends SpecialPage {
 				'type' => 'hidden',
 				'default' => $destName,
 			],
+			'UploadFileURL' => [
+				'type' => 'hidden',
+				'default' => $sourceURL,
+			],
 		], $this->getContext(), 'uploadProgress' );
 		$form->setSubmitText( $this->msg( 'upload-refresh' )->escaped() );
 		// TODO: use codex, add a progress bar
@@ -470,20 +470,6 @@ class SpecialUpload extends SpecialPage {
 				return true;
 			}
 		);
-		// Needed if we have warnings to show
-		$form->addHiddenFields( array_diff_key(
-			$this->mRequest->getValues(),
-			[
-				'title' => null,
-				'wpEditToken' => null,
-				'wpCacheKey' => null,
-				'wpSourceType' => null,
-				'wpDestUrl' => null,
-				'wpDestFile' => null,
-				'wpUpload' => null,
-				'wpUploadIgnoreWarning' => null,
-			]
-		) );
 		$form->prepareForm();
 		$this->getOutput()->addHTML( $form->getHTML( false ) );
 	}
@@ -880,7 +866,7 @@ class SpecialUpload extends SpecialPage {
 	 */
 	protected function processAsyncUpload() {
 		// Ensure the upload we're dealing with is an UploadFromUrl
-		if ( !$this->mUpload instanceof \MediaWiki\Upload\UploadFromUrl ) {
+		if ( !$this->mUpload instanceof \UploadFromUrl ) {
 			$this->showUploadError( $this->msg( 'uploaderror' )->escaped() );
 
 			return;
@@ -1119,7 +1105,7 @@ class SpecialUpload extends SpecialPage {
 	 * Formats a result of UploadBase::getExistsWarning as HTML
 	 * This check is static and can be done pre-upload via AJAX
 	 *
-	 * @param array|false $exists The result of UploadBase::getExistsWarning
+	 * @param array $exists The result of UploadBase::getExistsWarning
 	 * @return string Empty string if there is no warning or an HTML fragment
 	 */
 	public static function getExistsWarning( $exists ) {
@@ -1128,12 +1114,6 @@ class SpecialUpload extends SpecialPage {
 		}
 
 		$file = $exists['file'];
-		if ( !$file instanceof File ) {
-			// File deleted while showing entry from cache for async-url-upload
-			// Or serialize error, see T409830
-			return '';
-		}
-
 		$filename = $file->getTitle()->getPrefixedText();
 		$warnMsg = null;
 

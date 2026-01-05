@@ -30,7 +30,6 @@ use MediaWiki\User\User;
 use Wikimedia\Bcp47Code\Bcp47CodeValue;
 use Wikimedia\RemexHtml\Tokenizer\Attributes;
 use Wikimedia\RemexHtml\Tokenizer\PlainAttributes;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Various core parser functions, registered in every Parser
@@ -119,26 +118,26 @@ class CoreParserFunctions {
 			'contentmodel',
 		];
 		foreach ( $noHashFunctions as $func ) {
-			$parser->setFunctionHook( $func, self::$func( ... ), Parser::SFH_NO_HASH );
+			$parser->setFunctionHook( $func, [ self::class, $func ], Parser::SFH_NO_HASH );
 		}
 
-		$parser->setFunctionHook( 'int', self::intFunction( ... ), Parser::SFH_NO_HASH );
-		$parser->setFunctionHook( 'special', self::special( ... ) );
-		$parser->setFunctionHook( 'speciale', self::speciale( ... ) );
-		$parser->setFunctionHook( 'tag', self::tagObj( ... ), Parser::SFH_OBJECT_ARGS );
-		$parser->setFunctionHook( 'formatdate', self::formatDate( ... ) );
+		$parser->setFunctionHook( 'int', [ self::class, 'intFunction' ], Parser::SFH_NO_HASH );
+		$parser->setFunctionHook( 'special', [ self::class, 'special' ] );
+		$parser->setFunctionHook( 'speciale', [ self::class, 'speciale' ] );
+		$parser->setFunctionHook( 'tag', [ self::class, 'tagObj' ], Parser::SFH_OBJECT_ARGS );
+		$parser->setFunctionHook( 'formatdate', [ self::class, 'formatDate' ] );
 
 		if ( $allowDisplayTitle ) {
 			$parser->setFunctionHook(
 				'displaytitle',
-				self::displaytitle( ... ),
+				[ self::class, 'displaytitle' ],
 				Parser::SFH_NO_HASH
 			);
 		}
 		if ( $allowSlowParserFunctions ) {
 			$parser->setFunctionHook(
 				'pagesinnamespace',
-				self::pagesinnamespace( ... ),
+				[ self::class, 'pagesinnamespace' ],
 				Parser::SFH_NO_HASH
 			);
 		}
@@ -280,7 +279,7 @@ class CoreParserFunctions {
 	 * @return string
 	 */
 	public static function lc( $parser, $s = '' ) {
-		return $parser->markerSkipCallback( $s, $parser->getContentLanguage()->lc( ... ) );
+		return $parser->markerSkipCallback( $s, [ $parser->getContentLanguage(), 'lc' ] );
 	}
 
 	/**
@@ -289,7 +288,7 @@ class CoreParserFunctions {
 	 * @return string
 	 */
 	public static function uc( $parser, $s = '' ) {
-		return $parser->markerSkipCallback( $s, $parser->getContentLanguage()->uc( ... ) );
+		return $parser->markerSkipCallback( $s, [ $parser->getContentLanguage(), 'uc' ] );
 	}
 
 	/**
@@ -1756,7 +1755,7 @@ class CoreParserFunctions {
 				// parser options. The rendered timestamp can be compared to that
 				// of the timestamp specified by the parser options.
 				$resThen = substr(
-					$parser->getContentLanguage()->userAdjust( wfTimestamp( TS::MW, time() + $mtts ), '' ),
+					$parser->getContentLanguage()->userAdjust( wfTimestamp( TS_MW, time() + $mtts ), '' ),
 					$start,
 					$len
 				);
@@ -1994,23 +1993,20 @@ class CoreParserFunctions {
 			$prefix !== '' &&
 			$services->getInterwikiLookup()->isValidInterwiki( $prefix )
 		) {
-
-			$target = self::getTitleValueSafe( $title, $prefix );
-
-			if ( $target !== null ) {
-				if ( $linkText !== null ) {
-					$linkText = Parser::stripOuterParagraph(
-						# FIXME T382287: when using Parsoid this may leave
-						# strip markers behind for embedded extension tags.
-						$parser->recursiveTagParseFully( $linkText )
-					);
-				}
-				$parser->getOutput()->addInterwikiLink( $target );
-				return [
-					'text' => Linker::link( $target, $linkText ),
-					'isHTML' => true,
-				];
+			if ( $linkText !== null ) {
+				$linkText = Parser::stripOuterParagraph(
+					# FIXME T382287: when using Parsoid this may leave
+					# strip markers behind for embedded extension tags.
+					$parser->recursiveTagParseFully( $linkText )
+				);
 			}
+			[ $title, $frag ] = array_pad( explode( '#', $title, 2 ), 2, '' );
+			$target = new TitleValue( NS_MAIN, $title, $frag, $prefix );
+			$parser->getOutput()->addInterwikiLink( $target );
+			return [
+				'text' => Linker::link( $target, $linkText ),
+				'isHTML' => true,
+			];
 		}
 		// Invalid interwiki link, render as plain text
 		return [ 'found' => false ];
@@ -2038,40 +2034,16 @@ class CoreParserFunctions {
 			)
 		) {
 			// $linkText is ignored for language links, but fragment is kept
-			$target = self::getTitleValueSafe( $title, $prefix );
-
-			if ( $target !== null ) {
-				$parser->getOutput()->addLanguageLink( $target );
-				return '';
-			}
+			[ $title, $frag ] = array_pad( explode( '#', $title, 2 ), 2, '' );
+			$parser->getOutput()->addLanguageLink(
+				new TitleValue(
+					NS_MAIN, $title, $frag, $prefix
+				)
+			);
+			return '';
 		}
 		// Invalid language link, render as plain text
 		return [ 'found' => false ];
-	}
-
-	/**
-	 * Safely construct TitleValue from user input for use in {{#interlanguagelink}}
-	 * and {{#interwikilink}} parser functions.
-	 *
-	 * We cannot use TitleParser::makeTitleValueSafe because it will fully parse
-	 * anything that looks like interwiki prefix inside the title text and we don't want
-	 * that here. For instance in `{{#interwikilink:Project|Test:Link}}`, we don't want
-	 * to parse 'Test' as interwiki prefix, but we want to ensure the entire 'Test:Link'
-	 * string to be in valid title text form. (T381977)
-	 *
-	 * @param string $title
-	 * @param string $prefix
-	 *
-	 * @return TitleValue|null
-	 */
-	private static function getTitleValueSafe( $title, $prefix ): ?TitleValue {
-		[ $title, $frag ] = array_pad( explode( '#', $title, 2 ), 2, '' );
-
-		try {
-			return new TitleValue( NS_MAIN, $title, $frag, $prefix );
-		} catch ( InvalidArgumentException ) {
-			return null;
-		}
 	}
 }
 

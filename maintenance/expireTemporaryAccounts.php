@@ -10,8 +10,6 @@ use MediaWiki\User\UserIdentityLookup;
 use MediaWiki\User\UserIdentityUtils;
 use MediaWiki\User\UserSelectQueryBuilder;
 use Wikimedia\Rdbms\SelectQueryBuilder;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
@@ -106,11 +104,11 @@ class ExpireTemporaryAccounts extends Maintenance {
 		return $this->userIdentityLookup->newSelectQueryBuilder()
 			->temp()
 			->whereRegisteredTimestamp( wfTimestamp(
-				TS::MW,
+				TS_MW,
 				$registeredBeforeUnix
 			), true )
 			->whereRegisteredTimestamp( wfTimestamp(
-				TS::MW,
+				TS_MW,
 				$registeredBeforeUnix - ( 86_400 * $frequencyDays )
 			), false );
 	}
@@ -175,7 +173,7 @@ class ExpireTemporaryAccounts extends Maintenance {
 			$this->output( 'Temporary account expiry is not enabled' . PHP_EOL );
 			return;
 		}
-		$registeredBeforeUnix = (int)ConvertibleTimestamp::now( TS::UNIX ) - ( 86_400 * $expiryAfterDays );
+		$registeredBeforeUnix = (int)wfTimestamp( TS_UNIX ) - ( 86_400 * $expiryAfterDays );
 
 		$tempAccounts = $this->queryBuilderToUserIdentities( $this->getTempAccountsToExpireQueryBuilder(
 			$registeredBeforeUnix,

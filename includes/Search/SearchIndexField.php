@@ -7,9 +7,6 @@
  * @stable to type
  * @since 1.28
  */
-
-namespace MediaWiki\Search;
-
 interface SearchIndexField {
 	/*
 	 * Field types
@@ -115,6 +112,3 @@ interface SearchIndexField {
 	 */
 	public function getEngineHints( SearchEngine $engine );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SearchIndexField::class, 'SearchIndexField' );

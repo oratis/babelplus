@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\RecentChanges\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\RecentChanges\ChangesList;
 use Wikimedia\Rdbms\IResultWrapper;
@@ -24,6 +24,3 @@ interface ChangesListInitRowsHook {
 	 */
 	public function onChangesListInitRows( $changesList, $rows );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( ChangesListInitRowsHook::class, 'MediaWiki\\Hook\\ChangesListInitRowsHook' );

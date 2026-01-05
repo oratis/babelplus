@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -21,6 +21,3 @@ interface SoftwareInfoHook {
 	 */
 	public function onSoftwareInfo( &$software );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SoftwareInfoHook::class, 'MediaWiki\\Hook\\SoftwareInfoHook' );

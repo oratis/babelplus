@@ -10,7 +10,7 @@
  * @ingroup Maintenance
  */
 
-namespace MediaWiki\Maintenance;
+use MediaWiki\Maintenance\Maintenance;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
@@ -22,7 +22,7 @@ require_once __DIR__ . '/Maintenance.php';
  *
  * @ingroup Maintenance
  */
-class UpdateRestrictions extends LoggedUpdateMaintenance {
+class UpdateRestrictions extends Maintenance {
 	public function __construct() {
 		parent::__construct();
 		$this->addDescription( 'Updates page_restrictions table from old page_restriction column' );
@@ -30,7 +30,7 @@ class UpdateRestrictions extends LoggedUpdateMaintenance {
 	}
 
 	/** @inheritDoc */
-	public function doDBUpdates() {
+	public function execute() {
 		$dbw = $this->getDB( DB_PRIMARY );
 		$batchSize = $this->getBatchSize();
 
@@ -150,11 +150,6 @@ class UpdateRestrictions extends LoggedUpdateMaintenance {
 		}
 
 		return $oldRestrictions;
-	}
-
-	/** @inheritDoc */
-	protected function getUpdateKey() {
-		return __CLASS__;
 	}
 }
 

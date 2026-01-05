@@ -7,7 +7,6 @@ use MediaWiki\Config\MultiConfig;
 use MediaWiki\Content\Content;
 use MediaWiki\Content\ContentHandler;
 use MediaWiki\Context\RequestContext;
-use MediaWiki\DB\CloneDatabase;
 use MediaWiki\Deferred\DeferredUpdates;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\JobQueue\JobQueueMemory;
@@ -21,7 +20,6 @@ use MediaWiki\Logger\LoggingContext;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\PageIdentity;
-use MediaWiki\Page\PageReference;
 use MediaWiki\Page\WikiPage;
 use MediaWiki\Parser\ParserOptions;
 use MediaWiki\Permissions\Authority;
@@ -2388,10 +2386,16 @@ abstract class MediaWikiIntegrationTestCase extends PHPUnit\Framework\TestCase {
 	 * @since 1.20
 	 *
 	 * @param array $elements
-	 * @return array[]
+	 *
+	 * @return array
 	 */
 	protected static function arrayWrap( array $elements ) {
-		return array_map( static fn ( $element ) => [ $element ], $elements );
+		return array_map(
+			static function ( $element ) {
+				return [ $element ];
+			},
+			$elements
+		);
 	}
 
 	/**
@@ -2649,7 +2653,7 @@ abstract class MediaWikiIntegrationTestCase extends PHPUnit\Framework\TestCase {
 		$services = $this->getServiceContainer();
 		if ( $page instanceof WikiPage ) {
 			return $page;
-		} elseif ( $page instanceof PageReference ) {
+		} elseif ( $page instanceof PageIdentity ) {
 			return $services->getWikiPageFactory()->newFromTitle( $page );
 		} elseif ( $page instanceof LinkTarget ) {
 			return $services->getWikiPageFactory()->newFromLinkTarget( $page );

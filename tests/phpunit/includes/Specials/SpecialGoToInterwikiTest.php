@@ -1,13 +1,10 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\DerivativeContext;
 use MediaWiki\Context\RequestContext;
-use MediaWiki\Interwiki\Interwiki;
 use MediaWiki\Interwiki\InterwikiLookupAdapter;
 use MediaWiki\Site\HashSiteStore;
 use MediaWiki\Title\Title;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @covers \MediaWiki\Specials\SpecialGoToInterwiki

@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\DerivativeContext;
 use MediaWiki\Context\RequestContext;
@@ -151,6 +150,3 @@ class SpecialPageExecutor {
 	}
 
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialPageExecutor::class, 'SpecialPageExecutor' );

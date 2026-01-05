@@ -31,6 +31,7 @@ class RevisionSelectQueryBuilder extends SelectQueryBuilder {
 			'rev_deleted',
 			'rev_len',
 			'rev_parent_id',
+			'rev_sha1',
 			'rev_user' => 'actor_rev_user.actor_user',
 			'rev_user_text' => 'actor_rev_user.actor_name',
 			'rev_actor' => 'rev_actor'

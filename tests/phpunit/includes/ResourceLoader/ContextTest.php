@@ -123,22 +123,6 @@ class ContextTest extends TestCase {
 		$this->assertEquals( $expected, $ctx->getDirection() );
 	}
 
-	public static function provideDebugFromString() {
-		yield [ 'true', 2 ];
-		yield [ 'false', 0 ];
-		yield [ '1', 2 ];
-		yield [ '0', 0 ];
-
-		yield [ '2', 2 ];
-		yield [ '10', 0 ];
-	}
-
-	/** @dataProvider provideDebugFromString */
-	public function testDebugFromString( string $param, int $expected ) {
-		$ctx = new Context( self::getResourceLoader(), new FauxRequest( [ 'debug' => $param ] ) );
-		$this->assertSame( $expected, $ctx->getDebug() );
-	}
-
 	public function testShouldInclude() {
 		$ctx = new Context( self::getResourceLoader(), new FauxRequest( [] ) );
 		$this->assertTrue( $ctx->shouldIncludeScripts(), 'Scripts in combined' );

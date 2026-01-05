@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\CommentFormatter\CommentFormatter;
@@ -17,7 +16,6 @@ use MediaWiki\Title\NamespaceInfo;
 use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\User\UserIdentityValue;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\TestingAccessWrapper;
@@ -247,6 +245,7 @@ class ContribsPagerTest extends MediaWikiIntegrationTestCase {
 			'rev_deleted' => '0',
 			'rev_len' => '700',
 			'rev_parent_id' => '0',
+			'rev_sha1' => 'deadbeef',
 			'rev_comment_text' => 'whatever',
 			'rev_comment_data' => null,
 			'rev_comment_cid' => null,

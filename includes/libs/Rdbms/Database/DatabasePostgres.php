@@ -314,7 +314,7 @@ class DatabasePostgres extends Database {
 				self::QUERY_IGNORE_DBO_TRX | self::QUERY_CHANGE_NONE,
 				'SELECT'
 			);
-			$res = $this->query( $query, $fname );
+			$res = $this->query( $query );
 			$row = $res->fetchObject();
 
 			if ( $row ) {

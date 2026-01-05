@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Deferred\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Deferred\LinksUpdate\LinksUpdate;
 
@@ -24,6 +24,3 @@ interface LinksUpdateCompleteHook {
 	 */
 	public function onLinksUpdateComplete( $linksUpdate, $ticket );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( LinksUpdateCompleteHook::class, 'MediaWiki\\Hook\\LinksUpdateCompleteHook' );

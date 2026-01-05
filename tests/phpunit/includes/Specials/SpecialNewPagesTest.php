@@ -11,6 +11,7 @@ use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\Title\Title;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentity;
+use SpecialPageTestBase;
 use Wikimedia\Parsoid\DOM\Document;
 use Wikimedia\Parsoid\DOM\Element;
 use Wikimedia\Parsoid\Utils\DOMCompat;
@@ -132,10 +133,7 @@ class SpecialNewPagesTest extends SpecialPageTestBase {
 		// Verify that the user link is present and correct, including that the username is hidden if the current
 		// authority cannot see it.
 		$authority = RequestContext::getMain()->getAuthority();
-		// The username has a data-mw-revid attribute; there are also
-		// contribution and talk page links with the .mw-userlink class
-		// inside the span.mw-usertoollinks
-		$userNameElement = $this->getAndExpectSingleMatchingElement( $line, "[data-mw-revid].mw-userlink" );
+		$userNameElement = $this->getAndExpectSingleMatchingElement( $line, ".mw-userlink" );
 		if ( $firstRevision->userCan( RevisionRecord::DELETED_USER, $authority ) ) {
 			$expectedUserText = $firstRevision->getUser( RevisionRecord::RAW )->getName();
 		} else {

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\User\User;
 
@@ -23,6 +23,3 @@ interface AddNewAccountHook {
 	 */
 	public function onAddNewAccount( $user, $byEmail );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( AddNewAccountHook::class, 'MediaWiki\\Hook\\AddNewAccountHook' );

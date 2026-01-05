@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Block\BlockUser;
 use MediaWiki\Block\DatabaseBlockStore;
@@ -12,7 +11,6 @@ use MediaWiki\Specials\SpecialContributions;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
-use TestUser;
 use Wikimedia\Parsoid\Utils\DOMCompat;
 use Wikimedia\Parsoid\Utils\DOMUtils;
 
@@ -25,9 +23,7 @@ use Wikimedia\Parsoid\Utils\DOMUtils;
 class SpecialContributionsTest extends SpecialPageTestBase {
 	use TempUserTestTrait;
 
-	private const CLAZZ = 'SpecialContributionTest';
-
-	private const PAGE_NAME = self::CLAZZ . 'TestBlaBlaTest';
+	private const PAGE_NAME = __CLASS__ . 'BlaBlaTest';
 	/** @var Authority */
 	private static $admin;
 	/** @var User */
@@ -277,7 +273,7 @@ class SpecialContributionsTest extends SpecialPageTestBase {
 		yield 'Local user should have blocklink for admin' => [ 'UTSysop', true ];
 		yield 'Invalid IP should not have blocklink for admin' => [ '24.237.222208.166', false ];
 		yield 'External user should not have blocklink for admin' => [ 'imported>UTSysop', false ];
-		yield 'Nonexistent user should not have blocklink for admin' => [ __METHOD__, false ];
+		yield 'Nonexistent user should not have blocklink for admin' => [ __CLASS__, false ];
 	}
 
 	public static function provideYearMonthParams() {

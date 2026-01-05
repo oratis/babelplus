@@ -68,7 +68,6 @@ class ExecutePostCacheTransformHooksTest extends \MediaWikiIntegrationTestCase {
 		);
 		$res->clearParseStartTime();
 		$expected->clearParseStartTime();
-		$expected->recordOption( 'userlang' ); // T413227 workaround
 		$this->assertEquals( $expected, $res );
 	}
 
@@ -84,7 +83,7 @@ class ExecutePostCacheTransformHooksTest extends \MediaWikiIntegrationTestCase {
 					$options['enableSectionEditLinks'] = true;
 				} );
 		$options = [];
-		self::assertTrue( $transform->shouldRun( new ParserOutput(), ParserOptions::newFromAnon(), $options ) );
+		self::assertTrue( $transform->shouldRun( new ParserOutput(), null, $options ) );
 	}
 
 	/**
@@ -94,6 +93,6 @@ class ExecutePostCacheTransformHooksTest extends \MediaWikiIntegrationTestCase {
 		$transform = $this->createStage();
 		$this->clearHook( 'ParserOutputPostCacheTransform' );
 		$options = [];
-		self::assertFalse( $transform->shouldRun( new ParserOutput(), ParserOptions::newFromAnon(), $options ) );
+		self::assertFalse( $transform->shouldRun( new ParserOutput(), null, $options ) );
 	}
 }

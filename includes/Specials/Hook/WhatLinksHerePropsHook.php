@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Title\Title;
 use stdClass;
@@ -26,6 +26,3 @@ interface WhatLinksHerePropsHook {
 	 */
 	public function onWhatLinksHereProps( $row, $title, $target, &$props );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( WhatLinksHerePropsHook::class, 'MediaWiki\\Hook\\WhatLinksHerePropsHook' );

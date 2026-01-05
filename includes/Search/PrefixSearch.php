@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Search;
-
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Title\Title;
@@ -164,7 +162,7 @@ abstract class PrefixSearch {
 			$special = $spFactory->getPage( $specialTitle->getText() );
 			if ( $special ) {
 				$subpages = $special->prefixSearchSubpages( $subpageSearch, $limit, $offset );
-				return array_map( $specialTitle->getSubpage( ... ), $subpages );
+				return array_map( [ $specialTitle, 'getSubpage' ], $subpages );
 			} else {
 				return [];
 			}
@@ -190,7 +188,7 @@ abstract class PrefixSearch {
 				continue;
 			}
 			// Exclude aliases for unlisted pages
-			if ( !isset( $listedPages[$page] ) ) {
+			if ( !isset( $listedPages[ $page ] ) ) {
 				continue;
 			}
 
@@ -259,7 +257,7 @@ abstract class PrefixSearch {
 			foreach ( $namespaces as $namespace ) {
 				$title = Title::makeTitleSafe( $namespace, $search );
 				if ( $title ) {
-					$prefixes[$title->getDBkey()][] = $namespace;
+					$prefixes[ $title->getDBkey() ][] = $namespace;
 				}
 			}
 		}
@@ -296,6 +294,3 @@ abstract class PrefixSearch {
 		return iterator_to_array( $services->getTitleFactory()->newTitleArrayFromResult( $res ) );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PrefixSearch::class, 'PrefixSearch' );

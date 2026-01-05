@@ -13,7 +13,6 @@ use MediaWiki\MainConfigNames;
 use MediaWiki\Permissions\Authority;
 use MediaWiki\Title\Title;
 use MediaWiki\User\TempUser\TempUserConfig;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * This class represents a service that provides high-level operations on user groups.
@@ -39,7 +38,6 @@ class UserGroupAssignmentService {
 		private readonly UserGroupManagerFactory $userGroupManagerFactory,
 		private readonly UserNameUtils $userNameUtils,
 		private readonly UserFactory $userFactory,
-		private readonly RestrictedUserGroupChecker $restrictedGroupChecker,
 		private readonly HookRunner $hookRunner,
 		private readonly ServiceOptions $options,
 		private readonly TempUserConfig $tempUserConfig,
@@ -132,30 +130,6 @@ class UserGroupAssignmentService {
 		$localUserGroupManager = $this->userGroupManagerFactory->getUserGroupManager();
 		$groups = $localUserGroupManager->getGroupsChangeableBy( $performer );
 		$groups['restricted'] = [];
-
-		$checker = $this->restrictedGroupChecker;
-		$cannotAdd = [];
-		foreach ( $groups['add'] as $group ) {
-			if ( $checker->isGroupRestricted( $group ) ) {
-				$groups['restricted'][$group] = [
-					'condition-met' => $this->restrictedGroupChecker
-						->doPerformerAndTargetMeetConditionsForAddingToGroup(
-							$performer->getUser(),
-							$target,
-							$group
-						),
-					'ignore-condition' => $this->restrictedGroupChecker
-						->canPerformerIgnoreGroupRestrictions(
-							$performer,
-							$group
-						),
-				];
-				if ( !$checker->canPerformerAddTargetToGroup( $performer, $target, $group ) ) {
-					$cannotAdd[] = $group;
-				}
-			}
-		}
-		$groups['add'] = array_diff( $groups['add'], $cannotAdd );
 
 		$isSelf = $performer->getUser()->equals( $target );
 		if ( $isSelf ) {
@@ -258,10 +232,10 @@ class UserGroupAssignmentService {
 	) {
 		ksort( $oldUGMs );
 		ksort( $newUGMs );
-		$oldUGMs = array_map( self::serialiseUgmForLog( ... ), $oldUGMs );
+		$oldUGMs = array_map( static fn ( $ugm ) => self::serialiseUgmForLog( $ugm ), $oldUGMs );
 		$oldGroups = array_keys( $oldUGMs );
 		$oldUGMs = array_values( $oldUGMs );
-		$newUGMs = array_map( self::serialiseUgmForLog( ... ), $newUGMs );
+		$newUGMs = array_map( static fn ( $ugm ) => self::serialiseUgmForLog( $ugm ), $newUGMs );
 		$newGroups = array_keys( $newUGMs );
 		$newUGMs = array_values( $newUGMs );
 
@@ -406,6 +380,6 @@ class UserGroupAssignmentService {
 
 		// @todo FIXME: Non-qualified absolute times are not in users specified timezone
 		// and there isn't notice about it in the ui (see ProtectionForm::getExpiry)
-		return wfTimestamp( TS::MW, $unix );
+		return wfTimestamp( TS_MW, $unix );
 	}
 }

@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Registration;
+namespace MediaWiki\Tests\Registration;
 
 use Exception;
 use InvalidArgumentException;

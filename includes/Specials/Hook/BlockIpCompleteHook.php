@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Block\DatabaseBlock;
 use MediaWiki\User\User;
@@ -25,6 +25,3 @@ interface BlockIpCompleteHook {
 	 */
 	public function onBlockIpComplete( $block, $user, $priorBlock );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( BlockIpCompleteHook::class, 'MediaWiki\\Hook\\BlockIpCompleteHook' );

@@ -7,11 +7,10 @@
 namespace MediaWiki\Api;
 
 use MediaWiki\Language\LanguageCode;
-use MediaWiki\Language\LanguageConverterFactory;
-use MediaWiki\Language\LanguageFactory;
-use MediaWiki\Language\LanguageFallback;
-use MediaWiki\Language\LanguageFallbackMode;
-use MediaWiki\Language\LanguageNameUtils;
+use MediaWiki\Languages\LanguageConverterFactory;
+use MediaWiki\Languages\LanguageFactory;
+use MediaWiki\Languages\LanguageFallback;
+use MediaWiki\Languages\LanguageNameUtils;
 use MediaWiki\Message\Message;
 use Wikimedia\Message\ListType;
 use Wikimedia\ParamValidator\ParamValidator;
@@ -163,7 +162,7 @@ class ApiQueryLanguageinfo extends ApiQueryBase {
 				$fallbacks = $this->languageFallback->getAll(
 					$languageCode,
 					// allow users to distinguish between implicit and explicit 'en' fallbacks
-					LanguageFallbackMode::STRICT
+					LanguageFallback::STRICT
 				);
 				ApiResult::setIndexedTagName( $fallbacks, 'fb' );
 				$info['fallbacks'] = $fallbacks;

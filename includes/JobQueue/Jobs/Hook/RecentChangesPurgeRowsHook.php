@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\JobQueue\Jobs\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -21,6 +21,3 @@ interface RecentChangesPurgeRowsHook {
 	 */
 	public function onRecentChangesPurgeRows( $rows ): void;
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( RecentChangesPurgeRowsHook::class, 'MediaWiki\\Hook\\RecentChangesPurgeRowsHook' );

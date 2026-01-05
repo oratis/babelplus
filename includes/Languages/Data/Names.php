@@ -102,7 +102,6 @@ class Names {
 		'bm' => 'bamanankan', # Bambara
 		'bn' => 'বাংলা', # Bengali
 		'bo' => 'བོད་ཡིག', # Tibetan
-		'bol' => 'bòo pìkkà', # Bole
 		'bpy' => 'বিষ্ণুপ্রিয়া মণিপুরী', # Bishnupriya Manipuri
 		'bqi' => 'بختیاری', # Bakthiari
 		'br' => 'brezhoneg', # Breton
@@ -267,7 +266,6 @@ class Names {
 		'jbo' => 'la .lojban.', # Lojban
 		'jut' => 'jysk', # Jutish / Jutlandic
 		'jv' => 'Jawa', # Javanese
-		'jv-java' => 'ꦗꦮ', # Javanese (Javanese script)
 		'ka' => 'ქართული', # Georgian
 		'kaa' => 'Qaraqalpaqsha', # Karakalpak
 		'kab' => 'Taqbaylit', # Kabyle
@@ -434,7 +432,6 @@ class Names {
 		'pms' => 'Piemontèis', # Piedmontese
 		'pnb' => 'پنجابی', # Western Punjabi
 		'pnt' => 'Ποντιακά', # Pontic/Pontic Greek
-		'ppl' => 'Nawat', # Nawat
 		'prg' => 'prūsiskan', # Prussian
 		'ps' => 'پښتو', # Pashto
 		'pt' => 'português', # Portuguese

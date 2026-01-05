@@ -3,22 +3,15 @@
  * @license GPL-2.0-or-later
  * @author Legoktm
  */
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\DerivativeContext;
-use MediaWiki\Context\IContextSource;
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Hook\SpecialLogResolveLogTypeHook;
-use MediaWiki\Logging\ManualLogEntry;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\SpecialPage\SpecialPage;
 use MediaWiki\Specials\SpecialLog;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
-use RevisionDeleter;
-use TestUser;
-use Wikimedia\Parsoid\Utils\DOMCompat;
-use Wikimedia\Parsoid\Utils\DOMUtils;
 
 /**
  * @group Database
@@ -194,12 +187,7 @@ class SpecialLogTest extends SpecialPageTestBase {
 			new FauxRequest(),
 			'qqx'
 		);
-
-		$input = DOMCompat::querySelector(
-			DOMUtils::parseHTML( $html ),
-			'input[name=excludetempacct][type=hidden]'
-		);
-		$this->assertNotNull( $input );
+		$this->assertStringNotContainsString( 'excludetempacct', $html );
 	}
 
 	/**
@@ -246,20 +234,5 @@ class SpecialLogTest extends SpecialPageTestBase {
 			'/logentry-block-block:(.*)127\.0\.0\.1/',
 			$html
 		);
-	}
-
-	public function testSubpagesForPrefixSearchCallsHook(): void {
-		$this->setTemporaryHook(
-			'SpecialLogGetSubpagesForPrefixSearch',
-			static function ( IContextSource $context, array &$subpages ): void {
-				$subpages[] = 'subpage-1';
-				$subpages[] = 'subpage-2';
-			}
-		);
-
-		$pages = $this->newSpecialPage()
-			->prefixSearchSubpages( "sub", 100, 0 );
-
-		$this->assertEquals( [ 'subpage-1', 'subpage-2' ], $pages );
 	}
 }

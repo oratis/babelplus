@@ -1,24 +1,17 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
-use MediaWiki\Context\DerivativeContext;
-use MediaWiki\Context\RequestContext;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Request\FauxRequest;
 use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
-use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserGroupManager;
 use MediaWiki\User\UserGroupManagerFactory;
-use MediaWiki\User\UserGroupMembership;
 use MediaWiki\User\UserIdentity;
 use MediaWiki\WikiMap\WikiMap;
 use Wikimedia\Parsoid\Utils\DOMCompat;
 use Wikimedia\Parsoid\Utils\DOMUtils;
 use Wikimedia\TestingAccessWrapper;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @group Database
@@ -79,37 +72,6 @@ class SpecialUserRightsTest extends SpecialPageTestBase {
 		);
 		$this->assertNull( $input,
 			'No input fields should be present in the view mode, apart from the user select form' );
-	}
-
-	public function testShowFormWithRestrictedGroup() {
-		$this->overrideConfigValue(
-			MainConfigNames::RestrictedGroups,
-			[
-				'sysop' => [
-					'memberConditions' => [
-						'&',
-						[ APCOND_EDITCOUNT, 300 ],
-						[ APCOND_AGE, 3 * 86400 * 30 ],
-					],
-					'canBeIgnored' => false,
-				],
-			]
-		);
-
-		$target = $this->getTestUser()->getUser();
-		$performer = $this->getTestSysop()->getUser();
-
-		[ $html ] = $this->executeSpecialPage(
-			$target->getName(),
-			null,
-			'qqx',
-			$performer
-		);
-
-		$this->performBasicFormAssertions( $html, $target );
-
-		// The custom message exists because we are in qqx
-		$this->assertStringContainsString( '(userrights-restricted-group-sysop)', $html );
 	}
 
 	public function testSaveUserGroups() {
@@ -194,7 +156,7 @@ class SpecialUserRightsTest extends SpecialPageTestBase {
 	}
 
 	public function testSaveUserGroups_change_expiry() {
-		$expiry = wfTimestamp( TS::MW, (int)ConvertibleTimestamp::now( TS::UNIX ) + 100 );
+		$expiry = wfTimestamp( TS_MW, (int)wfTimestamp( TS_UNIX ) + 100 );
 		$target = $this->getTestUser( [ 'bot' ] )->getUser();
 		$performer = $this->getTestSysop()->getUser();
 		$request = new FauxRequest(
@@ -317,16 +279,18 @@ class SpecialUserRightsTest extends SpecialPageTestBase {
 
 		// This test is deliberately not using executeSpecialPage, as we want to ensure that these group names are
 		// present in the correct places. The full output of this special page would contain them in many other places.
-		$groupsLists = $wrappedPage->buildFormGroupsLists();
+		$groupsText = $wrappedPage->getCurrentUserGroupsText();
 
-		// The lists are explicit groups and then implicit groups
-		$permanentGroups = $groupsLists[0];
+		$paragraphs = explode( '<p>', $groupsText );
+
+		// The 0th element is empty, then explicit groups and finally implicit groups
+		$permanentGroups = $paragraphs[1];
 		$this->assertStringContainsString( '(userrights-groupsmember: 3,', $permanentGroups );
 		$this->assertStringContainsString( '(group-bot)</a>, 00:00, 1 (january) 9999', $permanentGroups );
 		$this->assertStringContainsString( '(group-sysop)', $permanentGroups );
 		$this->assertStringContainsString( '(group-bureaucrat)', $permanentGroups );
 
-		$implicitGroups = $groupsLists[1];
+		$implicitGroups = $paragraphs[2];
 		$this->assertStringContainsString( '(userrights-groupsmember-auto: 1,', $implicitGroups );
 		$this->assertStringContainsString( '(group-autoconfirmed)', $implicitGroups );
 	}

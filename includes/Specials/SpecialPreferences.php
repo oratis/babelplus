@@ -6,6 +6,7 @@
 
 namespace MediaWiki\Specials;
 
+use LogicException;
 use MediaWiki\Context\IContextSource;
 use MediaWiki\Exception\PermissionsError;
 use MediaWiki\Html\Html;
@@ -109,7 +110,7 @@ class SpecialPreferences extends SpecialPage {
 		}
 		$out->addJsConfigVars( 'wgPreferencesTabs', $prefTabs );
 
-		$out->addHTML( ( new FieldLayout(
+		$out->addHTML( new FieldLayout(
 			new SearchInputWidget( [
 				'placeholder' => $this->msg( 'searchprefs' )->text(),
 			] ),
@@ -119,7 +120,7 @@ class SpecialPreferences extends SpecialPage {
 				'invisibleLabel' => true,
 				'infusable' => true,
 			]
-		) )->toString() );
+		) );
 		$htmlForm->show();
 	}
 
@@ -168,7 +169,7 @@ class SpecialPreferences extends SpecialPage {
 			throw new PermissionsError( 'editmyoptions' );
 		}
 
-		$user = $this->getUser();
+		$user = $this->getUser()->getInstanceFromPrimary() ?? throw new LogicException( 'No user' );
 		$this->userOptionsManager->resetAllOptions( $user );
 		$this->userOptionsManager->saveOptions( $user );
 

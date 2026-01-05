@@ -21,7 +21,7 @@ use Wikimedia\Message\MessageSpecifier;
  */
 class PagerNavigationBuilder {
 	/** @var MessageLocalizer */
-	protected $messageLocalizer;
+	private $messageLocalizer;
 
 	/** @var PageReference|null */
 	protected $page;
@@ -29,41 +29,41 @@ class PagerNavigationBuilder {
 	protected $linkQuery = [];
 
 	/** @var array<string,string|int|null>|null */
-	protected $prevLinkQuery = null;
+	private $prevLinkQuery = null;
 	/** @var string */
-	protected $prevMsg = 'prevn';
+	private $prevMsg = 'prevn';
 	/** @var string|null */
-	protected $prevTooltipMsg = null;
+	private $prevTooltipMsg = null;
 
 	/** @var array<string,string|int|null>|null */
-	protected $nextLinkQuery = null;
+	private $nextLinkQuery = null;
 	/** @var string */
-	protected $nextMsg = 'nextn';
+	private $nextMsg = 'nextn';
 	/** @var string|null */
-	protected $nextTooltipMsg = null;
+	private $nextTooltipMsg = null;
 
 	/** @var array<string,string|int|null>|null */
-	protected $firstLinkQuery = null;
+	private $firstLinkQuery = null;
 	/** @var string|null */
-	protected $firstMsg = null;
+	private $firstMsg = null;
 	/** @var string|null */
-	protected $firstTooltipMsg = null;
+	private $firstTooltipMsg = null;
 
 	/** @var array<string,string|int|null>|null */
-	protected $lastLinkQuery = null;
+	private $lastLinkQuery = null;
 	/** @var string|null */
-	protected $lastMsg = null;
+	private $lastMsg = null;
 	/** @var string|null */
-	protected $lastTooltipMsg = null;
+	private $lastTooltipMsg = null;
 
 	/** @var int */
-	protected $currentLimit = 50;
+	private $currentLimit = 50;
 	/** @var int[] */
-	protected $limits = [ 20, 50, 100, 250, 500 ];
+	private $limits = [ 20, 50, 100, 250, 500 ];
 	/** @var string */
-	protected $limitLinkQueryParam = 'limit';
+	private $limitLinkQueryParam = 'limit';
 	/** @var string|null */
-	protected $limitTooltipMsg = null;
+	private $limitTooltipMsg = null;
 
 	public function __construct( MessageLocalizer $messageLocalizer ) {
 		$this->messageLocalizer = $messageLocalizer;
@@ -239,7 +239,7 @@ class PagerNavigationBuilder {
 	 *   See Message::params()
 	 * @return Message
 	 */
-	protected function msg( $key, ...$params ): Message {
+	private function msg( $key, ...$params ): Message {
 		return $this->messageLocalizer
 			->msg( $key, ...$params )
 			->page( $this->page );
@@ -342,7 +342,9 @@ class PagerNavigationBuilder {
 		$html .= $this->msg( 'viewprevnext' )->params(
 			Message::rawParam( $prevLink ),
 			Message::rawParam( $nextLink ),
-			Message::listParam( array_map( Message::rawParam( ... ), $limitLinks ), ListType::PIPE )
+			Message::listParam( array_map( static function ( $limitLink ) {
+				return Message::rawParam( $limitLink );
+			}, $limitLinks ), ListType::PIPE )
 		)->escaped();
 
 		return Html::rawElement( 'div', [ 'class' => 'mw-pager-navigation-bar' ], $html );

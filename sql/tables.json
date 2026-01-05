@@ -166,6 +166,16 @@
 					"notnull": false,
 					"default": null
 				}
+			},
+			{
+				"name": "ar_sha1",
+				"comment": "Copied from rev_sha1, SHA-1 text content hash in base-36 @since 1.19",
+				"type": "binary",
+				"options": {
+					"notnull": true,
+					"default": "",
+					"length": 32
+				}
 			}
 		],
 		"indexes": [
@@ -2052,12 +2062,6 @@
 					"length": 255,
 					"default": ""
 				}
-			},
-			{
-				"name": "il_target_id",
-				"type": "bigint",
-				"comment": "Foreign key to linktarget.lt_id",
-				"options": { "notnull": false, "unsigned": true }
 			}
 		],
 		"indexes": [
@@ -2075,25 +2079,6 @@
 				"columns": [
 					"il_from_namespace",
 					"il_to",
-					"il_from"
-				],
-				"comment": "Index for Special:Whatlinkshere with namespace filter",
-				"unique": false
-			},
-			{
-				"name": "il_target_id",
-				"columns": [
-					"il_target_id",
-					"il_from"
-				],
-				"comment": "Reverse index, for Special:Whatlinkshere and file description page local usage",
-				"unique": false
-			},
-			{
-				"name": "il_backlinks_namespace_target_id",
-				"columns": [
-					"il_from_namespace",
-					"il_target_id",
 					"il_from"
 				],
 				"comment": "Index for Special:Whatlinkshere with namespace filter",
@@ -2872,6 +2857,24 @@
 				"type": "mwtimestamp",
 				"options": {
 					"notnull": true
+				}
+			},
+			{
+				"name": "modtoken",
+				"type": "string",
+				"options": {
+					"notnull": true,
+					"length": 17,
+					"default": "00000000000000000"
+				}
+			},
+			{
+				"name": "flags",
+				"type": "integer",
+				"options": {
+					"notnull": false,
+					"unsigned": true,
+					"default": null
 				}
 			}
 		],
@@ -3830,8 +3833,18 @@
 				}
 			},
 			{
+				"name": "rc_type",
+				"comment": "The type of change entry (RC_EDIT,RC_NEW,RC_LOG,RC_EXTERNAL)",
+				"type": "mwtinyint",
+				"options": {
+					"unsigned": true,
+					"notnull": true,
+					"default": 0
+				}
+			},
+			{
 				"name": "rc_source",
-				"comment": "The source of the change entry",
+				"comment": "The source of the change entry (replaces rc_type)",
 				"type": "binary",
 				"options": {
 					"notnull": true,
@@ -3988,8 +4001,19 @@
 				"unique": false
 			},
 			{
+				"name": "rc_name_type_patrolled_timestamp",
+				"comment": "ApiQueryRecentChanges (T140108)",
+				"columns": [
+					"rc_namespace",
+					"rc_type",
+					"rc_patrolled",
+					"rc_timestamp"
+				],
+				"unique": false
+			},
+			{
 				"name": "rc_name_source_patrolled_timestamp",
-				"comment": "ApiQueryRecentChanges (T140108), migrated to rc_source (T74157)",
+				"comment": "ApiQueryRecentChanges (T140108), using rc_source instead of rc_type (T74157)",
 				"columns": [
 					"rc_namespace",
 					"rc_source",
@@ -4163,6 +4187,16 @@
 				"options": {
 					"unsigned": true,
 					"notnull": false
+				}
+			},
+			{
+				"name": "rev_sha1",
+				"comment": "SHA-1 text content hash in base-36",
+				"type": "binary",
+				"options": {
+					"length": 32,
+					"notnull": true,
+					"default": ""
 				}
 			}
 		],
@@ -5457,86 +5491,6 @@
 		],
 		"pk": [
 			"we_item"
-		]
-	},
-	{
-		"name": "watchlist_label",
-		"comment": "Watchlist label names",
-		"columns": [
-			{
-				"name": "wll_id",
-				"comment": "Unique ID for row",
-				"type": "integer",
-				"options": {
-					"unsigned": true,
-					"notnull": true,
-					"autoincrement": true
-				}
-			},
-			{
-				"name": "wll_user",
-				"comment": "user_id for label owner",
-				"type": "integer",
-				"options": {
-					"unsigned": true,
-					"notnull": true
-				}
-			},
-			{
-				"name": "wll_name",
-				"comment": "Label text",
-				"type": "binary",
-				"options": {
-					"length": 255,
-					"notnull": true
-				}
-			}
-		],
-		"indexes": [
-			{
-				"name": "wll_user_name",
-				"columns": [
-					"wll_user",
-					"wll_name"
-				],
-				"unique": true
-			}
-		],
-		"pk": [ "wll_id" ]
-	},
-	{
-		"name": "watchlist_label_member",
-		"comment": "Label to watchlist item associations",
-		"columns": [
-			{
-				"name": "wlm_label",
-				"comment": "Key to watchlist_label.wll_id",
-				"type": "integer",
-				"options": {
-					"unsigned": true,
-					"notnull": true
-				}
-			},
-			{
-				"name": "wlm_item",
-				"comment": "Key to watchlist.wl_id",
-				"type": "integer",
-				"options": {
-					"unsigned": true,
-					"notnull": true
-				}
-			}
-		],
-		"indexes": [
-			{
-				"name": "wlm_item",
-				"columns": [ "wlm_item" ],
-				"unique": false
-			}
-		],
-		"pk": [
-			"wlm_label",
-			"wlm_item"
 		]
 	}
 ]

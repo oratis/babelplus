@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Logging;
 
 use MediaWiki\Cache\LinkCache;
 use MediaWiki\Context\RequestContext;
@@ -496,11 +495,7 @@ class ProtectLogFormatterTest extends LogFormatterTestCase {
 			$this->getServiceContainer()->getTitleFormatter(),
 			$this->createMock( LinkCache::class ),
 			$this->getServiceContainer()->getSpecialPageFactory(),
-			$this->getServiceContainer()->getHookContainer(),
-			$this->getServiceContainer()->getTempUserConfig(),
-			$this->getServiceContainer()->getTempUserDetailsLookup(),
-			$this->getServiceContainer()->getUserIdentityLookup(),
-			$this->getServiceContainer()->getUserNameUtils(),
+			$this->getServiceContainer()->getHookContainer()
 		) )->create() );
 		if ( $shouldMatch ) {
 			$this->assertStringMatchesFormat(

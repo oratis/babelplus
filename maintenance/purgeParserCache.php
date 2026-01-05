@@ -11,7 +11,6 @@ require_once __DIR__ . '/Maintenance.php';
 use MediaWiki\MainConfigNames;
 use MediaWiki\Maintenance\Maintenance;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Remove expired objects from the parser cache database.
@@ -75,7 +74,7 @@ class PurgeParserCache extends Maintenance {
 		$this->usleep = 1e3 * $this->getOption( 'msleep', 0 );
 		$this->lastTimestamp = microtime( true );
 
-		$humanDate = ConvertibleTimestamp::convert( TS::RFC2822, $timestamp );
+		$humanDate = ConvertibleTimestamp::convert( TS_RFC2822, $timestamp );
 		if ( $this->hasOption( 'dry-run' ) ) {
 			$this->fatalError( "\nDry run mode, would delete objects having an expiry before " . $humanDate . "\n" );
 		}

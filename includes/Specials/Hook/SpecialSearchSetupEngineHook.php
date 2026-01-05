@@ -1,9 +1,9 @@
 <?php
 
-namespace MediaWiki\Specials\Hook;
+namespace MediaWiki\Hook;
 
-use MediaWiki\Search\SearchEngine;
 use MediaWiki\Specials\SpecialSearch;
+use SearchEngine;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -25,6 +25,3 @@ interface SpecialSearchSetupEngineHook {
 	 */
 	public function onSpecialSearchSetupEngine( $search, $profile, $engine );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SpecialSearchSetupEngineHook::class, 'MediaWiki\\Hook\\SpecialSearchSetupEngineHook' );

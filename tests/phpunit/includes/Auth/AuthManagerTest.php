@@ -33,7 +33,6 @@ use MediaWiki\Auth\UsernameAuthenticationRequest;
 use MediaWiki\Block\BlockManager;
 use MediaWiki\Block\Restriction\PageRestriction;
 use MediaWiki\Block\SystemBlock;
-use MediaWiki\ChangeTags\ChangeTagsStore;
 use MediaWiki\Config\Config;
 use MediaWiki\Config\HashConfig;
 use MediaWiki\Config\ServiceOptions;
@@ -59,7 +58,6 @@ use MediaWiki\User\Options\UserOptionsManager;
 use MediaWiki\User\User;
 use MediaWiki\User\UserFactory;
 use MediaWiki\User\UserIdentityLookup;
-use MediaWiki\User\UserIdentityUtils;
 use MediaWiki\User\UserNameUtils;
 use MediaWiki\Watchlist\WatchlistManager;
 use MediaWikiIntegrationTestCase;
@@ -118,14 +116,10 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 	private BotPasswordStore $botPasswordStore;
 	private UserFactory $userFactory;
 	private UserIdentityLookup $userIdentityLookup;
-	private UserIdentityUtils $userIdentityUtils;
-	private ChangeTagsStore $changeTagsStore;
 	private UserOptionsManager $userOptionsManager;
 	private ObjectCacheFactory $objectCacheFactory;
 	private NotificationService $notificationService;
 	private SessionManager $sessionManager;
-
-	private const TAG = 'foo';
 
 	/**
 	 * Registers a mock hook.
@@ -241,7 +235,6 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 			$this->request = new FauxRequest();
 		}
 
-		$this->changeTagsStore ??= $this->getServiceContainer()->getChangeTagsStore();
 		$this->objectFactory ??= new ObjectFactory( $this->createNoOpAbstractMock( ContainerInterface::class ) );
 		$this->readOnlyMode ??= $this->getServiceContainer()->getReadOnlyMode();
 		// Override BlockManager::checkHost. Formerly testAuthorizeCreateAccount_DNSBlacklist
@@ -275,7 +268,6 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$this->botPasswordStore ??= $this->getServiceContainer()->getBotPasswordStore();
 		$this->userFactory ??= $this->getServiceContainer()->getUserFactory();
 		$this->userIdentityLookup ??= $this->getServiceContainer()->getUserIdentityLookup();
-		$this->userIdentityUtils ??= $this->getServiceContainer()->getUserIdentityUtils();
 		$this->userOptionsManager ??= $this->getServiceContainer()->getUserOptionsManager();
 		$this->objectCacheFactory ??= $this->getServiceContainer()->getObjectCacheFactory();
 		$this->logger ??= new TestLogger();
@@ -289,9 +281,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$this->manager = new AuthManager(
 			$this->request,
 			$this->config,
-			$this->changeTagsStore,
 			$this->objectFactory,
-			$this->objectCacheFactory,
 			$this->hookContainer,
 			$this->readOnlyMode,
 			$this->userNameUtils,
@@ -303,7 +293,6 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 			$this->botPasswordStore,
 			$this->userFactory,
 			$this->userIdentityLookup,
-			$this->userIdentityUtils,
 			$this->userOptionsManager,
 			$this->notificationService,
 			$this->sessionManager
@@ -316,7 +305,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 	 * Setup SessionManager with a mock session provider
 	 * @param bool|null $canChangeUser If non-null, canChangeUser will be mocked to return this
 	 * @param array $methods Additional methods to mock
-	 * @return \MediaWiki\Session\SessionProvider
+	 * @return MediaWiki\Session\SessionProvider
 	 */
 	protected function getMockSessionProvider( $canChangeUser = null, array $methods = [] ) {
 		if ( !isset( $this->config ) ) {
@@ -2938,9 +2927,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$existingUser = $this->getTestSysop()->getUser();
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$existingUser, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $existingUser, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$expect = Status::newGood();
 		$expect->warning( 'userexists' );
@@ -2955,9 +2942,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$user = $this->getTestSysop()->getUser();
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, false, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, false, true );
 		$this->unhook( 'LocalUserCreated' );
 		$expect = Status::newGood();
 		$expect->warning( 'userexists' );
@@ -2975,9 +2960,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$readOnlyMode = $this->getServiceContainer()->getReadOnlyMode();
 		$readOnlyMode->setReason( 'Because' );
 		$user = User::newFromName( $username );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertEquals( Status::newFatal( wfMessage( 'readonlytext', 'Because' ) ), $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -2994,9 +2977,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->set( AuthManager::AUTOCREATE_BLOCKLIST, 'test' );
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertEquals( Status::newFatal( 'test' ), $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -3011,9 +2992,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->set( AuthManager::AUTOCREATE_BLOCKLIST, StatusValue::newFatal( 'test2' ) );
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertEquals( Status::newFatal( 'test2' ), $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -3028,9 +3007,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$user = User::newFromName( $username . "\u{0080}", false );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertEquals( Status::newFatal( 'noname' ), $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -3053,9 +3030,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session = $this->request->getSession();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertTrue( $ret->hasMessage( 'badaccess-group0' ) );
 		$this->assertSame( 0, $user->getId() );
@@ -3075,9 +3050,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session = $this->request->getSession();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_MAINT, true, false
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_MAINT, true, false );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'ok', $ret );
 
@@ -3089,9 +3062,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session = $this->request->getSession();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'ok', $ret );
 
@@ -3105,9 +3076,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session = $this->request->getSession();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'ok', $ret );
 		$logger->clearBuffer();
@@ -3122,9 +3091,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$cache = $this->objectCacheFactory->getLocalClusterInstance();
 		$lock = $cache->getScopedLock( $cache->makeGlobalKey( 'account', md5( $username ) ) );
 		$this->assertNotNull( $lock );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		unset( $lock );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'usernameinprogress', $ret );
@@ -3140,9 +3107,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'fail-in-pre', $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -3159,9 +3124,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'fail-in-primary', $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -3178,9 +3141,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'fail-in-secondary', $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -3201,9 +3162,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->never() );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertStatusError( 'authmanager-autocreate-exception', $ret );
 		$this->assertSame( 0, $user->getId() );
@@ -3223,9 +3182,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$user->expects( $this->once() )->method( 'addToDatabase' )
 			->willReturn( Status::newFatal( 'because' ) );
 		$user->setName( $username );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->assertStatusError( 'because', $ret );
 		$this->assertSame( 0, $user->getId() );
 		$this->assertNotEquals( $username, $user->getName() );
@@ -3248,9 +3205,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 			->willThrowException( new Exception( 'Excepted' ) );
 		$user->setName( $username );
 		try {
-			$this->manager->autoCreateUser(
-				$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-			);
+			$this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 			$this->fail( 'Expected exception not thrown' );
 		} catch ( Exception $ex ) {
 			$this->assertSame( 'Excepted', $ex->getMessage() );
@@ -3279,9 +3234,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 				return Status::newFatal( 'userexists' );
 			} );
 		$user->setName( $username );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$expect = Status::newGood();
 		$expect->warning( 'userexists' );
 		$this->assertEquals( $expect, $ret );
@@ -3301,9 +3254,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->once() )
 			->with( $callback, true );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, true, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertEquals( Status::newGood(), $ret );
 		$this->assertNotEquals( 0, $user->getId() );
@@ -3325,9 +3276,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$user = User::newFromName( $username );
 		$this->hook( 'LocalUserCreated', LocalUserCreatedHook::class, $this->once() )
 			->with( $callback, true );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, false, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, false, true );
 		$this->unhook( 'LocalUserCreated' );
 		$this->assertEquals( Status::newGood(), $ret );
 		$this->assertNotEquals( 0, $user->getId() );
@@ -3349,9 +3298,7 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$session->clear();
 		$username = self::usernameForCreation();
 		$user = User::newFromName( $username );
-		$ret = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, false, true
-		);
+		$ret = $this->manager->autoCreateUser( $user, AuthManager::AUTOCREATE_SOURCE_SESSION, false, true );
 		$this->assertEquals( Status::newGood(), $ret );
 		$logger->clearBuffer();
 
@@ -3368,73 +3315,6 @@ class AuthManagerTest extends MediaWikiIntegrationTestCase {
 		$this->assertSame( [ '4::userid' => $user->getId() ], $entry->getParameters() );
 
 		$workaroundPHPUnitBug = true;
-	}
-
-	public static function provideTestAutoAccountCreationWithTags() {
-		return [
-			'Auto-create user without a log' => [
-				'log' => false
-			],
-			'Auto-create user with a untagged log' => [
-				'log' => true
-			],
-			'Auto-create user with a tagged log' => [
-				'log' => true,
-				'tags' => [ self::TAG ]
-			],
-		];
-	}
-
-	/**
-	 * @dataProvider provideTestAutoAccountCreationWithTags
-	 */
-	public function testAutoAccountCreationWithTags( bool $log, array $tags = [] ) {
-		$this->initializeManager();
-		$this->config->set( MainConfigNames::NewUserLog, true );
-
-		$logger = new TestLogger( true, static function ( $m ) {
-			$m = str_replace( 'MediaWiki\\Auth\\AuthManager::autoCreateUser: ', '', $m );
-			return $m;
-		} );
-		$this->logger = $logger;
-		$this->manager->setLogger( $logger );
-
-		$changeTagsStore = $this->getServiceContainer()->getChangeTagsStore();
-		$changeTagsStore->defineTag( self::TAG );
-
-		$user = User::newFromName( self::usernameForCreation() );
-		$status = $this->manager->autoCreateUser(
-			$user, AuthManager::AUTOCREATE_SOURCE_SESSION, false, $log, null, $tags
-		);
-		$this->assertStatusOK( $status, 'Failed to auto-create user' );
-		$this->assertSame( [
-			[ LogLevel::INFO, 'creating new user ({username}) - from: {from}' ],
-		], $logger->getBuffer() );
-
-		$db = $this->getDb();
-		$builder = $db->newSelectQueryBuilder();
-		$logid = $builder
-			->select( 'log_id' )
-			->from( 'logging' )
-			->where( [
-				'log_type' => 'newusers',
-				'log_action' => 'autocreate',
-				'log_namespace' => NS_USER,
-				'log_title' => $user->getTitleKey()
-			] )
-			->orderBy( 'log_timestamp', $builder::SORT_DESC )
-			->limit( 1 )
-			->caller( __METHOD__ )
-			->fetchField();
-
-		if ( !$log ) {
-			$this->assertFalse( $logid, 'Auto-creation is incorrectly logged' );
-		} else {
-			$this->assertNotFalse( $logid, 'Auto-creation is not logged' );
-
-			$actualTags = $changeTagsStore->getTags( $db, null, null, (int)$logid );
-			$this->assertSame( $tags, $actualTags, 'Tag mismatch for the auto-creation log' );
-		}
 	}
 
 	/**

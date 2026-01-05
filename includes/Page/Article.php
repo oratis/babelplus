@@ -41,7 +41,6 @@ use MediaWiki\Revision\BadRevisionException;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\SlotRecord;
-use MediaWiki\Skin\Skin;
 use MediaWiki\Status\Status;
 use MediaWiki\Title\Title;
 use MediaWiki\User\Options\UserOptionsLookup;
@@ -119,7 +118,6 @@ class Article implements Page {
 	protected IConnectionProvider $dbProvider;
 	protected DatabaseBlockStore $blockStore;
 	protected RestrictionStore $restrictionStore;
-	private bool $usePostprocessCache;
 
 	/**
 	 * @var RevisionRecord|null Revision to be shown
@@ -150,7 +148,6 @@ class Article implements Page {
 		$this->dbProvider = $services->getConnectionProvider();
 		$this->blockStore = $services->getDatabaseBlockStore();
 		$this->restrictionStore = $services->getRestrictionStore();
-		$this->usePostprocessCache = $services->getMainConfig()->get( MainConfigNames::UsePostprocCache );
 	}
 
 	/**
@@ -186,12 +183,18 @@ class Article implements Page {
 		( new HookRunner( MediaWikiServices::getInstance()->getHookContainer() ) )
 			// @phan-suppress-next-line PhanTypeMismatchArgument Type mismatch on pass-by-ref args
 			->onArticleFromTitle( $title, $page, $context );
-
-		$page ??= match ( $title->getNamespace() ) {
-			NS_FILE => new ImagePage( $title ),
-			NS_CATEGORY => new CategoryPage( $title ),
-			default => new Article( $title )
-		};
+		if ( !$page ) {
+			switch ( $title->getNamespace() ) {
+				case NS_FILE:
+					$page = new ImagePage( $title );
+					break;
+				case NS_CATEGORY:
+					$page = new CategoryPage( $title );
+					break;
+				default:
+					$page = new Article( $title );
+			}
+		}
 		$page->setContext( $context );
 
 		return $page;
@@ -479,8 +482,7 @@ class Article implements Page {
 		$outputPage->setPageTitle( Parser::formatPageTitle(
 			str_replace( '_', ' ', $this->getTitle()->getNsText() ),
 			':',
-			$this->getTitle()->getText(),
-			$this->getTitle()->getPageLanguage()
+			$this->getTitle()->getText()
 		) );
 
 		$outputPage->setArticleFlag( true );
@@ -709,31 +711,6 @@ class Article implements Page {
 			return false; // skip all further output to OutputPage
 		}
 
-		// Augment the parser options
-		$skin = $outputPage->getSkin();
-		$skinOptions = $skin->getOptions();
-		$textOptions += [
-			// T371022, T410923
-			'allowClone' => $this->getContext()->getConfig()->get( MainConfigNames::CloneArticleParserOutput ),
-			'skin' => $skin,
-			'injectTOC' => $skinOptions['toc'],
-		];
-		foreach ( $textOptions as $key => $value ) {
-			// allowClone will disappear and should not impact cache
-			// userLang is a duplicate of userlang and should be reconciled with it
-			if ( $key === 'allowClone' || $key === 'userLang' ) {
-				continue;
-			}
-			if ( !in_array( $key, ParserOptions::$postprocOptions, true ) ) {
-				wfDeprecated( __METHOD__ . " with unknown textOption $key", "1.46" );
-			} else {
-				$parserOptions->setOption( $key, $value );
-			}
-		}
-		if ( $this->usePostprocessCache ) {
-			$parserOptions->enablePostproc();
-		}
-
 		// Try the latest parser cache
 		// NOTE: try latest-revision cache first to avoid loading revision.
 		if ( $useParserCache && !$oldid ) {
@@ -741,17 +718,11 @@ class Article implements Page {
 				$this->getPage(),
 				$parserOptions,
 				null,
-				[
-					// we already checked
-					ParserOutputAccess::OPT_NO_AUDIENCE_CHECK => true,
-				],
+				ParserOutputAccess::OPT_NO_AUDIENCE_CHECK // we already checked
 			);
 
 			if ( $pOutput ) {
-				if ( !$this->usePostprocessCache ) {
-					$pOutput = $this->postProcessOutput( $pOutput, $parserOptions, $textOptions, $skin );
-				}
-				$this->doOutputFromPostProcessedParserCache( $pOutput, $outputPage );
+				$this->doOutputFromParserCache( $pOutput, $parserOptions, $outputPage, $textOptions );
 				$this->doOutputMetaData( $pOutput, $outputPage );
 				return true;
 			}
@@ -782,17 +753,11 @@ class Article implements Page {
 					$this->getPage(),
 					$parserOptions,
 					$rev,
-					[
-						 // we already checked in fetchRevisionRecord
-						ParserOutputAccess::OPT_NO_AUDIENCE_CHECK => true,
-					],
+					ParserOutputAccess::OPT_NO_AUDIENCE_CHECK // we already checked in fetchRevisionRecord
 				);
 
 				if ( $pOutput ) {
-					if ( !$this->usePostprocessCache ) {
-						$pOutput = $this->postProcessOutput( $pOutput, $parserOptions, $textOptions, $skin );
-					}
-					$this->doOutputFromPostProcessedParserCache( $pOutput, $outputPage );
+					$this->doOutputFromParserCache( $pOutput, $parserOptions, $outputPage, $textOptions );
 					$this->doOutputMetaData( $pOutput, $outputPage );
 					return true;
 				}
@@ -833,13 +798,8 @@ class Article implements Page {
 
 		$opt = [];
 
-		// we already checked the cache in case 2, don't check again; but if we're using postproc,
-		// we still want to check if we have a main parser cache entry.
-		if ( $this->usePostprocessCache ) {
-			$opt[ ParserOutputAccess::OPT_NO_POSTPROC_CACHE ] = true;
-		} else {
-			$opt[ ParserOutputAccess::OPT_NO_CHECK_CACHE ] = true;
-		}
+		// we already checked the cache in case 2, don't check again.
+		$opt[ ParserOutputAccess::OPT_NO_CHECK_CACHE ] = true;
 
 		// we already checked in fetchRevisionRecord()
 		$opt[ ParserOutputAccess::OPT_NO_AUDIENCE_CHECK ] = true;
@@ -902,7 +862,7 @@ class Article implements Page {
 			$renderStatus,
 			$outputPage,
 			$parserOptions,
-			$textOptions,
+			$textOptions
 		);
 
 		if ( !$renderStatus->isOK() ) {
@@ -937,33 +897,24 @@ class Article implements Page {
 		$this->mParserOutput = $pOutput;
 	}
 
-	private function postProcessOutput(
-		ParserOutput $pOutput, ParserOptions $parserOptions, array $textOptions, Skin $skin
-	): ParserOutput {
-		$skinOptions = $skin->getOptions();
-		$textOptions += [
-			// T371022, T410923
-			'allowClone' => $this->getContext()->getConfig()->get( MainConfigNames::CloneArticleParserOutput ),
-			'skin' => $skin,
-			'injectTOC' => $skinOptions['toc'],
-		];
-		$pipeline = MediaWikiServices::getInstance()->getDefaultOutputPipeline();
-		$pOutput = $pipeline->run( $pOutput, $parserOptions, $textOptions );
-		return $pOutput;
-	}
-
-	private function doOutputFromPostProcessedParserCache(
+	/**
+	 * @param ParserOutput $pOutput
+	 * @param ParserOptions $pOptions
+	 * @param OutputPage $outputPage
+	 * @param array $textOptions
+	 */
+	private function doOutputFromParserCache(
 		ParserOutput $pOutput,
+		ParserOptions $pOptions,
 		OutputPage $outputPage,
+		array $textOptions
 	) {
 		# Ensure that UI elements requiring revision ID have
 		# the correct version information.
 		$oldid = $pOutput->getCacheRevisionId() ?? $this->getRevIdFetched();
 		$outputPage->setRevisionId( $oldid );
 		$outputPage->setRevisionIsCurrent( $oldid === $this->mPage->getLatest() );
-
-		$outputPage->addPostProcessedParserOutput( $pOutput );
-
+		$outputPage->addParserOutput( $pOutput, $pOptions, $textOptions );
 		# Preload timestamp to avoid a DB hit
 		$cachedTimestamp = $pOutput->getRevisionTimestamp();
 		if ( $cachedTimestamp !== null ) {
@@ -972,12 +923,19 @@ class Article implements Page {
 		}
 	}
 
+	/**
+	 * @param RevisionRecord $rev
+	 * @param Status $renderStatus
+	 * @param OutputPage $outputPage
+	 * @param ParserOptions $parserOptions
+	 * @param array $textOptions
+	 */
 	private function doOutputFromRenderStatus(
 		RevisionRecord $rev,
 		Status $renderStatus,
 		OutputPage $outputPage,
 		ParserOptions $parserOptions,
-		array $textOptions,
+		array $textOptions
 	) {
 		$context = $this->getContext();
 		if ( !$renderStatus->isOK() ) {
@@ -1007,13 +965,7 @@ class Article implements Page {
 			}
 		}
 
-		// TODO this will probably need to be conditional on cache access and/or hoisted one level above but for
-		// now let's keep things in the same place and avoid editing StatusValues.
-		if ( !$this->usePostprocessCache ) {
-			$pOutput = $this->postProcessOutput( $pOutput, $parserOptions, $textOptions, $outputPage->getSkin() );
-		}
-
-		$outputPage->addPostProcessedParserOutput( $pOutput );
+		$outputPage->addParserOutput( $pOutput, $parserOptions, $textOptions );
 
 		if ( $this->getRevisionRedirectTarget( $rev ) ) {
 			$outputPage->addSubtitle( "<span id=\"redirectsub\">" .
@@ -1042,8 +994,6 @@ class Article implements Page {
 		# Adjust the title if it was set by displaytitle, -{T|}- or language conversion
 		$titleText = $pOutput->getTitleText();
 		if ( $titleText !== '' ) {
-			# XXX T36514 / T314399 / T306440: we should have a language here
-			# and split the namespace
 			$out->setPageTitle( $titleText );
 			$out->setDisplayTitle( $titleText );
 		}
@@ -1455,7 +1405,7 @@ class Article implements Page {
 		// File patrol: Get the timestamp of the latest upload for this page,
 		// check whether it is within the RC lifespan and if it is, we try
 		// to get the recentchanges row belonging to that entry
-		// (with rc_source = SRC_LOG, rc_log_type = upload).
+		// (with rc_type = RC_LOG, rc_log_type = upload).
 		$recentFileUpload = false;
 		if ( ( !$rc || $rc->getAttribute( 'rc_patrolled' ) ) && $useFilePatrol
 			&& $title->getNamespace() === NS_FILE ) {
@@ -1546,7 +1496,7 @@ class Article implements Page {
 		);
 
 		$outputPage->addModuleStyles( 'mediawiki.action.styles' );
-		$outputPage->addHTML( "<div class='patrollink' data-mw-interface>$link</div>" );
+		$outputPage->addHTML( "<div class='patrollink' data-mw='interface'>$link</div>" );
 
 		return true;
 	}
@@ -1737,7 +1687,7 @@ class Article implements Page {
 		}
 		$outputPage = $this->getContext()->getOutput();
 		// Used in wikilinks, should not contain whitespaces
-		$titleText = $this->getTitle()->getPrefixedURL();
+		$titleText = $this->getTitle()->getPrefixedDBkey();
 		$this->addMessageBoxStyles( $outputPage );
 		// If the user is not allowed to see it...
 		if ( !$this->mRevisionRecord->userCan(
@@ -2043,7 +1993,7 @@ class Article implements Page {
 				return true;
 			} else {
 				wfDebug( "Article::tryFileCache(): starting buffer" );
-				ob_start( $cache->saveToFileCache( ... ) );
+				ob_start( [ $cache, 'saveToFileCache' ] );
 			}
 		} else {
 			wfDebug( "Article::tryFileCache(): not cacheable" );
@@ -2157,7 +2107,7 @@ class Article implements Page {
 				'missing-revision-permission',
 				$oldid,
 				$revRecord->getTimestamp(),
-				Title::newFromPageIdentity( $revRecord->getPage() )->getPrefixedURL()
+				Title::newFromPageIdentity( $revRecord->getPage() )->getPrefixedDBkey()
 			);
 		}
 		return $context->msg( 'missing-revision', $oldid );

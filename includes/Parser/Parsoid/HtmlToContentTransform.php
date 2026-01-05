@@ -20,9 +20,8 @@ use MediaWiki\Revision\SlotRecord;
 use Wikimedia\Bcp47Code\Bcp47Code;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Parsoid\Config\PageConfig;
-use Wikimedia\Parsoid\Config\SiteConfig;
-use Wikimedia\Parsoid\Core\BasePageBundle;
 use Wikimedia\Parsoid\Core\ClientError;
+use Wikimedia\Parsoid\Core\DomPageBundle;
 use Wikimedia\Parsoid\Core\HtmlPageBundle;
 use Wikimedia\Parsoid\Core\ResourceLimitExceededException;
 use Wikimedia\Parsoid\Core\SelserData;
@@ -63,7 +62,6 @@ class HtmlToContentTransform {
 		private readonly PageIdentity $page,
 		private readonly Parsoid $parsoid,
 		private readonly array $parsoidSettings,
-		private readonly SiteConfig $siteConfig,
 		private readonly PageConfigFactory $pageConfigFactory,
 		private readonly IContentHandlerFactory $contentHandlerFactory,
 	) {
@@ -78,9 +76,12 @@ class HtmlToContentTransform {
 		$this->metrics = $metrics;
 	}
 
-	private function incrementMetrics( string $key, array $labels ) {
+	private function incrementMetrics( string $key, array $labels, ?string $statsdKey ) {
 		if ( $this->metrics ) {
 			$counter = $this->metrics->getCounter( $key )->setLabels( $labels );
+			if ( $statsdKey ) {
+				$counter = $counter->copyToStatsdAt( $statsdKey );
+			}
 			$counter->increment();
 		}
 	}
@@ -144,14 +145,13 @@ class HtmlToContentTransform {
 	}
 
 	/** @throws ClientError */
-	private function validatePageBundle( BasePageBundle $pb ) {
-		$version = $pb->version;
-		if ( !$version ) {
+	private function validatePageBundle( HtmlPageBundle $pb ) {
+		if ( !$pb->version ) {
 			return;
 		}
 
 		$errorMessage = '';
-		if ( !$pb->validate( $version, $errorMessage ) ) {
+		if ( !$pb->validate( $pb->version, $errorMessage ) ) {
 			throw new ClientError( $errorMessage );
 		}
 	}
@@ -269,9 +269,8 @@ class HtmlToContentTransform {
 		$doc = $this->getModifiedDocumentRaw();
 
 		if ( !$this->docHasBeenProcessed ) {
-			$doc = $this->applyPageBundle( $doc, $this->modifiedPageBundle );
+			$this->applyPageBundle( $this->doc, $this->modifiedPageBundle );
 
-			$this->doc = $doc;
 			$this->docHasBeenProcessed = true;
 		}
 
@@ -370,7 +369,7 @@ class HtmlToContentTransform {
 
 		$doc = $this->parseHTML( $this->originalPageBundle->html );
 
-		$doc = $this->applyPageBundle( $doc, $this->originalPageBundle );
+		$this->applyPageBundle( $doc, $this->originalPageBundle );
 
 		$this->originalBody = DOMCompat::getBody( $doc );
 
@@ -397,7 +396,8 @@ class HtmlToContentTransform {
 		if ( !$inputContentVersion ) {
 			$this->incrementMetrics(
 				'html2wt_original_version_total',
-				[ 'input_content_version' => 'none' ]
+				[ 'input_content_version' => 'none' ],
+				'html2wt.original.version.notinline'
 			);
 			$inputContentVersion = $this->originalPageBundle->version ?: Parsoid::defaultHTMLVersion();
 		}
@@ -466,14 +466,16 @@ class HtmlToContentTransform {
 
 		$this->incrementMetrics(
 			"downgrade_total",
-			[ 'from' => $downgrade['from'], 'to' => $downgrade['to'] ]
+			[ 'from' => $downgrade['from'], 'to' => $downgrade['to'] ],
+			"downgrade.from.{$downgrade['from']}.to.{$downgrade['to']}"
 		);
 
 		$downgradeTime = microtime( true );
-		Parsoid::downgrade( $downgrade, $pb, $this->siteConfig );
+		Parsoid::downgrade( $downgrade, $pb );
 		if ( $this->metrics ) {
 			$this->metrics
 				->getTiming( 'downgrade_time_ms' )
+				->copyToStatsdAt( 'downgrade.time' )
 				->observe( ( microtime( true ) - $downgradeTime ) * 1000 );
 		}
 		// NOTE: Set $this->originalBody to null so getOriginalBody() will re-generate it.
@@ -485,15 +487,13 @@ class HtmlToContentTransform {
 
 	/**
 	 * @param Document $doc
-	 * @param BasePageBundle $pb
-	 * @return Document $doc The Document with page bundle information in
-	 *   inline-attribute form
+	 * @param HtmlPageBundle $pb
 	 *
 	 * @throws ClientError
 	 */
-	private function applyPageBundle( Document $doc, BasePageBundle $pb ): Document {
+	private function applyPageBundle( Document $doc, HtmlPageBundle $pb ): void {
 		if ( $pb->parsoid === null && $pb->mw === null ) {
-			return $doc;
+			return;
 		}
 
 		// Verify that the top-level parsoid object either doesn't contain
@@ -510,9 +510,11 @@ class HtmlToContentTransform {
 		}
 
 		$this->validatePageBundle( $pb );
-		return $pb->withDocument( $doc )->toInlineAttributeDocument(
-			siteConfig: $this->siteConfig,
+		$dpb = new DomPageBundle(
+			$doc, $pb->parsoid, $pb->mw, $pb->version,
+			$pb->headers, $pb->contentmodel
 		);
+		$dpb->toDom( false );
 	}
 
 	/**

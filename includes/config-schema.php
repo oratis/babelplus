@@ -350,7 +350,6 @@ return [
 			'PasswordReminderResendTime' => 24,
 			'NewPasswordExpiry' => 604800,
 			'UserEmailConfirmationTokenExpiry' => 604800,
-			'UserEmailConfirmationUseHTML' => false,
 			'PasswordExpirationDays' => false,
 			'PasswordExpireGrace' => 604800,
 			'SMTP' => false,
@@ -406,7 +405,6 @@ return [
 			'VirtualDomainsMapping' => [
 			],
 			'FileSchemaMigrationStage' => 3,
-			'ImageLinksSchemaMigrationStage' => 3,
 			'ExternalLinksDomainGaps' => [
 			],
 			'ContentHandlers' => [
@@ -554,16 +552,6 @@ return [
 				'parsoid-pcache' => [
 					'default' => [
 						'minCpuTime' => 0,
-					],
-				],
-				'postproc-pcache' => [
-					'default' => [
-						'minCpuTime' => 9223372036854775807,
-					],
-				],
-				'postproc-parsoid-pcache' => [
-					'default' => [
-						'minCpuTime' => 9223372036854775807,
 					],
 				],
 			],
@@ -853,8 +841,6 @@ return [
 				'mediawiki.org',
 			],
 			'RegisterInternalExternals' => false,
-			'ExternalLinksIgnoreDomains' => [
-			],
 			'AllowDisplayTitle' => true,
 			'RestrictDisplayTitle' => true,
 			'ExpensiveParserFunctionLimit' => 100,
@@ -1170,7 +1156,6 @@ return [
 			],
 			'HiddenPrefs' => [
 			],
-			'UserJsPrefLimit' => 100,
 			'InvalidUsernameCharacters' => '@:>=',
 			'UserrightsInterwikiDelimiter' => '@',
 			'SecureLogin' => false,
@@ -1365,8 +1350,6 @@ return [
 			'GroupsAddToSelf' => [
 			],
 			'GroupsRemoveFromSelf' => [
-			],
-			'RestrictedGroups' => [
 			],
 			'RestrictionTypes' => [
 				'create',
@@ -1901,6 +1884,7 @@ return [
 			'AllowCrossOrigin' => false,
 			'RestAllowCrossOriginCookieAuth' => false,
 			'SessionSecret' => false,
+			'EnableUnsafeXsltOption' => false,
 			'CookieExpiration' => 2592000,
 			'ExtendedLoginCookieExpiration' => 15552000,
 			'SessionCookieJwtExpiration' => 14400,
@@ -2099,7 +2083,6 @@ return [
 				'mw-manual-revert' => true,
 				'mw-reverted' => true,
 				'mw-server-side-upload' => true,
-				'mw-ipblock-appeal' => true,
 			],
 			'UnwatchedPageThreshold' => false,
 			'RecentChangesFlags' => [
@@ -2131,10 +2114,9 @@ return [
 				],
 			],
 			'WatchlistExpiry' => false,
-			'EnableWatchlistLabels' => false,
-			'WatchlistLabelsMaxPerUser' => 100,
 			'WatchlistPurgeRate' => 0.1,
 			'WatchlistExpiryMaxDuration' => '1 year',
+			'EditWatchlistPaginate' => false,
 			'EnableChangesListQueryPartitioning' => false,
 			'RightsPage' => null,
 			'RightsUrl' => null,
@@ -2227,12 +2209,12 @@ return [
 				'clearUserWatchlist' => 'MediaWiki\\Watchlist\\ClearUserWatchlistJob',
 				'watchlistExpiry' => 'MediaWiki\\Watchlist\\WatchlistExpiryJob',
 				'cdnPurge' => 'MediaWiki\\JobQueue\\Jobs\\CdnPurgeJob',
-				'userGroupExpiry' => 'MediaWiki\\User\\UserGroupExpiryJob',
+				'userGroupExpiry' => 'UserGroupExpiryJob',
 				'clearWatchlistNotifications' => 'MediaWiki\\Watchlist\\ClearWatchlistNotificationsJob',
-				'userOptionsUpdate' => 'MediaWiki\\User\\Options\\UserOptionsUpdateJob',
+				'userOptionsUpdate' => 'UserOptionsUpdateJob',
 				'revertedTagUpdate' => 'MediaWiki\\JobQueue\\Jobs\\RevertedTagUpdateJob',
 				'null' => 'MediaWiki\\JobQueue\\Jobs\\NullJob',
-				'userEditCountInit' => 'MediaWiki\\User\\UserEditCountInitJob',
+				'userEditCountInit' => 'UserEditCountInitJob',
 				'parsoidCachePrewarm' => [
 					'class' => 'MediaWiki\\JobQueue\\Jobs\\ParsoidCachePrewarmJob',
 					'services' => [
@@ -2637,6 +2619,7 @@ return [
 			'APIMaxResultSize' => 8388608,
 			'APIMaxUncachedDiffs' => 1,
 			'APIMaxLagThreshold' => 7,
+			'APIRequestLog' => false,
 			'APICacheHelpTimeout' => 3600,
 			'APIUselessQueryPages' => [
 				'MIMEsearch',
@@ -2661,8 +2644,6 @@ return [
 				'Authorization',
 			],
 			'RestAPIAdditionalRouteFiles' => [
-			],
-			'RestSandboxSpecs' => [
 			],
 			'MaxShellMemory' => 307200,
 			'MaxShellFileSize' => 102400,
@@ -2732,9 +2713,7 @@ return [
 			],
 			'FeatureShutdown' => [
 			],
-			'CloneArticleParserOutput' => true,
 			'UseLeximorph' => false,
-			'UsePostprocCache' => false,
 		],
 		'type' => [
 			'ConfigRegistry' => 'object',
@@ -2866,7 +2845,6 @@ return [
 				'string',
 				'null',
 			],
-			'UserEmailConfirmationUseHTML' => 'boolean',
 			'SMTP' => [
 				'boolean',
 				'object',
@@ -2887,7 +2865,6 @@ return [
 			'LocalDatabases' => 'array',
 			'VirtualDomainsMapping' => 'object',
 			'FileSchemaMigrationStage' => 'integer',
-			'ImageLinksSchemaMigrationStage' => 'integer',
 			'ExternalLinksDomainGaps' => 'object',
 			'ContentHandlers' => 'object',
 			'NamespaceContentModels' => 'object',
@@ -2999,7 +2976,6 @@ return [
 			'ParsoidExperimentalParserFunctionOutput' => 'boolean',
 			'NoFollowNsExceptions' => 'array',
 			'NoFollowDomainExceptions' => 'array',
-			'ExternalLinksIgnoreDomains' => 'array',
 			'EnableMagicLinks' => 'object',
 			'ManualRevertSearchRadius' => 'integer',
 			'RevertedTagMaxDepth' => 'integer',
@@ -3024,7 +3000,6 @@ return [
 			'DefaultUserOptions' => 'object',
 			'ConditionalUserOptions' => 'object',
 			'HiddenPrefs' => 'array',
-			'UserJsPrefLimit' => 'integer',
 			'AuthenticationTokenVersion' => [
 				'string',
 				'null',
@@ -3042,7 +3017,6 @@ return [
 			'ImplicitGroups' => 'array',
 			'GroupsAddToSelf' => 'object',
 			'GroupsRemoveFromSelf' => 'object',
-			'RestrictedGroups' => 'object',
 			'RestrictionTypes' => 'array',
 			'RestrictionLevels' => 'array',
 			'CascadingRestrictionLevels' => 'array',
@@ -3148,13 +3122,12 @@ return [
 			'SoftwareTags' => 'object',
 			'RecentChangesFlags' => 'object',
 			'WatchlistExpiry' => 'boolean',
-			'EnableWatchlistLabels' => 'boolean',
-			'WatchlistLabelsMaxPerUser' => 'integer',
 			'WatchlistPurgeRate' => 'number',
 			'WatchlistExpiryMaxDuration' => [
 				'string',
 				'null',
 			],
+			'EditWatchlistPaginate' => 'boolean',
 			'EnableChangesListQueryPartitioning' => 'boolean',
 			'ImportSources' => 'object',
 			'ExtensionFunctions' => 'array',
@@ -3202,7 +3175,6 @@ return [
 			'CrossSiteAJAXdomainExceptions' => 'object',
 			'AllowedCorsHeaders' => 'array',
 			'RestAPIAdditionalRouteFiles' => 'array',
-			'RestSandboxSpecs' => 'object',
 			'ShellRestrictionMethod' => [
 				'string',
 				'boolean',
@@ -3245,9 +3217,7 @@ return [
 			'EnableProtectionIndicators' => 'boolean',
 			'OutputPipelineStages' => 'object',
 			'FeatureShutdown' => 'array',
-			'CloneArticleParserOutput' => 'boolean',
 			'UseLeximorph' => 'boolean',
-			'UsePostprocCache' => 'boolean',
 		],
 		'mergeStrategy' => [
 			'TiffThumbnailType' => 'replace',
@@ -3658,26 +3628,8 @@ return [
 				'type' => 'integer',
 			],
 		],
-		'RestSandboxSpecs' => [
-			'additionalProperties' => [
-				'type' => 'object',
-				'properties' => [
-					'url' => [
-						'type' => 'string',
-						'format' => 'url',
-					],
-					'name' => [
-						'type' => 'string',
-					],
-					'msg' => [
-						'type' => 'string',
-						'description' => 'a message key',
-					],
-				],
-				'required' => [
-					'url',
-				],
-			],
+		'APIRequestLog' => [
+			'deprecated' => 'since 1.43; use api or api-request $wgDebugLogGroups channel',
 		],
 		'ShellboxUrls' => [
 			'additionalProperties' => [

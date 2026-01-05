@@ -3,7 +3,6 @@
 		"authors": [
 			"Bananax47",
 			"Derugon",
-			"Escargot bleu",
 			"Gomoko",
 			"Goombiis",
 			"Hecatonchire",
@@ -14,7 +13,8 @@
 			"Méthodes Bulebe Hangi",
 			"Thibaut120094",
 			"Verdy p",
-			"Wladek92"
+			"Wladek92",
+			"Escargot bleu"
 		]
 	},
 	"rest-prefix-mismatch": "Le chemin demandé ($1) n’était pas dans le chemin de base de l’API REST ($2)",
@@ -108,8 +108,6 @@
 	"rest-module-specs.v0-desc": "Module d’auto-documentation fournissant la découverte, les spécifications et les schémas de tous les modules disponibles.",
 	"rest-module-content.v1-title": "Contenu de la page",
 	"rest-module-content.v1-desc": "Donne accès au contenu et aux métadonnées des pages et des révisions",
-	"rest-module-site.v1-title": "API du site",
-	"rest-module-site.v1-desc": "Informations concernant le site dans son ensemble, telles que les sitemaps du site",
 	"rest-param-desc-mock-desc": "Description fictive.",
 	"rest-param-desc-revision-id": "Identifiant de la version",
 	"rest-param-desc-html-input-title": "Titre de la transformation de l’entrée HTML",

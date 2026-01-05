@@ -14,9 +14,6 @@
 use MediaWiki\FileRepo\FileRepo;
 use MediaWiki\MainConfigNames;
 use MediaWiki\Maintenance\Maintenance;
-use MediaWiki\Upload\Exception\UploadStashException;
-use MediaWiki\Upload\UploadStash;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
@@ -97,7 +94,7 @@ class CleanupUploadStash extends Maintenance {
 		$i = 0;
 		$batch = [];
 		foreach ( $iterator as $file ) {
-			if ( wfTimestamp( TS::UNIX, $tempRepo->getFileTimestamp( "$dir/$file" ) ) < $cutoff ) {
+			if ( wfTimestamp( TS_UNIX, $tempRepo->getFileTimestamp( "$dir/$file" ) ) < $cutoff ) {
 				$batch[] = [ 'op' => 'delete', 'src' => "$dir/$file" ];
 				if ( count( $batch ) >= $this->getBatchSize() ) {
 					$this->doOperations( $tempRepo, $batch );
@@ -127,7 +124,7 @@ class CleanupUploadStash extends Maintenance {
 		$i = 0;
 		$batch = [];
 		foreach ( $iterator as $file ) {
-			if ( wfTimestamp( TS::UNIX, $tempRepo->getFileTimestamp( "$dir/$file" ) ) < $cutoff ) {
+			if ( wfTimestamp( TS_UNIX, $tempRepo->getFileTimestamp( "$dir/$file" ) ) < $cutoff ) {
 				$batch[] = [ 'op' => 'delete', 'src' => "$dir/$file" ];
 				if ( count( $batch ) >= $this->getBatchSize() ) {
 					$this->doOperations( $tempRepo, $batch );

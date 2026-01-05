@@ -12,7 +12,6 @@
  */
 
 use Wikimedia\AtEase\AtEase;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * PNG frame counter.
@@ -20,6 +19,9 @@ use Wikimedia\Timestamp\TimestampFormat as TS;
  * @ingroup Media
  */
 class PNGMetadataExtractor {
+	/** @var string */
+	private static $pngSig;
+
 	/** @var int */
 	private static $crcSize;
 
@@ -34,6 +36,7 @@ class PNGMetadataExtractor {
 	 * @return array
 	 */
 	public static function getMetadata( $filename ) {
+		self::$pngSig = pack( "C8", 137, 80, 78, 71, 13, 10, 26, 10 );
 		self::$crcSize = 4;
 		/* based on list at http://owl.phy.queensu.ca/~phil/exiftool/TagNames/PNG.html#TextualData
 		 * and https://www.w3.org/TR/PNG/#11keywords
@@ -89,7 +92,7 @@ class PNGMetadataExtractor {
 
 		// Check for the PNG header
 		$buf = self::read( $fh, 8 );
-		if ( $buf !== "\x89PNG\x0d\x0a\x1a\x0a" ) {
+		if ( $buf !== self::$pngSig ) {
 			throw new InvalidArgumentException( __METHOD__ . ": Not a valid PNG file; header: $buf" );
 		}
 
@@ -122,14 +125,26 @@ class PNGMetadataExtractor {
 				$bitDepth = ord( substr( $buf, 8, 1 ) );
 				// Detect the color type in British English as per the spec
 				// https://www.w3.org/TR/PNG/#11IHDR
-				$colorType = match ( ord( substr( $buf, 9, 1 ) ) ) {
-					0 => 'greyscale',
-					2 => 'truecolour',
-					3 => 'index-coloured',
-					4 => 'greyscale-alpha',
-					6 => 'truecolour-alpha',
-					default => 'unknown'
-				};
+				switch ( ord( substr( $buf, 9, 1 ) ) ) {
+					case 0:
+						$colorType = 'greyscale';
+						break;
+					case 2:
+						$colorType = 'truecolour';
+						break;
+					case 3:
+						$colorType = 'index-coloured';
+						break;
+					case 4:
+						$colorType = 'greyscale-alpha';
+						break;
+					case 6:
+						$colorType = 'truecolour-alpha';
+						break;
+					default:
+						$colorType = 'unknown';
+						break;
+				}
 			} elseif ( $chunk_type === "acTL" ) {
 				if ( $chunk_size < 4 ) {
 					wfDebug( __METHOD__ . ": acTL chunk too small" );
@@ -299,7 +314,7 @@ class PNGMetadataExtractor {
 					$t['y'], $t['m'], $t['d'], $t['h'],
 					$t['min'], $t['s'] );
 
-				$exifTime = wfTimestamp( TS::EXIF, $strTime );
+				$exifTime = wfTimestamp( TS_EXIF, $strTime );
 
 				if ( $exifTime ) {
 					$text['DateTime'] = $exifTime;
@@ -358,7 +373,7 @@ class PNGMetadataExtractor {
 				// @todo FIXME: Currently timezones are ignored.
 				// possibly should be wfTimestamp's
 				// responsibility. (at least for numeric TZ)
-				$formatted = wfTimestamp( TS::EXIF, $value );
+				$formatted = wfTimestamp( TS_EXIF, $value );
 				if ( $formatted ) {
 					// Only change if we could convert the
 					// date.

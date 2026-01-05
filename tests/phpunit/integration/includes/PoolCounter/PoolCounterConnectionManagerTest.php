@@ -1,9 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\Integration\PoolCounter;
-
 use MediaWiki\PoolCounter\PoolCounterConnectionManager;
-use MediaWikiIntegrationTestCase;
 
 /**
  * @covers \MediaWiki\PoolCounter\PoolCounterConnectionManager

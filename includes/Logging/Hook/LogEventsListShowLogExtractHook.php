@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Logging\Hook;
+namespace MediaWiki\Hook;
 
 /**
  * This is a hook handler interface, see docs/Hooks.md.
@@ -41,6 +41,3 @@ interface LogEventsListShowLogExtractHook {
 		$param
 	);
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( LogEventsListShowLogExtractHook::class, 'MediaWiki\\Hook\\LogEventsListShowLogExtractHook' );

@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Title\Title;
 use Wikimedia\Rdbms\IResultWrapper;
@@ -82,6 +80,3 @@ class SqlSearchResultSet extends SearchResultSet {
 		}
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( SqlSearchResultSet::class, 'SqlSearchResultSet' );

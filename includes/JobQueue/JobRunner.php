@@ -24,8 +24,6 @@ use Wikimedia\Rdbms\ILBFactory;
 use Wikimedia\Rdbms\ReadOnlyMode;
 use Wikimedia\ScopedCallback;
 use Wikimedia\Stats\StatsFactory;
-use Wikimedia\Timestamp\ConvertibleTimestamp;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Job queue runner utility methods.
@@ -401,25 +399,31 @@ class JobRunner {
 			$pickupDelay = max( 0, $jobStartTime - $readyTs );
 			$this->statsFactory->getTiming( 'jobqueue_pickup_delay_seconds' )
 				->setLabel( 'jobtype', $jType )
+				->copyToStatsdAt( [
+					"jobqueue_pickup_delay_all_mean", "jobqueue.pickup_delay.$jType"
+				] )
 				->observe( 1000 * $pickupDelay );
 		}
 		// Record root job age for jobs being run
 		$rootTimestamp = $job->getRootJobParams()['rootJobTimestamp'];
 		if ( $rootTimestamp ) {
-			$age = max( 0, $jobStartTime - (int)wfTimestamp( TS::UNIX, $rootTimestamp ) );
+			$age = max( 0, $jobStartTime - (int)wfTimestamp( TS_UNIX, $rootTimestamp ) );
 
 			$this->statsFactory->getTiming( "jobqueue_pickup_root_age_seconds" )
 				->setLabel( 'jobtype', $jType )
+				->copyToStatsdAt( "jobqueue.pickup_root_age.$jType" )
 				->observe( 1000 * $age );
 		}
 		// Track the execution time for jobs
 		$this->statsFactory->getTiming( 'jobqueue_runtime_seconds' )
 			->setLabel( 'jobtype', $jType )
+			->copyToStatsdAt( "jobqueue.run.$jType" )
 			->observe( $timeMs );
 		// Track RSS increases for jobs (in case of memory leaks)
 		if ( $rssStart && $rssEnd ) {
 			$this->statsFactory->getCounter( 'jobqueue_rss_delta_total' )
 				->setLabel( 'rss_delta', $jType )
+				->copyToStatsdAt( "jobqueue.rss_delta.$jType" )
 				->incrementBy( $rssEnd - $rssStart );
 		}
 
@@ -620,7 +624,7 @@ class JobRunner {
 	 */
 	private function debugCallback( $msg ) {
 		if ( $this->debug ) {
-			( $this->debug )( ConvertibleTimestamp::now( TS::DB ) . " $msg\n" );
+			( $this->debug )( wfTimestamp( TS_DB ) . " $msg\n" );
 		}
 	}
 }

@@ -8,7 +8,6 @@
  */
 
 use MediaWiki\Maintenance\Maintenance;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 // @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
@@ -41,8 +40,8 @@ class ResetPageRandom extends Maintenance {
 		$batchSize = $this->getBatchSize();
 		$dbw = $this->getPrimaryDB();
 		$dbr = $this->getReplicaDB();
-		$from = wfTimestampOrNull( TS::MW, $this->getOption( 'from' ) );
-		$to = wfTimestampOrNull( TS::MW, $this->getOption( 'to' ) );
+		$from = wfTimestampOrNull( TS_MW, $this->getOption( 'from' ) );
+		$to = wfTimestampOrNull( TS_MW, $this->getOption( 'to' ) );
 
 		if ( $from === null || $to === null ) {
 			$this->output( "--from and --to have to be provided" . PHP_EOL );

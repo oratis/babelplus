@@ -1,7 +1,5 @@
 <?php
 
-namespace MediaWiki\Search;
-
 /**
  * Perform augmentation of each row and return composite result,
  * indexed by ID.
@@ -34,6 +32,3 @@ class PerRowAugmentor implements ResultSetAugmentor {
 		return $data;
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( PerRowAugmentor::class, 'PerRowAugmentor' );

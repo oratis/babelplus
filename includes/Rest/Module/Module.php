@@ -346,6 +346,7 @@ abstract class Module {
 				->setLabel( 'path', $pathForMetrics )
 				->setLabel( 'method', $requestMethod )
 				->setLabel( 'status', "$statusCode" )
+				->copyToStatsdAt( [ "rest_api_errors.$pathForMetrics.$requestMethod.$statusCode" ] )
 				->increment();
 		} else {
 			// measure how long it takes to generate a response
@@ -353,6 +354,7 @@ abstract class Module {
 				->setLabel( 'path', $pathForMetrics )
 				->setLabel( 'method', $requestMethod )
 				->setLabel( 'status', "$statusCode" )
+				->copyToStatsdAt( "rest_api_latency.$pathForMetrics.$requestMethod.$statusCode" )
 				->observeNanoseconds( $latency );
 		}
 
@@ -372,43 +374,23 @@ abstract class Module {
 			'status' => "$statusCode",
 		];
 
-		$approvedLabels = [
-			'api_module',
-			'api_endpoint',
-			'path',
-			'method',
-			'status',
-		];
-
 		// Hit metrics
 		$metricHitStats = $this->stats->getCounter( 'rest_api_modules_hit_total' )
 			->setLabel( 'api_type', 'REST_API' );
-		// Iterate over the approved labels and set the labels for the metric
-		foreach ( $approvedLabels as $label ) {
-			// Set a fallback value for empty strings
-			$value = (
-				array_key_exists( $label, $metricsLabels ) &&
-				is_string( $metricsLabels[$label] ) &&
-				trim( $metricsLabels[$label] ) !== ''
-			) ? $metricsLabels[$label] : 'EMPTY_VALUE';
-
-			$metricHitStats->setLabel( $label, $value );
+		foreach ( $metricsLabels as $label => $value ) {
+			if ( $value ) {
+				$metricHitStats->setLabel( $label, $value );
+			}
 		}
 		$metricHitStats->increment();
 
 		// Latency metrics
 		$metricLatencyStats = $this->stats->getTiming( 'rest_api_modules_latency' )
 			->setLabel( 'api_type', 'REST_API' );
-		// Iterate over the approved labels and set the labels for the metric
-		foreach ( $approvedLabels as $label ) {
-			// Set a fallback value for empty strings
-			$value = (
-				array_key_exists( $label, $metricsLabels ) &&
-				is_string( $metricsLabels[$label] ) &&
-				trim( $metricsLabels[$label] ) !== ''
-			) ? $metricsLabels[$label] : 'EMPTY_VALUE';
-
-			$metricLatencyStats->setLabel( $label, $value );
+		foreach ( $metricsLabels as $label => $value ) {
+			if ( $value ) {
+				$metricLatencyStats->setLabel( $label, $value );
+			}
 		}
 		$metricLatencyStats->observeNanoseconds( $latency );
 	}

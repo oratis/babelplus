@@ -1,10 +1,7 @@
 <?php
-namespace MediaWiki\Tests\Unit\Installer\Task;
 
 use MediaWiki\Installer\Task\CallbackTask;
 use MediaWiki\Installer\Task\TaskList;
-use MediaWikiUnitTestCase;
-use RuntimeException;
 
 /**
  * @covers \MediaWiki\Installer\Task\TaskList

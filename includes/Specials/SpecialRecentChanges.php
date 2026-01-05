@@ -12,7 +12,6 @@ use MediaWiki\Html\Html;
 use MediaWiki\Language\MessageParser;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
-use MediaWiki\Page\PageReferenceValue;
 use MediaWiki\RecentChanges\ChangesList;
 use MediaWiki\RecentChanges\ChangesListQuery\ChangesListQuery;
 use MediaWiki\RecentChanges\ChangesListQuery\ChangesListQueryFactory;
@@ -20,6 +19,7 @@ use MediaWiki\RecentChanges\ChangesListStringOptionsFilterGroup;
 use MediaWiki\RecentChanges\RecentChange;
 use MediaWiki\RecentChanges\RecentChangeFactory;
 use MediaWiki\SpecialPage\ChangesListSpecialPage;
+use MediaWiki\Title\TitleValue;
 use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\TempUser\TempUserConfig;
 use MediaWiki\User\UserIdentityUtils;
@@ -29,7 +29,6 @@ use OOUI\ButtonWidget;
 use OOUI\HtmlSnippet;
 use Wikimedia\HtmlArmor\HtmlArmor;
 use Wikimedia\Rdbms\IResultWrapper;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * List of the last changes made to the wiki
@@ -307,8 +306,9 @@ class SpecialRecentChanges extends ChangesListSpecialPage {
 			if ( $showWatcherCount && $obj->rc_namespace >= 0 ) {
 				if ( !isset( $watcherCache[$obj->rc_namespace][$obj->rc_title] ) ) {
 					$watcherCache[$obj->rc_namespace][$obj->rc_title] =
-						$this->watchedItemStore->countWatchers( PageReferenceValue::localReference(
-							(int)$obj->rc_namespace, $obj->rc_title ) );
+						$this->watchedItemStore->countWatchers(
+							new TitleValue( (int)$obj->rc_namespace, $obj->rc_title )
+						);
 				}
 				$rc->numberofWatchingusers = $watcherCache[$obj->rc_namespace][$obj->rc_title];
 			}
@@ -316,7 +316,7 @@ class SpecialRecentChanges extends ChangesListSpecialPage {
 			$watched = !empty( $obj->wl_user );
 			if ( $watched && $this->getConfig()->get( MainConfigNames::WatchlistExpiry ) ) {
 				$notExpired = $obj->we_expiry === null
-					|| MWTimestamp::convert( TS::UNIX, $obj->we_expiry ) > wfTimestamp();
+					|| MWTimestamp::convert( TS_UNIX, $obj->we_expiry ) > wfTimestamp();
 				$watched = $watched && $notExpired;
 			}
 			$changeLine = $list->recentChangesLine( $rc, $watched, $counter );

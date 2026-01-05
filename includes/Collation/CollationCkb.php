@@ -4,8 +4,6 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 use MediaWiki\Languages\LanguageFactory;
 
 /**
@@ -26,6 +24,3 @@ class CollationCkb extends IcuCollation {
 		$this->digitTransformLanguage = $languageFactory->getLanguage( 'ckb' );
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( CollationCkb::class, 'CollationCkb' );

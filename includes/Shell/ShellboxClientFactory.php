@@ -111,7 +111,8 @@ class ShellboxClientFactory {
 		if ( $this->urls === null || $this->key === null || $this->key === '' ) {
 			return null;
 		}
-		$url = $this->urls[$service ?? ''] ?? $this->urls['default'] ?? null;
+		// @phan-suppress-next-line PhanTypeMismatchDimFetchNullable False positive
+		$url = $this->urls[$service] ?? $this->urls['default'] ?? null;
 		if ( !is_string( $url ) ) {
 			return null;
 		}

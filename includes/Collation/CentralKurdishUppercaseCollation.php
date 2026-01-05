@@ -6,8 +6,6 @@
  * @file
  */
 
-namespace MediaWiki\Collation;
-
 use MediaWiki\Languages\LanguageFactory;
 
 /**
@@ -65,6 +63,3 @@ class CentralKurdishUppercaseCollation extends CustomUppercaseCollation {
 		);
 	}
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( CentralKurdishUppercaseCollation::class, 'CentralKurdishUppercaseCollation' );

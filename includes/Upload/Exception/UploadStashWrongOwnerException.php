@@ -4,8 +4,6 @@
  * @file
  */
 
-namespace MediaWiki\Upload\Exception;
-
 /**
  * @newable
  * @ingroup Upload

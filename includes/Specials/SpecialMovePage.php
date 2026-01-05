@@ -16,7 +16,6 @@ use MediaWiki\Exception\ThrottledError;
 use MediaWiki\FileRepo\RepoGroup;
 use MediaWiki\Html\Html;
 use MediaWiki\JobQueue\Jobs\DoubleRedirectJob;
-use MediaWiki\Linker\Linker;
 use MediaWiki\Logging\LogEventsList;
 use MediaWiki\Logging\LogPage;
 use MediaWiki\MainConfigNames;
@@ -26,15 +25,12 @@ use MediaWiki\Page\WikiPageFactory;
 use MediaWiki\Permissions\PermissionManager;
 use MediaWiki\Permissions\PermissionStatus;
 use MediaWiki\Permissions\RestrictionStore;
-use MediaWiki\Search\SearchEngineFactory;
 use MediaWiki\SpecialPage\UnlistedSpecialPage;
-use MediaWiki\Status\Status;
 use MediaWiki\Title\NamespaceInfo;
 use MediaWiki\Title\Title;
 use MediaWiki\Title\TitleArrayFromResult;
 use MediaWiki\Title\TitleFactory;
 use MediaWiki\User\Options\UserOptionsLookup;
-use MediaWiki\User\User;
 use MediaWiki\Watchlist\WatchedItemStore;
 use MediaWiki\Watchlist\WatchlistManager;
 use MediaWiki\Widget\ComplexTitleInputWidget;
@@ -47,11 +43,14 @@ use OOUI\FormLayout;
 use OOUI\HtmlSnippet;
 use OOUI\PanelLayout;
 use OOUI\TextInputWidget;
+use SearchEngineFactory;
 use StatusValue;
 use Wikimedia\ParamValidator\TypeDef\ExpiryDef;
 use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDBAccessObject;
-use Wikimedia\Timestamp\TimestampFormat as TS;
+use Wikimedia\Rdbms\IExpression;
+use Wikimedia\Rdbms\LikeValue;
+use Wikimedia\StringUtils\StringUtils;
 
 /**
  * Implement Special:Movepage for changing page titles
@@ -85,8 +84,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 
 	/** @var bool */
 	protected $moveOverShared;
-
-	private bool $moveOverProtection;
 
 	/** @var bool */
 	private $watch = false;
@@ -204,7 +201,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 		$this->moveSubpages = $request->getBool( 'wpMovesubpages', $def );
 		$this->deleteAndMove = $request->getBool( 'wpDeleteAndMove' );
 		$this->moveOverShared = $request->getBool( 'wpMoveOverSharedFile' );
-		$this->moveOverProtection = $request->getBool( 'wpMoveOverProtection' );
 		$this->watch = $request->getCheck( 'wpWatch' ) && $user->isRegistered();
 
 		// Similar to other SpecialPage/Action classes, when tokens fail (likely due to reset or expiry),
@@ -236,9 +232,8 @@ class SpecialMovePage extends UnlistedSpecialPage {
 	 *
 	 * @param ?StatusValue $status Form submission status.
 	 *   If it is a PermissionStatus, a special message will be shown.
-	 * @param ?StatusValue $talkStatus Status for an attempt to move the talk page
 	 */
-	private function showForm( ?StatusValue $status = null, ?StatusValue $talkStatus = null ) {
+	private function showForm( ?StatusValue $status = null ) {
 		$this->getSkin()->setRelevantTitle( $this->oldTitle );
 
 		$out = $this->getOutput();
@@ -274,8 +269,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 					'mw-moveuserpage-warning'
 				)
 			);
-			// Deselect moveTalk unless it's explicitly given
-			$this->moveTalk = $this->getRequest()->getBool( "wpMovetalk", false );
 		} elseif ( $this->oldTitle->getNamespace() === NS_CATEGORY ) {
 			$out->addHTML(
 				Html::warningBox(
@@ -285,12 +278,11 @@ class SpecialMovePage extends UnlistedSpecialPage {
 			);
 		}
 
-		$deleteAndMove = [];
+		$deleteAndMove = false;
 		$moveOverShared = false;
 
 		$user = $this->getUser();
 		$newTitle = $this->newTitle;
-		$oldTalk = $this->oldTitle->getTalkPageIfDefined();
 
 		if ( !$newTitle ) {
 			# Show the current title as a default
@@ -303,29 +295,44 @@ class SpecialMovePage extends UnlistedSpecialPage {
 			$mp = $this->movePageFactory->newMovePage( $this->oldTitle, $newTitle );
 			$status = $mp->isValidMove();
 			$status->merge( $mp->probablyCanMove( $this->getAuthority() ) );
-			if ( $this->moveTalk ) {
-				$newTalk = $newTitle->getTalkPageIfDefined();
-				if ( $oldTalk && $newTalk ) {
-					$mpTalk = $this->movePageFactory->newMovePage( $oldTalk, $newTalk );
-					$talkStatus = $mpTalk->isValidMove();
-					$talkStatus->merge( $mpTalk->probablyCanMove( $this->getAuthority() ) );
-				}
-			}
 		}
 		if ( !$status ) {
-			// Caller (execute) is responsible for checking that you have permission to move the page somewhere
 			$status = StatusValue::newGood();
 		}
-		if ( !$talkStatus ) {
-			if ( $oldTalk ) {
-				// If you don't have permission to move the talk page anywhere then complain about that now
-				// rather than only after submitting the form to move the page
-				$talkStatus = $this->permManager->getPermissionStatus( 'move', $user, $oldTalk,
-					PermissionManager::RIGOR_QUICK );
-			} else {
-				// If there's no talk page to move (for example the old page is in a namespace with no talk page)
-				// then this needs to be set to something ...
-				$talkStatus = StatusValue::newGood();
+
+		if ( count( $status->getMessages() ) == 1 ) {
+			if ( $status->hasMessage( 'articleexists' )
+				&& $this->permManager->quickUserCan( 'delete', $user, $newTitle )
+			) {
+				$out->addHTML(
+					Html::warningBox(
+						$out->msg( 'delete_and_move_text', $newTitle->getPrefixedText() )->parse()
+					)
+				);
+				$deleteAndMove = true;
+				$status = StatusValue::newGood();
+			} elseif ( $status->hasMessage( 'redirectexists' ) && (
+				// Any user that can delete normally can also delete a redirect here
+				$this->permManager->quickUserCan( 'delete-redirect', $user, $newTitle ) ||
+				$this->permManager->quickUserCan( 'delete', $user, $newTitle ) )
+			) {
+				$out->addHTML(
+					Html::warningBox(
+						$out->msg( 'delete_redirect_and_move_text', $newTitle->getPrefixedText() )->parse()
+					)
+				);
+				$deleteAndMove = true;
+				$status = StatusValue::newGood();
+			} elseif ( $status->hasMessage( 'file-exists-sharedrepo' )
+				&& $this->permManager->userHasRight( $user, 'reupload-shared' )
+			) {
+				$out->addHTML(
+					Html::warningBox(
+						$out->msg( 'move-over-sharedrepo', $newTitle->getPrefixedText() )->parse()
+					)
+				);
+				$moveOverShared = true;
+				$status = StatusValue::newGood();
 			}
 		}
 
@@ -339,6 +346,7 @@ class SpecialMovePage extends UnlistedSpecialPage {
 				$user,
 				$this->oldTitle
 			);
+
 		# We also want to be able to move assoc. subpage talk-pages even if base page
 		# has no associated talk page, so || with $oldTitleTalkSubpages.
 		$considerTalk = !$this->oldTitle->isTalkPage() &&
@@ -358,119 +366,28 @@ class SpecialMovePage extends UnlistedSpecialPage {
 			$hasRedirects = false;
 		}
 
-		$newTalkTitle = $newTitle->getTalkPageIfDefined();
-		$talkOK = $talkStatus->isOK();
-		$mainOK = $status->isOK();
-		$talkIsArticle = $talkIsRedirect = $mainIsArticle = $mainIsRedirect = false;
-		if ( count( $status->getMessages() ) == 1 ) {
-			$mainIsArticle = $status->hasMessage( 'articleexists' )
-				&& $this->permManager->quickUserCan( 'delete', $user, $newTitle );
-			$mainIsRedirect = $status->hasMessage( 'redirectexists' ) && (
-				// Any user that can delete normally can also delete a redirect here
-				$this->permManager->quickUserCan( 'delete-redirect', $user, $newTitle ) ||
-				$this->permManager->quickUserCan( 'delete', $user, $newTitle ) );
-			if ( $status->hasMessage( 'file-exists-sharedrepo' )
-				&& $this->permManager->userHasRight( $user, 'reupload-shared' )
-			) {
-				$out->addHTML(
-					Html::warningBox(
-						$out->msg( 'move-over-sharedrepo', $newTitle->getPrefixedText() )->parse()
-					)
-				);
-				$moveOverShared = true;
-				$status = StatusValue::newGood();
+		$messages = $status->getMessages();
+		if ( $messages ) {
+			if ( $status instanceof PermissionStatus ) {
+				$action_desc = $this->msg( 'action-move' )->plain();
+				$errMsgHtml = $this->msg( 'permissionserrorstext-withaction',
+					count( $messages ), $action_desc )->parseAsBlock();
+			} else {
+				$errMsgHtml = $this->msg( 'cannotmove', count( $messages ) )->parseAsBlock();
 			}
-		}
-		if ( count( $talkStatus->getMessages() ) == 1 ) {
-			$talkIsArticle = $talkStatus->hasMessage( 'articleexists' )
-				&& $this->permManager->quickUserCan( 'delete', $user, $newTitle );
-			$talkIsRedirect = $talkStatus->hasMessage( 'redirectexists' ) && (
-				// Any user that can delete normally can also delete a redirect here
-				$this->permManager->quickUserCan( 'delete-redirect', $user, $newTitle ) ||
-				$this->permManager->quickUserCan( 'delete', $user, $newTitle ) );
-			// Talk page is by definition not a file so can't be shared
-		}
-		$warning = null;
-		// Case 1: Two pages need deletions of full history
-		// Either both are articles or one is an article and one is a redirect
-		if ( ( $talkIsArticle && $mainIsArticle ) ||
-			 ( $talkIsArticle && $mainIsRedirect ) ||
-			 ( $talkIsRedirect && $mainIsArticle )
-		) {
-			$warning = $out->msg( 'delete_and_move_text_2',
-				$newTitle->getPrefixedText(),
-				$newTalkTitle->getPrefixedText()
-			);
-			$deleteAndMove = [ $newTitle, $newTalkTitle ];
-		// Case 2: Both need simple deletes
-		} elseif ( $mainIsRedirect && $talkIsRedirect ) {
-			$warning = $out->msg( 'delete_redirect_and_move_text_2',
-				$newTitle->getPrefixedText(),
-				$newTalkTitle->getPrefixedText()
-			);
-			$deleteAndMove = [ $newTitle, $newTalkTitle ];
-		// Case 3: The main page needs a full delete, the talk doesn't exist
-		// (or is a single-rev redirect to the source we can silently ignore)
-		} elseif ( $mainIsArticle && $talkOK ) {
-			$warning = $out->msg( 'delete_and_move_text', $newTitle->getPrefixedText() );
-			$deleteAndMove = [ $newTitle ];
-		// Case 4: The main page needs a simple delete, the talk doesn't exist
-		} elseif ( $mainIsRedirect && $talkOK ) {
-			$warning = $out->msg( 'delete_redirect_and_move_text', $newTitle->getPrefixedText() );
-			$deleteAndMove = [ $newTitle ];
-		// Cases 5 and 6: The same for the talk page
-		} elseif ( $talkIsArticle && $mainOK ) {
-			$warning = $out->msg( 'delete_and_move_text', $newTalkTitle->getPrefixedText() );
-			$deleteAndMove = [ $newTalkTitle ];
-		} elseif ( $talkIsRedirect && $mainOK ) {
-			$warning = $out->msg( 'delete_redirect_and_move_text', $newTalkTitle->getPrefixedText() );
-			$deleteAndMove = [ $newTalkTitle ];
-		}
-		if ( $warning ) {
-			$out->addHTML( Html::warningBox( $warning->parse() ) );
-		} else {
-			$messages = $status->getMessages();
-			if ( $messages ) {
-				if ( $status instanceof PermissionStatus ) {
-					$action_desc = $this->msg( 'action-move' )->plain();
-					$errMsgHtml = $this->msg( 'permissionserrorstext-withaction',
-						count( $messages ), $action_desc )->parseAsBlock();
-				} else {
-					$errMsgHtml = $this->msg( 'cannotmove', count( $messages ) )->parseAsBlock();
+
+			if ( count( $messages ) == 1 ) {
+				$errMsgHtml .= $this->msg( $messages[0] )->parseAsBlock();
+			} else {
+				$errStr = [];
+
+				foreach ( $messages as $msg ) {
+					$errStr[] = $this->msg( $msg )->parse();
 				}
 
-				if ( count( $messages ) == 1 ) {
-					$errMsgHtml .= $this->msg( $messages[0] )->parseAsBlock();
-				} else {
-					$errStr = [];
-
-					foreach ( $messages as $msg ) {
-						$errStr[] = $this->msg( $msg )->parse();
-					}
-
-					$errMsgHtml .= '<ul><li>' . implode( "</li>\n<li>", $errStr ) . "</li></ul>\n";
-				}
-				$out->addHTML( Html::errorBox( $errMsgHtml ) );
+				$errMsgHtml .= '<ul><li>' . implode( "</li>\n<li>", $errStr ) . "</li></ul>\n";
 			}
-			$talkMessages = $talkStatus->getMessages();
-			if ( $talkMessages ) {
-				// Can't use permissionerrorstext here since there's no specific action for moving the talk page
-				$errMsgHtml = $this->msg( 'cannotmovetalk', count( $talkMessages ) )->parseAsBlock();
-
-				if ( count( $talkMessages ) == 1 ) {
-					$errMsgHtml .= $this->msg( $talkMessages[0] )->parseAsBlock();
-				} else {
-					$errStr = [];
-
-					foreach ( $talkMessages as $msg ) {
-						$errStr[] = $this->msg( $msg )->parse();
-					}
-
-					$errMsgHtml .= '<ul><li>' . implode( "</li>\n<li>", $errStr ) . "</li></ul>\n";
-				}
-				$errMsgHtml .= $this->msg( 'movetalk-unselect' )->parse();
-				$out->addHTML( Html::errorBox( $errMsgHtml ) );
-			}
+			$out->addHTML( Html::errorBox( $errMsgHtml ) );
 		}
 
 		if ( $this->restrictionStore->isProtected( $this->oldTitle, 'move' ) ) {
@@ -489,24 +406,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 				[ 'lim' => 1, 'msgKey' => $noticeMsg ]
 			);
 		}
-		// Intentionally don't check moveTalk here since this is in the form before you specify whether
-		// to move the talk page
-		if ( $talkOK && $oldTalk && $oldTalk->exists() && $this->restrictionStore->isProtected( $oldTalk, 'move' ) ) {
-			# Is the title semi-protected?
-			if ( $this->restrictionStore->isSemiProtected( $oldTalk, 'move' ) ) {
-				$noticeMsg = 'semiprotectedtalkpagemovewarning';
-			} else {
-				# Then it must be protected based on static groups (regular)
-				$noticeMsg = 'protectedtalkpagemovewarning';
-			}
-			LogEventsList::showLogExtract(
-				$out,
-				'protect',
-				$oldTalk,
-				'',
-				[ 'lim' => 1, 'msgKey' => $noticeMsg ]
-			);
-		}
 
 		// Length limit for wpReason and wpNewTitleMain is enforced in the
 		// mediawiki.special.movePage module
@@ -515,47 +414,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 		foreach ( $this->getLanguage()->getNamespaces() as $nsId => $_ ) {
 			if ( !$this->nsInfo->isMovable( $nsId ) ) {
 				$immovableNamespaces[] = $nsId;
-			}
-		}
-
-		$moveOverProtection = false;
-		if ( $this->newTitle ) {
-			if ( $this->restrictionStore->isProtected( $this->newTitle, 'create' ) ) {
-				# Is the title semi-protected?
-				if ( $this->restrictionStore->isSemiProtected( $this->newTitle, 'create' ) ) {
-					$noticeMsg = 'semiprotectedpagemovecreatewarning';
-				} else {
-					# Then it must be protected based on static groups (regular)
-					$noticeMsg = 'protectedpagemovecreatewarning';
-				}
-				LogEventsList::showLogExtract(
-					$out,
-					'protect',
-					$this->newTitle,
-					'',
-					[ 'lim' => 1, 'msgKey' => $noticeMsg ]
-				);
-				$moveOverProtection = true;
-			}
-			$newTalk = $newTitle->getTalkPageIfDefined();
-			if ( $oldTalk && $oldTalk->exists() && $talkOK &&
-				$newTalk && $this->restrictionStore->isProtected( $newTalk, 'create' )
-			) {
-				# Is the title semi-protected?
-				if ( $this->restrictionStore->isSemiProtected( $newTalk, 'create' ) ) {
-					$noticeMsg = 'semiprotectedpagemovetalkcreatewarning';
-				} else {
-					# Then it must be protected based on static groups (regular)
-					$noticeMsg = 'protectedpagemovetalkcreatewarning';
-				}
-				LogEventsList::showLogExtract(
-					$out,
-					'protect',
-					$newTalk,
-					'',
-					[ 'lim' => 1, 'msgKey' => $noticeMsg ]
-				);
-				$moveOverProtection = true;
 			}
 		}
 
@@ -632,9 +490,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 					'name' => 'wpMovetalk',
 					'id' => 'wpMovetalk',
 					'value' => '1',
-					// It's intentional that this box is still visible and checked by default even if you don't have
-					// permission to move the talk page; wanting to separate a base page from its talk page is so
-					// unusual that you should have to explicitly uncheck the box to do so
 					'selected' => $this->moveTalk,
 				] ),
 				[
@@ -760,19 +615,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 		}
 
 		if ( $deleteAndMove ) {
-			// Suppress Phan false positives here - the array is either one or two elements, and is assigned above
-			// so the count clearly distinguishes the two cases
-			if ( count( $deleteAndMove ) == 2 ) {
-				$msg = $this->msg( 'delete_and_move_confirm_2',
-					// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
-					$deleteAndMove[0]->getPrefixedText(),
-					// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
-					$deleteAndMove[1]->getPrefixedText()
-				)->text();
-			} else {
-				// @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset False positive
-				$msg = $this->msg( 'delete_and_move_confirm', $deleteAndMove[0]->getPrefixedText() )->text();
-			}
 			$fields[] = new FieldLayout(
 				new CheckboxInputWidget( [
 					'name' => 'wpDeleteAndMove',
@@ -780,20 +622,7 @@ class SpecialMovePage extends UnlistedSpecialPage {
 					'value' => '1',
 				] ),
 				[
-					'label' => $msg,
-					'align' => 'inline',
-				]
-			);
-		}
-		if ( $moveOverProtection ) {
-			$fields[] = new FieldLayout(
-				new CheckboxInputWidget( [
-					'name' => 'wpMoveOverProtection',
-					'id' => 'wpMoveOverProtection',
-					'value' => '1',
-				] ),
-				[
-					'label' => $this->msg( 'move_over_protection_confirm' )->text(),
+					'label' => $this->msg( 'delete_and_move_confirm', $newTitle->getPrefixedText() )->text(),
 					'align' => 'inline',
 				]
 			);
@@ -806,8 +635,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 				'label' => $this->msg( 'movepagebtn' )->text(),
 				'flags' => [ 'primary', 'progressive' ],
 				'type' => 'submit',
-				'accessKey' => Linker::accesskey( 'move' ),
-				'title' => Linker::titleAttrib( 'move' ),
 			] ),
 			[
 				'align' => 'top',
@@ -835,13 +662,13 @@ class SpecialMovePage extends UnlistedSpecialPage {
 		);
 
 		$out->addHTML(
-			( new PanelLayout( [
+			new PanelLayout( [
 				'classes' => [ 'movepage-wrapper' ],
 				'expanded' => false,
 				'padded' => true,
 				'framed' => true,
 				'content' => $form,
-			] ) )->toString()
+			] )
 		);
 		if ( $this->getAuthority()->isAllowed( 'editinterface' ) ) {
 			$link = $this->getLinkRenderer()->makeKnownLink(
@@ -857,61 +684,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 		$this->showSubpages( $this->oldTitle );
 	}
 
-	private function vacateTitle( Title $title, User $user, Title $oldTitle ): StatusValue {
-		if ( !$title->exists() ) {
-			return StatusValue::newGood();
-		}
-		$redir2 = $title->isSingleRevRedirect();
-
-		$permStatus = $this->permManager->getPermissionStatus(
-			$redir2 ? 'delete-redirect' : 'delete',
-			$user, $title
-		);
-		if ( !$permStatus->isGood() ) {
-			if ( $redir2 ) {
-				if ( !$this->permManager->userCan( 'delete', $user, $title ) ) {
-					// Cannot delete-redirect, or delete normally
-					return $permStatus;
-				} else {
-					// Cannot delete-redirect, but can delete normally,
-					// so log as a normal deletion
-					$redir2 = false;
-				}
-			} else {
-				// Cannot delete normally
-				return $permStatus;
-			}
-		}
-
-		$page = $this->wikiPageFactory->newFromTitle( $title );
-		$delPage = $this->deletePageFactory->newDeletePage( $page, $user );
-
-		// Small safety margin to guard against concurrent edits
-		if ( $delPage->isBatchedDelete( 5 ) ) {
-			return StatusValue::newFatal( 'movepage-delete-first' );
-		}
-
-		$reason = $this->msg( 'delete_and_move_reason', $oldTitle->getPrefixedText() )->inContentLanguage()->text();
-
-		// Delete an associated image if there is
-		if ( $title->getNamespace() === NS_FILE ) {
-			$file = $this->repoGroup->getLocalRepo()->newFile( $title );
-			$file->load( IDBAccessObject::READ_LATEST );
-			if ( $file->exists() ) {
-				$file->deleteFile( $reason, $user, false );
-			}
-		}
-
-		$deletionLog = $redir2 ? 'delete_redir2' : 'delete';
-		$deleteStatus = $delPage
-			->setLogSubtype( $deletionLog )
-			// Should be redundant thanks to the isBatchedDelete check above.
-			->forceImmediate( true )
-			->deleteUnsafe( $reason );
-
-		return $deleteStatus;
-	}
-
 	private function doSubmit() {
 		$user = $this->getUser();
 
@@ -921,12 +693,6 @@ class SpecialMovePage extends UnlistedSpecialPage {
 
 		$ot = $this->oldTitle;
 		$nt = $this->newTitle;
-		$oldTalk = $ot->getTalkPageIfDefined();
-		$newTalk = $nt->getTalkPageIfDefined();
-
-		if ( $ot->isTalkPage() || $nt->isTalkPage() ) {
-			$this->moveTalk = false;
-		}
 
 		# don't allow moving to pages with # in
 		if ( !$nt || $nt->hasFragment() ) {
@@ -946,14 +712,63 @@ class SpecialMovePage extends UnlistedSpecialPage {
 			return;
 		}
 
-		# Show a warning if procted (showForm handles the warning )
-		if ( !$this->moveOverProtection ) {
-			if ( $this->restrictionStore->isProtected( $nt, 'create' ) ) {
-				$this->showForm();
+		# Delete to make way if requested
+		if ( $this->deleteAndMove ) {
+			$redir2 = $nt->isSingleRevRedirect();
+
+			$permStatus = $this->permManager->getPermissionStatus(
+				$redir2 ? 'delete-redirect' : 'delete',
+				$user, $nt
+			);
+			if ( !$permStatus->isGood() ) {
+				if ( $redir2 ) {
+					if ( !$this->permManager->userCan( 'delete', $user, $nt ) ) {
+						// Cannot delete-redirect, or delete normally
+						$this->showForm( $permStatus );
+						return;
+					} else {
+						// Cannot delete-redirect, but can delete normally,
+						// so log as a normal deletion
+						$redir2 = false;
+					}
+				} else {
+					// Cannot delete normally
+					$this->showForm( $permStatus );
+					return;
+				}
+			}
+
+			$page = $this->wikiPageFactory->newFromTitle( $nt );
+			$delPage = $this->deletePageFactory->newDeletePage( $page, $user );
+
+			// Small safety margin to guard against concurrent edits
+			if ( $delPage->isBatchedDelete( 5 ) ) {
+				$this->showForm( StatusValue::newFatal( 'movepage-delete-first' ) );
+
 				return;
 			}
-			if ( $this->moveTalk && $this->restrictionStore->isProtected( $newTalk, 'create' ) ) {
-				$this->showForm();
+
+			$reason = $this->msg( 'delete_and_move_reason', $ot )->inContentLanguage()->text();
+
+			// Delete an associated image if there is
+			if ( $nt->getNamespace() === NS_FILE ) {
+				$file = $this->repoGroup->getLocalRepo()->newFile( $nt );
+				$file->load( IDBAccessObject::READ_LATEST );
+				if ( $file->exists() ) {
+					$file->deleteFile( $reason, $user, false );
+				}
+			}
+
+			$deletionLog = $redir2 ? 'delete_redir2' : 'delete';
+			$deleteStatus = $delPage
+				->setLogSubtype( $deletionLog )
+				// Should be redundant thanks to the isBatchedDelete check above.
+				->forceImmediate( true )
+				->deleteUnsafe( $reason );
+
+			if ( !$deleteStatus->isGood() ) {
+				$this->showForm( $deleteStatus );
+
 				return;
 			}
 		}
@@ -973,112 +788,32 @@ class SpecialMovePage extends UnlistedSpecialPage {
 			$createRedirect = true;
 		}
 
-		// Check perms
+		# Do the actual move.
 		$mp = $this->movePageFactory->newMovePage( $ot, $nt );
-		$permStatusMain = $mp->authorizeMove( $this->getAuthority(), $this->reason );
-		$permStatusMain->merge( $mp->isValidMove() );
 
-		$onlyMovingTalkSubpages = false;
-		if ( $this->moveTalk ) {
-			$mpTalk = $this->movePageFactory->newMovePage( $oldTalk, $newTalk );
-			$permStatusTalk = $mpTalk->authorizeMove( $this->getAuthority(), $this->reason );
-			$permStatusTalk->merge( $mpTalk->isValidMove() );
-			// Per the definition of $considerTalk in showForm you might be trying to move
-			// subpages of the talk even if the talk itself doesn't exist, so let that happen
-			if ( !$permStatusTalk->isOK() &&
-				 !$permStatusTalk->hasMessagesExcept( 'movepage-source-doesnt-exist' )
-			) {
-				$permStatusTalk->setOK( true );
-				$onlyMovingTalkSubpages = true;
-			}
-		} else {
-			$permStatusTalk = StatusValue::newGood();
-			$mpTalk = null;
+		if ( $ot->isTalkPage() || $nt->isTalkPage() ) {
+			$this->moveTalk = false;
+		}
+		if ( $this->moveSubpages ) {
+			$this->moveSubpages = $this->permManager->userCan( 'move-subpages', $user, $ot );
 		}
 
-		if ( $this->deleteAndMove ) {
-			// This is done before the deletion (in order to minimize the impact of T265792)
-			// so ignore "it already exists" checks (they will be repeated after the deletion)
-			if ( $permStatusMain->hasMessagesExcept( 'redirectexists', 'articleexists' ) ||
-				$permStatusTalk->hasMessagesExcept( 'redirectexists', 'articleexists' ) ) {
-				$this->showForm( $permStatusMain, $permStatusTalk );
-				return;
-			}
-			// If the code gets here, then it's passed all permission checks and the move should succeed
-			// so start deleting things.
-			// FIXME: This isn't atomic; it could delete things even if the move will later fail (T265792)
-			// For example, if you manually specify deleteAndMove in the URL (the form UI won't show the checkbox)
-			// and have `delete-redirect` and the main page is a single-revision redirect
-			// but the talk page isn't it will delete the redirect and then fail, leaving it deleted
-			$deleteStatus = $this->vacateTitle( $nt, $user, $ot );
-			if ( !$deleteStatus->isGood() ) {
-				$this->showForm( $deleteStatus );
-				return;
-			}
-			if ( $this->moveTalk ) {
-				$deleteStatus = $this->vacateTitle( $newTalk, $user, $oldTalk );
-				if ( !$deleteStatus->isGood() ) {
-					// Ideally we would specify that the subject page redirect was deleted
-					// but see the FIXME above
-					$this->showForm( StatusValue::newGood(), $deleteStatus );
-					return;
-				}
-			}
-		} elseif ( !$permStatusMain->isOK() || !$permStatusTalk->isOK() ) {
-			// If we're not going to delete then bail on all errors
-			$this->showForm( $permStatusMain, $permStatusTalk );
+		# check whether the requested actions are permitted / possible
+		$permStatus = $mp->authorizeMove( $this->getAuthority(), $this->reason );
+		if ( !$permStatus->isOK() ) {
+			$this->showForm( $permStatus );
+			return;
+		}
+		$status = $mp->moveIfAllowed( $this->getAuthority(), $this->reason, $createRedirect );
+		if ( !$status->isOK() ) {
+			$this->showForm( $status );
 			return;
 		}
 
-		// Now we've confirmed you can do all of the moves you want and proceeding won't leave things inconsistent
-		// so actually move the main page
-		$mainStatus = $mp->moveIfAllowed( $this->getAuthority(), $this->reason, $createRedirect );
-		if ( !$mainStatus->isOK() ) {
-			$this->showForm( $mainStatus );
-			return;
-		}
-
-		$fixRedirects = $this->fixRedirects && $this->getConfig()->get( MainConfigNames::FixDoubleRedirects );
-		if ( $fixRedirects ) {
+		if ( $this->getConfig()->get( MainConfigNames::FixDoubleRedirects ) && $this->fixRedirects ) {
 			DoubleRedirectJob::fixRedirects( 'move', $ot );
 		}
 
-		// Now try to move the talk page
-		$maximumMovedPages = $this->getConfig()->get( MainConfigNames::MaximumMovedPages );
-
-		$moveStatuses = [];
-		$talkStatus = null;
-		if ( $this->moveTalk && !$onlyMovingTalkSubpages ) {
-			$talkStatus = $mpTalk->moveIfAllowed( $this->getAuthority(), $this->reason, $createRedirect );
-			// moveIfAllowed returns a Status with an array as a value, however moveSubpages per-title statuses
-			// have strings as values. Massage this status into the moveSubpages format so it fits in with
-			// the later calls
-			'@phan-var Status<string> $talkStatus';
-			$talkStatus->value = $newTalk->getPrefixedText();
-			$moveStatuses[$oldTalk->getPrefixedText()] = $talkStatus;
-		}
-
-		// Now try to move subpages if asked
-		if ( $this->moveSubpages ) {
-			if ( $this->permManager->userCan( 'move-subpages', $user, $ot ) ) {
-				$mp->setMaximumMovedPages( $maximumMovedPages - count( $moveStatuses ) );
-				$subpageStatus = $mp->moveSubpagesIfAllowed( $this->getAuthority(), $this->reason, $createRedirect );
-				$moveStatuses = array_merge( $moveStatuses, $subpageStatus->value );
-			}
-			if ( $this->moveTalk && $maximumMovedPages > count( $moveStatuses ) &&
-				 $this->permManager->userCan( 'move-subpages', $user, $oldTalk ) &&
-				 ( $onlyMovingTalkSubpages || $talkStatus->isOK() )
-			) {
-				$mpTalk->setMaximumMovedPages( $maximumMovedPages - count( $moveStatuses ) );
-				$talkSubStatus = $mpTalk->moveSubpagesIfAllowed(
-					$this->getAuthority(), $this->reason, $createRedirect
-				);
-				$moveStatuses = array_merge( $moveStatuses, $talkSubStatus->value );
-			}
-		}
-
-		// Now we've moved everything we're going to move, so post-process the output,
-		// create the UI, and fix double redirects
 		$out = $this->getOutput();
 		$out->setPageTitleMsg( $this->msg( 'pagemovedsub' ) );
 
@@ -1099,46 +834,141 @@ class SpecialMovePage extends UnlistedSpecialPage {
 
 		$out->addHTML( $this->msg( 'movepage-moved' )->rawParams( $oldLink,
 			$newLink )->params( $oldText, $newText )->parseAsBlock() );
-		$out->addWikiMsg( isset( $mainStatus->getValue()['redirectRevision'] ) ?
+		$out->addWikiMsg( isset( $status->getValue()['redirectRevision'] ) ?
 			'movepage-moved-redirect' :
 			'movepage-moved-noredirect' );
 
 		$this->getHookRunner()->onSpecialMovepageAfterMove( $this, $ot, $nt );
 
-		$extraOutput = [];
-		foreach ( $moveStatuses as $oldSubpage => $subpageStatus ) {
-			if ( $subpageStatus->hasMessage( 'movepage-max-pages' ) ) {
-				$extraOutput[] = $this->msg( 'movepage-max-pages' )
-					->numParams( $maximumMovedPages )->escaped();
-					continue;
-			}
-			$oldSubpage = Title::newFromText( $oldSubpage );
-			$newSubpage = Title::newFromText( $subpageStatus->value );
-			if ( $subpageStatus->isGood() ) {
-				if ( $fixRedirects ) {
-					DoubleRedirectJob::fixRedirects( 'move', $oldSubpage );
-				}
-				$oldLink = $linkRenderer->makeLink( $oldSubpage, null, [], [ 'redirect' => "no" ] );
-				$newLink = $linkRenderer->makeKnownLink( $newSubpage );
+		/*
+		 * Now we move extra pages we've been asked to move: subpages and talk
+		 * pages.
+		 *
+		 * First, make a list of id's.  This might be marginally less efficient
+		 * than a more direct method, but this is not a highly performance-cri-
+		 * tical code path and readable code is more important here.
+		 *
+		 * If the target namespace doesn't allow subpages, moving with subpages
+		 * would mean that you couldn't move them back in one operation, which
+		 * is bad.
+		 * @todo FIXME: A specific error message should be given in this case.
+		 */
 
-				$extraOutput[] = $this->msg( 'movepage-page-moved' )->rawParams(
-					$oldLink, $newLink
-				)->escaped();
-			} elseif ( $subpageStatus->hasMessage( 'articleexists' )
-				|| $subpageStatus->hasMessage( 'redirectexists' )
+		// @todo FIXME: Use MovePage::moveSubpages() here
+		$dbr = $this->dbProvider->getReplicaDatabase();
+		if ( $this->moveSubpages && (
+			$this->nsInfo->hasSubpages( $nt->getNamespace() ) || (
+				$this->moveTalk
+					&& $this->nsInfo->hasSubpages( $nt->getTalkPage()->getNamespace() )
+			)
+		) ) {
+			$conds = [
+				$dbr->expr(
+					'page_title',
+					IExpression::LIKE,
+					new LikeValue( $ot->getDBkey() . '/', $dbr->anyString() )
+				)->or( 'page_title', '=', $ot->getDBkey() )
+			];
+			$conds['page_namespace'] = [];
+			if ( $this->nsInfo->hasSubpages( $nt->getNamespace() ) ) {
+				$conds['page_namespace'][] = $ot->getNamespace();
+			}
+			if ( $this->moveTalk &&
+				$this->nsInfo->hasSubpages( $nt->getTalkPage()->getNamespace() )
 			) {
+				$conds['page_namespace'][] = $ot->getTalkPage()->getNamespace();
+			}
+		} elseif ( $this->moveTalk ) {
+			$conds = [
+				'page_namespace' => $ot->getTalkPage()->getNamespace(),
+				'page_title' => $ot->getDBkey()
+			];
+		} else {
+			# Skip the query
+			$conds = null;
+		}
+
+		$extraPages = [];
+		if ( $conds !== null ) {
+			$extraPages = $this->titleFactory->newTitleArrayFromResult(
+				$dbr->newSelectQueryBuilder()
+					->select( [ 'page_id', 'page_namespace', 'page_title' ] )
+					->from( 'page' )
+					->where( $conds )
+					->caller( __METHOD__ )->fetchResultSet()
+			);
+		}
+
+		$extraOutput = [];
+		$count = 1;
+		foreach ( $extraPages as $oldSubpage ) {
+			if ( $ot->equals( $oldSubpage ) || $nt->equals( $oldSubpage ) ) {
+				# Already did this one.
+				continue;
+			}
+
+			$newPageName = preg_replace(
+				'#^' . preg_quote( $ot->getDBkey(), '#' ) . '#',
+				StringUtils::escapeRegexReplacement( $nt->getDBkey() ), # T23234
+				$oldSubpage->getDBkey()
+			);
+
+			if ( $oldSubpage->isSubpage() && ( $ot->isTalkPage() xor $nt->isTalkPage() ) ) {
+				// Moving a subpage from a subject namespace to a talk namespace or vice-versa
+				$newNs = $nt->getNamespace();
+			} elseif ( $oldSubpage->isTalkPage() ) {
+				$newNs = $nt->getTalkPage()->getNamespace();
+			} else {
+				$newNs = $nt->getSubjectPage()->getNamespace();
+			}
+
+			# T16385: we need makeTitleSafe because the new page names may
+			# be longer than 255 characters.
+			$newSubpage = Title::makeTitleSafe( $newNs, $newPageName );
+			if ( !$newSubpage ) {
+				$oldLink = $linkRenderer->makeKnownLink( $oldSubpage );
+				$extraOutput[] = $this->msg( 'movepage-page-unmoved' )->rawParams( $oldLink )
+					->params( Title::makeName( $newNs, $newPageName ) )->escaped();
+				continue;
+			}
+
+			$mp = $this->movePageFactory->newMovePage( $oldSubpage, $newSubpage );
+			# This was copy-pasted from Renameuser, bleh.
+			if ( $newSubpage->exists() && !$mp->isValidMove()->isOK() ) {
 				$link = $linkRenderer->makeKnownLink( $newSubpage );
 				$extraOutput[] = $this->msg( 'movepage-page-exists' )->rawParams( $link )->escaped();
 			} else {
-				$oldLink = $linkRenderer->makeKnownLink( $oldSubpage );
-				if ( $newSubpage ) {
-					$newLink = $linkRenderer->makeLink( $newSubpage );
-				} else {
-					// It's not a valid title
-					$newLink = htmlspecialchars( $subpageStatus->value );
-				}
-				$extraOutput[] = $this->msg( 'movepage-page-unmoved' )
+				$status = $mp->moveIfAllowed( $this->getAuthority(), $this->reason, $createRedirect );
+
+				if ( $status->isOK() ) {
+					if ( $this->fixRedirects ) {
+						DoubleRedirectJob::fixRedirects( 'move', $oldSubpage );
+					}
+					$oldLink = $linkRenderer->makeLink(
+						$oldSubpage,
+						null,
+						[],
+						[ 'redirect' => 'no' ]
+					);
+
+					$newLink = $linkRenderer->makeKnownLink( $newSubpage );
+					$extraOutput[] = $this->msg( 'movepage-page-moved' )
 						->rawParams( $oldLink, $newLink )->escaped();
+					++$count;
+
+					$maximumMovedPages =
+						$this->getConfig()->get( MainConfigNames::MaximumMovedPages );
+					if ( $count >= $maximumMovedPages ) {
+						$extraOutput[] = $this->msg( 'movepage-max-pages' )
+							->numParams( $maximumMovedPages )->escaped();
+						break;
+					}
+				} else {
+					$oldLink = $linkRenderer->makeKnownLink( $oldSubpage );
+					$newLink = $linkRenderer->makeLink( $newSubpage );
+					$extraOutput[] = $this->msg( 'movepage-page-unmoved' )
+						->rawParams( $oldLink, $newLink )->escaped();
+				}
 			}
 		}
 
@@ -1150,7 +980,7 @@ class SpecialMovePage extends UnlistedSpecialPage {
 		# Get text from expiry selection dropdown, T261230
 		$expiry = $this->getRequest()->getText( 'wpWatchlistExpiry' );
 		if ( $this->getConfig()->get( MainConfigNames::WatchlistExpiry ) && $expiry !== '' ) {
-			$expiry = ExpiryDef::normalizeExpiry( $expiry, TS::ISO_8601 );
+			$expiry = ExpiryDef::normalizeExpiry( $expiry, TS_ISO_8601 );
 		} else {
 			$expiry = null;
 		}

@@ -40,7 +40,7 @@ class HandleParsoidSectionLinks extends ContentDOMTransformStage {
 		$this->titleFactory = $titleFactory;
 	}
 
-	public function shouldRun( ParserOutput $po, ParserOptions $popts, array $options = [] ): bool {
+	public function shouldRun( ParserOutput $po, ?ParserOptions $popts, array $options = [] ): bool {
 		// Only run this stage if it is parsoid content
 		return $po->getContentHolder()->isParsoidContent();
 	}
@@ -70,7 +70,7 @@ class HandleParsoidSectionLinks extends ContentDOMTransformStage {
 	}
 
 	public function transformDOM(
-		DocumentFragment $df, ParserOutput $po, ParserOptions $popts, array &$options
+		DocumentFragment $df, ParserOutput $po, ?ParserOptions $popts, array &$options
 	): DocumentFragment {
 		$skin = $this->resolveSkin( $options );
 		// Transform:
@@ -170,27 +170,6 @@ class HandleParsoidSectionLinks extends ContentDOMTransformStage {
 	) {
 		$sectionInfo['processed'] = true;
 		$section = $sectionInfo['section'];
-
-		// T406897: Transfer ID from heading to aria-labelledby attribute
-		// on the <section> tag.
-		$s = $h->parentNode;
-		if (
-			$s instanceof Element &&
-			DOMUtils::nodeName( $s ) === 'div' &&
-			DOMCompat::getClassList( $s )->contains( 'mw-heading' )
-		) {
-			// Handle existing wrapper (T357826)
-			$s = $s->parentNode;
-		}
-		if (
-			$s instanceof Element &&
-			DOMUtils::nodeName( $s ) === 'section'
-		) {
-			$id = DOMCompat::getAttribute( $h, 'id' );
-			if ( $id !== null ) {
-				$s->setAttribute( 'aria-labelledby', $id );
-			}
-		}
 
 		if ( self::isHtmlHeading( $h ) ) {
 			// This is a <h#> tag with attributes added using HTML syntax.

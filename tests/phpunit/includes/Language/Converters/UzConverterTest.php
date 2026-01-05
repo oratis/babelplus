@@ -16,11 +16,6 @@
  *  - Tests for LanguageConverter and Language should probably be separate.
  */
 
-namespace MediaWiki\Tests\Language\Converters;
-
-use MediaWiki\Tests\Language\LanguageConverterTestTrait;
-use MediaWikiIntegrationTestCase;
-
 /**
  * @group Language
  * @covers \UzConverter

@@ -22,7 +22,6 @@ use MediaWiki\Page\PageIdentityValue;
 use MediaWiki\Page\PageRecord;
 use MediaWiki\Revision\MutableRevisionRecord;
 use MediaWiki\Revision\SlotRecord;
-use MediaWiki\Skin\Skin;
 use MediaWiki\StubObject\StubObject;
 use MediaWiki\Title\Title;
 use MediaWiki\User\UserIdentity;
@@ -31,33 +30,17 @@ use MediaWiki\Utils\MWTimestamp;
 use ReflectionClass;
 use Wikimedia\IPUtils;
 use Wikimedia\ScopedCallback;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * @brief Set options of the Parser
  *
  * How to add an option in core:
- *  1. Add it to one of the arrays in ParserOptions::getDefaults() (see documentation there)
- *  2. If necessary:
- *    a. add an entry to ParserOptions::$initialCacheVaryingOptionsHash: this splits the cache on that option
- *    b. add an entry to ParserOptions::$callbacks: this is used for pseudo-options that shouldn't be considered
- *      to compute cacheability
- *    c. add an entry to ParserOptions::$initialLazyOptions: this ensures that the option is only loaded on read.
- *      The cacheability of these options is also determined by their usage during the parse and their presence
- *      in the $initialCacheVaryingOptionsHash or $callbacks arrays.
- *    Setting options that are not from (2a) or (2b) will make the parse uncacheable if they are actually used
- *    during the parse in the (current default article parse) setup where option usage is recorded to determine
- *    cacheability (see ::safeToCache() below for details.)
+ *  1. Add it to one of the arrays in ParserOptions::setDefaults()
+ *  2. If necessary, add an entry to ParserOptions::$inCacheKey
  *  3. Add a getter and setter in the section for that.
- *     These should be typically be wrappers around getOption/setOption in order
- *     to ensure that $this->optionUsed() gets invoked.
  *
  * How to add an option in an extension:
  *  1. Use the 'ParserOptionsRegister' hook to register it.
- *     This callback will provide $defaults (step 1), $cacheVaryingOptionsHash (2a)
- *     and $lazyOptions (2c) arrays which serve the same purpose as
- *     for options defined in core.  It is not possible to add a pseudo-option
- *     (2b) from an extension at this time.
  *  2. Where necessary, use $popt->getOption() and $popt->setOption()
  *     to access it.
  *
@@ -89,16 +72,13 @@ class ParserOptions {
 	];
 
 	/**
-	 * Specify options that are included in the cache key. This array is initially a copy of
-	 * $initialCacheVaryingOptionsHash, and is then modified by the ParserOptionsRegister hook.
-	 * If an option in this array has a value that differs from its defaults, said value is
-	 * added to the cache key and splits the cache accordingly.
+	 * Specify options that are included in the cache key
 	 * @var array|null
 	 */
 	private static $cacheVaryingOptionsHash = null;
 
 	/**
-	 * Initial set of $cacheVaryingOptionsHash options (before hook)
+	 * Initial inCacheKey options (before hook)
 	 * @var array
 	 */
 	private static $initialCacheVaryingOptionsHash = [
@@ -109,27 +89,6 @@ class ParserOptions {
 		'useParsoid' => true,
 		'suppressSectionEditLinks' => true,
 		'collapsibleSections' => true,
-		'postproc' => true,
-		'skin' => true,
-		'injectTOC' => true
-	];
-
-	/**
-	 * List of "postprocessing options", excluded from most ParserOption
-	 * operations by default.
-	 * @var list<string>
-	 * @internal
-	 */
-	public static array $postprocOptions = [
-		'skin',
-		'allowTOC',
-		'injectTOC',
-		'includeDebugInfo',
-		'enableSectionEditLinks',
-		'wrapperDivClass',
-		'deduplicateStyles',
-		'unwrap',
-		'absoluteURLs',
 	];
 
 	/**
@@ -634,7 +593,7 @@ class ParserOptions {
 	 * @return bool
 	 */
 	public function getIsPreview() {
-		return $this->getOption( 'isPreview' ) || $this->getOption( 'isSectionPreview' );
+		return $this->getOption( 'isPreview' );
 	}
 
 	/**
@@ -643,9 +602,6 @@ class ParserOptions {
 	 * @return bool Old value
 	 */
 	public function setIsPreview( $x ) {
-		if ( $x === false && ( $this->options['isSectionPreview'] ?? null ) === true ) {
-			$this->setOption( 'isSectionPreview', false );
-		}
 		return $this->setOptionLegacy( 'isPreview', $x );
 	}
 
@@ -663,9 +619,6 @@ class ParserOptions {
 	 * @return bool Old value
 	 */
 	public function setIsSectionPreview( $x ) {
-		if ( $x === true && ( $this->options['isPreview'] ?? null ) === false ) {
-			$this->setOption( 'isPreview', true );
-		}
 		return $this->setOptionLegacy( 'isSectionPreview', $x );
 	}
 
@@ -1070,7 +1023,7 @@ class ParserOptions {
 
 	/**
 	 * Timestamp used for {{CURRENTDAY}} etc.
-	 * @return string TS::MW timestamp
+	 * @return string TS_MW timestamp
 	 */
 	public function getTimestamp() {
 		if ( $this->mTimestamp === null ) {
@@ -1206,11 +1159,8 @@ class ParserOptions {
 	/**
 	 * Creates a "canonical" ParserOptions object
 	 *
-	 * For historical reasons, certain options may have default values
-	 * that are different from the canonical values used for caching;
-	 * this is done to avoid expiring the entirety of an existing
-	 * ParserCache's contents in production when a default changes.
-	 * See the discussion in ::getDefaults() for more details.
+	 * For historical reasons, certain options have default values that are
+	 * different from the canonical values used for caching.
 	 *
 	 * @since 1.30
 	 * @since 1.32 Added string and IContextSource as options for the first parameter
@@ -1255,43 +1205,35 @@ class ParserOptions {
 	}
 
 	/**
-	 * Get default option values.
-	 * @warning If you change the default for an existing option, existing
-	 *  parser cache entries will match even though they were generated with
-	 *  the old default value.  Usually this is a feature, since you don't
-	 *  want to invalidate the entire parser cache at once.  But to avoid bugs,
-	 *  you'll need to handle this somehow, either by tolerating the old
-	 *  value until the parser cache expires or by manually rejecting
-	 *  parser cache entries created with the old default (e.g. with the
-	 *  RejectParserCacheValue hook) although caution is warranted to avoid
-	 *  effectively invalidating the entire cache at once.
-	 *
-	 * The default core values are split in two general categories: static values,
-	 * defined in the first part of the method, and options that depend on the
-	 * configuration of the wiki, defined in the second part of the method. (This
-	 * also means that changing one of these options in the configuration of the wiki
-	 * comes with the risk of matching the old value in the cache until the cache
-	 * expires; again this is usually a good thing as it avoids invalidating
-	 * the entire cache at once when wiki configuration changes.)
-	 *
+	 * Get default option values
+	 * @warning If you change the default for an existing option, all existing
+	 *  parser cache entries will be invalid. To avoid bugs, you'll need to handle
+	 *  that somehow (e.g. with the RejectParserCacheValue hook) because
+	 *  MediaWiki won't do it for you.
 	 * @return array
 	 */
 	private static function getDefaults() {
 		$services = MediaWikiServices::getInstance();
+		$mainConfig = $services->getMainConfig();
+		$interwikiMagic = $mainConfig->get( MainConfigNames::InterwikiMagic );
+		$allowExternalImages = $mainConfig->get( MainConfigNames::AllowExternalImages );
+		$allowExternalImagesFrom = $mainConfig->get( MainConfigNames::AllowExternalImagesFrom );
+		$enableImageWhitelist = $mainConfig->get( MainConfigNames::EnableImageWhitelist );
+		$allowSpecialInclusion = $mainConfig->get( MainConfigNames::AllowSpecialInclusion );
+		$maxArticleSize = $mainConfig->get( MainConfigNames::MaxArticleSize );
+		$maxPPNodeCount = $mainConfig->get( MainConfigNames::MaxPPNodeCount );
+		$maxTemplateDepth = $mainConfig->get( MainConfigNames::MaxTemplateDepth );
+		$maxPPExpandDepth = $mainConfig->get( MainConfigNames::MaxPPExpandDepth );
+		$cleanSignatures = $mainConfig->get( MainConfigNames::CleanSignatures );
+		$externalLinkTarget = $mainConfig->get( MainConfigNames::ExternalLinkTarget );
+		$expensiveParserFunctionLimit = $mainConfig->get( MainConfigNames::ExpensiveParserFunctionLimit );
+		$enableMagicLinks = $mainConfig->get( MainConfigNames::EnableMagicLinks );
+		$languageConverterFactory = $services->getLanguageConverterFactory();
+		$userOptionsLookup = $services->getUserOptionsLookup();
+		$contentLanguage = $services->getContentLanguage();
 
 		if ( self::$defaults === null ) {
 			// *UPDATE* ParserOptions::matches() if any of this changes as needed
-			// Options matching the defaults are not included in the
-			// ParserCache key.  This is done to allow adding new parser
-			// options without invalidating the entire ParserCache, as long
-			// as those options are set to the default value specified here.
-			// It also allows deliberately serving old data from the parser
-			// cache when a default value is updated, which avoids the
-			// performance hit of invalidating the entire cache at once, but
-			// beware that changing the defaults here will *not* mean that
-			// all entries fetched from the cache will have been generated
-			// with the new default, at least until the current parser cache
-			// expires.
 			self::$defaults = [
 				'dateformat' => null,
 				'interfaceMessage' => false,
@@ -1315,17 +1257,6 @@ class ParserOptions {
 				'speculativePageIdCallback' => null,
 				'speculativePageId' => null,
 				'useParsoid' => false,
-				'postproc' => false,
-				// postproc options - if 'postproc' above is false, these are ignored
-				'skin' => null,
-				'allowTOC' => true,
-				'injectTOC' => true,
-				'includeDebugInfo' => true,
-				'enableSectionEditLinks' => true,
-				'wrapperDivClass' => 'mw-parser-output',
-				'deduplicateStyles' => true,
-				'unwrap' => false,
-				'absoluteURLs' => true,
 			];
 
 			self::$cacheVaryingOptionsHash = self::$initialCacheVaryingOptionsHash;
@@ -1341,23 +1272,6 @@ class ParserOptions {
 		}
 
 		// Unit tests depend on being able to modify the globals at will
-		$mainConfig = $services->getMainConfig();
-		$interwikiMagic = $mainConfig->get( MainConfigNames::InterwikiMagic );
-		$allowExternalImages = $mainConfig->get( MainConfigNames::AllowExternalImages );
-		$allowExternalImagesFrom = $mainConfig->get( MainConfigNames::AllowExternalImagesFrom );
-		$enableImageWhitelist = $mainConfig->get( MainConfigNames::EnableImageWhitelist );
-		$allowSpecialInclusion = $mainConfig->get( MainConfigNames::AllowSpecialInclusion );
-		$maxArticleSize = $mainConfig->get( MainConfigNames::MaxArticleSize );
-		$maxPPNodeCount = $mainConfig->get( MainConfigNames::MaxPPNodeCount );
-		$maxTemplateDepth = $mainConfig->get( MainConfigNames::MaxTemplateDepth );
-		$maxPPExpandDepth = $mainConfig->get( MainConfigNames::MaxPPExpandDepth );
-		$cleanSignatures = $mainConfig->get( MainConfigNames::CleanSignatures );
-		$externalLinkTarget = $mainConfig->get( MainConfigNames::ExternalLinkTarget );
-		$expensiveParserFunctionLimit = $mainConfig->get( MainConfigNames::ExpensiveParserFunctionLimit );
-		$enableMagicLinks = $mainConfig->get( MainConfigNames::EnableMagicLinks );
-		$languageConverterFactory = $services->getLanguageConverterFactory();
-		$userOptionsLookup = $services->getUserOptionsLookup();
-		$contentLanguage = $services->getContentLanguage();
 		return self::$defaults + [
 			'interwikiMagic' => $interwikiMagic,
 			'allowExternalImages' => $allowExternalImages,
@@ -1462,7 +1376,7 @@ class ParserOptions {
 	 * @since 1.33
 	 */
 	public function matchesForCacheKey( ParserOptions $other ) {
-		foreach ( self::allCacheVaryingOptions( $this->shouldIncludePostproc() ) as $option ) {
+		foreach ( self::allCacheVaryingOptions() as $option ) {
 			// Populate any lazy options
 			$this->lazyLoadOption( $option );
 			$other->lazyLoadOption( $option );
@@ -1508,16 +1422,10 @@ class ParserOptions {
 	/**
 	 * Return all option keys that vary the options hash
 	 * @since 1.30
-	 * @param bool $includePostproc When false (the default) removes all
-	 *  options from self::$postprocOptions from the return value
-	 * @return list<string>
+	 * @return string[]
 	 */
-	public static function allCacheVaryingOptions( bool $includePostproc = false ) {
-		$result = array_keys( array_filter( self::getCacheVaryingOptionsHash() ) );
-		if ( !$includePostproc ) {
-			$result = array_diff( $result, self::$postprocOptions );
-		}
-		return $result;
+	public static function allCacheVaryingOptions() {
+		return array_keys( array_filter( self::getCacheVaryingOptionsHash() ) );
 	}
 
 	/**
@@ -1534,8 +1442,6 @@ class ParserOptions {
 			return '';
 		} elseif ( $value instanceof Language ) {
 			return $value->getCode();
-		} elseif ( $value instanceof Skin ) {
-			return $value->getSkinName();
 		} elseif ( is_array( $value ) ) {
 			return '[' . implode( ',', array_map( $this->optionToString( ... ), $value ) ) . ']';
 		} else {
@@ -1558,7 +1464,7 @@ class ParserOptions {
 	public function optionsHash( $forOptions, $title = null ) {
 		$renderHashAppend = MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::RenderHashAppend );
 
-		$inCacheKey = self::allCacheVaryingOptions( $this->shouldIncludePostproc() );
+		$inCacheKey = self::allCacheVaryingOptions();
 
 		// Resolve any lazy options
 		$lazyOpts = array_intersect( $forOptions,
@@ -1615,13 +1521,8 @@ class ParserOptions {
 	}
 
 	/**
-	 * Test whether the set of provided options are safe to cache.
-	 * A set of options is safe to cache if it's composed of the following:
-	 * - options that are in the set of cache varying options (which split the cache)
-	 * - pseudo-options that are, in fact, callbacks (which are ignored for the cacheability computation)
-	 * - options that are neither, but whose value matches the default value defined for the option
-	 * @param string[]|null $usedOptions the list of options to check; typically the ones that are actually used
-	 * in the parse. Defaults to all options.
+	 * Test whether these options are safe to cache
+	 * @param string[]|null $usedOptions the list of options actually used in the parse. Defaults to all options.
 	 * @return bool
 	 * @since 1.30
 	 */
@@ -1629,16 +1530,6 @@ class ParserOptions {
 		$defaults = self::getDefaults();
 		$inCacheKey = self::getCacheVaryingOptionsHash();
 		$usedOptions ??= array_keys( $this->options );
-		if (
-			!MediaWikiServices::getInstance()->getMainConfig()->get( MainConfigNames::UsePostprocCache ) &&
-			$this->shouldIncludePostproc()
-		) {
-			return false;
-		}
-
-		if ( !$this->shouldIncludePostproc() ) {
-			$usedOptions = array_diff( $usedOptions, self::$postprocOptions );
-		}
 		foreach ( $usedOptions as $option ) {
 			if ( empty( $inCacheKey[$option] ) && empty( self::$callbacks[$option] ) ) {
 				$v = $this->optionToString( $this->options[$option] ?? null );
@@ -1660,14 +1551,14 @@ class ParserOptions {
 	 * @param UserIdentity $user The user that the fake revision is attributed to
 	 * @param int $currentRevId
 	 *
+	 * @return ScopedCallback to unset the hook
 	 * @internal since 1.44, this method is no longer considered safe to call
 	 * by extensions. It may be removed or changed in a backwards incompatible
 	 * way in 1.45 or later.
 	 *
 	 * @since 1.25
 	 */
-	#[\NoDiscard]
-	public function setupFakeRevision( $page, $content, $user, $currentRevId = 0 ): ScopedCallback {
+	public function setupFakeRevision( $page, $content, $user, $currentRevId = 0 ) {
 		$oldCallback = $this->setCurrentRevisionRecordCallback(
 			function ( $titleToCheck, $parser = null )
 			use ( $page, $content, $user, $currentRevId, &$oldCallback )
@@ -1699,7 +1590,7 @@ class ParserOptions {
 					$revRecord = new MutableRevisionRecord( $page );
 					$revRecord->setContent( SlotRecord::MAIN, $content )
 						->setUser( $user )
-						->setTimestamp( MWTimestamp::now( TS::MW ) )
+						->setTimestamp( MWTimestamp::now( TS_MW ) )
 						->setId( 0 )
 						->setPageId( $pageId )
 						->setParentId( $parentRevision );
@@ -1744,47 +1635,6 @@ class ParserOptions {
 	 */
 	public function setRenderReason( string $renderReason ): void {
 		$this->renderReason = $renderReason;
-	}
-
-	/**
-	 * Returns usage of postprocessing (and splits the cache accordingly)
-	 * @since 1.46
-	 * @unstable
-	 * @see shouldIncludePostproc for a non-cache-splitting alternative
-	 */
-	public function getPostproc(): bool {
-		return $this->getOption( 'postproc' );
-	}
-
-	/**
-	 * Indicates that these options should apply post-processing options, and ensures that the cache is split
-	 * accordingly.
-	 * @since 1.46
-	 * @unstable
-	 * @see setPostProc for a non-cache-splitting alternative
-	 */
-	public function enablePostproc(): void {
-		$this->setOption( 'postproc', true );
-		// make the option part of the used options, explicitly
-		$this->getOption( 'postproc' );
-	}
-
-	/**
-	 * Check if these options should apply post-processing.
-	 * Note that this bypasses the storage in used options (allowing for a check that doesn't touch the cache
-	 * key to be able to manipulate other options if needed)
-	 * @since 1.45
-	 * @unstable
-	 * @see getPostProc for a cache-splitting alternative
-	 */
-	private function shouldIncludePostproc(): bool {
-		return $this->options[ 'postproc' ];
-	}
-
-	public function clearPostproc(): ParserOptions {
-		$res = clone $this;
-		$res->setOption( 'postproc', false );
-		return $res;
 	}
 }
 

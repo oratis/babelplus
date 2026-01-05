@@ -1,12 +1,9 @@
 <?php
 
-namespace MediaWiki\Tests\Unit\Language;
-
 use MediaWiki\Language\Language;
 use MediaWiki\Language\LanguageCode;
 use MediaWiki\Languages\LanguageNameUtils;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
-use MediaWikiUnitTestCase;
 use Wikimedia\Bcp47Code\Bcp47CodeValue;
 
 /**
@@ -49,7 +46,7 @@ class LanguageCodeTest extends MediaWikiUnitTestCase {
 	public function testReplaceDeprecatedCodes() {
 		$this->assertEquals( 'gsw', LanguageCode::replaceDeprecatedCodes( 'als' ) );
 		$this->assertEquals( 'gsw', LanguageCode::replaceDeprecatedCodes( 'gsw' ) );
-		$this->assertEquals( 'ja', LanguageCode::replaceDeprecatedCodes( 'ja' ) );
+		$this->assertNull( LanguageCode::replaceDeprecatedCodes( null ) );
 	}
 
 	/**

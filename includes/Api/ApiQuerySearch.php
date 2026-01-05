@@ -8,17 +8,16 @@
 
 namespace MediaWiki\Api;
 
-use MediaWiki\Search\ISearchResultSet;
-use MediaWiki\Search\SearchEngine;
-use MediaWiki\Search\SearchEngineConfig;
-use MediaWiki\Search\SearchEngineFactory;
-use MediaWiki\Search\SearchResult;
+use ISearchResultSet;
 use MediaWiki\Search\TitleMatcher;
 use MediaWiki\Status\Status;
+use SearchEngine;
+use SearchEngineConfig;
+use SearchEngineFactory;
+use SearchResult;
 use Wikimedia\HtmlArmor\HtmlArmor;
 use Wikimedia\ParamValidator\ParamValidator;
 use Wikimedia\ParamValidator\TypeDef\EnumDef;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Query module to perform full text search within wiki titles and content
@@ -251,7 +250,7 @@ class ApiQuerySearch extends ApiQueryGeneratorBase {
 			$vals['snippet'] = $result->getTextSnippet();
 		}
 		if ( isset( $prop['timestamp'] ) ) {
-			$vals['timestamp'] = wfTimestamp( TS::ISO_8601, $result->getTimestamp() );
+			$vals['timestamp'] = wfTimestamp( TS_ISO_8601, $result->getTimestamp() );
 		}
 		if ( isset( $prop['titlesnippet'] ) ) {
 			$vals['titlesnippet'] = $result->getTitleSnippet();

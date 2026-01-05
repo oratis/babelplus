@@ -1,10 +1,10 @@
 <?php
-namespace MediaWiki\Tests\Integration\Specials;
+namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Request\FauxRequest;
-use MediaWiki\Tests\Specials\SpecialPageTestBase;
 use MediaWiki\Tests\User\TempUser\TempUserTestTrait;
 use MediaWiki\User\UserIdentity;
+use SpecialPageTestBase;
 use Wikimedia\Parsoid\Utils\DOMCompat;
 use Wikimedia\Parsoid\Utils\DOMUtils;
 

@@ -33,7 +33,6 @@ use stdClass;
 use Wikimedia\HtmlArmor\HtmlArmor;
 use Wikimedia\Message\MessageParam;
 use Wikimedia\Message\MessageSpecifier;
-use Wikimedia\Timestamp\TimestampFormat as TS;
 
 /**
  * Implements the default log formatting.
@@ -80,7 +79,7 @@ class LogFormatter {
 
 	// Nonstatic->
 
-	/** @var LogEntry */
+	/** @var LogEntryBase */
 	protected $entry;
 
 	/** @var int Constant for handling log_deleted */
@@ -485,7 +484,7 @@ class LogFormatter {
 						$duration = $contLang->translateBlockExpiry(
 							$rawDuration,
 							null,
-							(int)wfTimestamp( TS::UNIX, $entry->getTimestamp() )
+							(int)wfTimestamp( TS_UNIX, $entry->getTimestamp() )
 						);
 						$flags = BlockLogFormatter::formatBlockFlags( $rawFlags, $contLang );
 						$text = wfMessage( 'blocklogentry' )
@@ -499,7 +498,7 @@ class LogFormatter {
 						$duration = $contLang->translateBlockExpiry(
 							$parameters['5::duration'],
 							null,
-							(int)wfTimestamp( TS::UNIX, $entry->getTimestamp() )
+							(int)wfTimestamp( TS_UNIX, $entry->getTimestamp() )
 						);
 						$flags = BlockLogFormatter::formatBlockFlags( $parameters['6::flags'],
 							$contLang );
@@ -995,7 +994,7 @@ class LogFormatter {
 				break;
 
 			case 'timestamp':
-				$value = wfTimestamp( TS::ISO_8601, $value );
+				$value = wfTimestamp( TS_ISO_8601, $value );
 				break;
 
 			case 'msg':

@@ -9,7 +9,7 @@ namespace MediaWiki\ResourceLoader;
 use DOMDocument;
 use InvalidArgumentException;
 use InvalidSVGException;
-use MediaWiki\Language\LanguageFallbackMode;
+use MediaWiki\Languages\LanguageFallback;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Shell\Shell;
@@ -145,7 +145,7 @@ class Image {
 	protected function getLangFallbacks( string $lang ): array {
 		return MediaWikiServices::getInstance()
 			->getLanguageFallback()
-			->getAll( $lang, LanguageFallbackMode::STRICT );
+			->getAll( $lang, LanguageFallback::STRICT );
 	}
 
 	/**

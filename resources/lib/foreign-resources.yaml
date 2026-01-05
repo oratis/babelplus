@@ -125,11 +125,11 @@ codex:
   license: GPL-2.0+
   homepage: https://doc.wikimedia.org/codex/
   authors: Design System team, Wikimedia Foundation
-  version: 2.3.3
-  purl: pkg:npm/@wikimedia/codex@2.3.3
+  version: 2.3.2
+  purl: pkg:npm/@wikimedia/codex@2.3.2
   type: tar
-  src: https://registry.npmjs.org/@wikimedia/codex/-/codex-2.3.3.tgz
-  integrity: sha384-8Jt3TbzFOdui1n9xR61CmaVmpJhESuniiU4vTNVu1PozDCC+6SegJZjYjP63tjzP
+  src: https://registry.npmjs.org/@wikimedia/codex/-/codex-2.3.2.tgz
+  integrity: sha384-HkMG14/qVTD4yEt6W0qJUoW6Jorjja4oaHxT560RPdE4HLiDaiyc+1DXRDjOl0t6
   dest:
     package/dist/codex.cjs:
     package/dist/codex.js:
@@ -146,11 +146,11 @@ codex-design-tokens:
   license: GPL-2.0+
   homepage: https://doc.wikimedia.org/codex/
   authors: Design System team, Wikimedia Foundation
-  version: 2.3.3
-  purl: pkg:npm/@wikimedia/codex-design-tokens@2.3.3
+  version: 2.3.2
+  purl: pkg:npm/@wikimedia/codex-design-tokens@2.3.2
   type: tar
-  src: https://registry.npmjs.org/@wikimedia/codex-design-tokens/-/codex-design-tokens-2.3.3.tgz
-  integrity: sha384-vFNMPwFVaECfxahy1/tvoTofkDuBXummZiH5h4ZBJhNLihzGwqGB+XmyfI8nRDV2
+  src: https://registry.npmjs.org/@wikimedia/codex-design-tokens/-/codex-design-tokens-2.3.2.tgz
+  integrity: sha384-yNtvAdpM/AHB332n1pR/GZkqT5MatikEnCiQjWCRWqgUsqkBdcuSRnuwF79JGiA8
   dest:
     package/dist/theme-*.less:
     package/dist/theme-wikimedia-ui-root.css:
@@ -162,11 +162,11 @@ codex-icons:
   license: MIT
   homepage: https://doc.wikimedia.org/codex/
   authors: Design System team, Wikimedia Foundation
-  version: 2.3.3
-  purl: pkg:npm/@wikimedia/codex-icons@2.3.3
+  version: 2.3.2
+  purl: pkg:npm/@wikimedia/codex-icons@2.3.2
   type: tar
-  src: https://registry.npmjs.org/@wikimedia/codex-icons/-/codex-icons-2.3.3.tgz
-  integrity: sha384-fDt7qsmpnZPwUSWq1Dkyd0SO11bKhgWwaXdP5jJll6zAyqEqVDcmT2W3RjJTl0ux
+  src: https://registry.npmjs.org/@wikimedia/codex-icons/-/codex-icons-2.3.2.tgz
+  integrity: sha384-fJmNuSQurBxTkHV126/vxk2XrOpXJH35CtLZG9dFeF2q1DDg4ylyrHWtIbsjZxuc
   dest:
     package/dist/codex-icons.json:
     package/dist/codex-icon-paths.less:
@@ -345,11 +345,11 @@ ooui:
   license: MIT
   homepage: https://www.mediawiki.org/wiki/OOUI
   authors: OOUI Team and other contributors
-  version: 0.53.1
-  purl: pkg:npm/oojs-ui@0.53.1
+  version: 0.53.0
+  purl: pkg:npm/oojs-ui@0.53.0
   type: tar
-  src: https://registry.npmjs.org/oojs-ui/-/oojs-ui-0.53.1.tgz
-  integrity: sha384-MCPLMUcxcoGkV/HnZbYqt4CfbD8GO0NmzYoq10SFt5ufVYW/nxqmaMdtne0s5BUH
+  src: https://registry.npmjs.org/oojs-ui/-/oojs-ui-0.53.0.tgz
+  integrity: sha384-y7oUrg4Fr2pMgJcXX0x77xFpaYRulHBfe1RBHREGylln/aOBMyhZTpqeUYD1eHxs
 
   dest:
     # Main stuff
@@ -439,27 +439,6 @@ sinonjs:
   src: https://unpkg.com/sinon@18.0.1/pkg/sinon-no-sourcemaps.cjs
   integrity: sha384-jx7JQ8andegP9KcpOdNfOJlARMaUaUGtHLHURZEpUWJSCkdlnp1bzr7De/O3XM60
   dest: sinon.js
-
-swagger-ui:
-  # For licenses of libraries included in the bundle, see docs/licenses/swagger-ui-licenses-5.15.5.md
-  # Update along with swagger-ui and remove when no longer needed. See T382086.
-  license: Apache-2.0
-  homepage: https://swagger.io/tools/swagger-ui/
-  version: 4.15.5
-  authors: Kyle Shockey, Tony Tam, Vladimír Gorej, and others
-  type: tar
-  src: https://codeload.github.com/swagger-api/swagger-ui/tar.gz/refs/tags/v4.15.5
-  integrity: sha384-pOwNNBDnfD+zlf8LtM3994vvCyIaaFpiyRhCRs3FI2GJ/ESZcfZ2YbJ8E4ECf+R7
-  dest:
-    swagger-ui-4.15.5/README.md:
-    swagger-ui-4.15.5/LICENSE:
-    swagger-ui-4.15.5/NOTICE:
-    swagger-ui-4.15.5/dist/swagger-ui-bundle.js:
-    swagger-ui-4.15.5/dist/swagger-ui-bundle.js.map:
-    swagger-ui-4.15.5/dist/swagger-ui-standalone-preset.js:
-    swagger-ui-4.15.5/dist/swagger-ui-standalone-preset.js.map:
-    swagger-ui-4.15.5/dist/swagger-ui.css:
-    swagger-ui-4.15.5/dist/swagger-ui.css.map:
 
 vue-demi:
   license: MIT

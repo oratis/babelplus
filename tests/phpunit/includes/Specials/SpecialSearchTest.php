@@ -1,5 +1,4 @@
 <?php
-namespace MediaWiki\Tests\Specials;
 
 use MediaWiki\Context\RequestContext;
 use MediaWiki\Language\ILanguageConverter;
@@ -7,15 +6,10 @@ use MediaWiki\Languages\LanguageConverterFactory;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Request\FauxRequest;
-use MediaWiki\Search\SearchEngine;
-use MediaWiki\Search\SearchEngineFactory;
-use MediaWiki\Search\SearchResult;
 use MediaWiki\Search\TitleMatcher;
 use MediaWiki\Specials\SpecialSearch;
 use MediaWiki\Title\Title;
 use MediaWiki\User\User;
-use MediaWikiIntegrationTestCase;
-use MockSearchEngine;
 
 /**
  * Test class for SpecialSearch class
@@ -250,15 +244,15 @@ class SpecialSearchTest extends MediaWikiIntegrationTestCase {
 
 			[
 				'Prev/next links are using the rewritten query',
-				'/title="Next page" href="[^"]*search=rewritten\+query" rel="next"/',
+				'/search=rewritten\+query" rel="next" title="Next 20 results"/',
 				'original query',
 				'rewritten query',
 				array_fill( 0, 100, Title::newMainPage() )
 			],
 
 			[
-				'Show x results per page dropdown uses the rewritten query',
-				'/input type="hidden" value="rewritten query" name="search"/',
+				'Show x results per page link uses the rewritten query',
+				'/search=rewritten\+query" title="Show \d+ results/',
 				'original query',
 				'rewritten query',
 				array_fill( 0, 100, Title::newMainPage() )
@@ -277,10 +271,14 @@ class SpecialSearchTest extends MediaWikiIntegrationTestCase {
 		$rewrittenQuery,
 		array $resultTitles
 	) {
+		$results = array_map( static function ( $title ) {
+			return SearchResult::newFromTitle( $title );
+		}, $resultTitles );
+
 		$searchResults = new SpecialSearchTestMockResultSet(
 			$suggestion,
 			$rewrittenQuery,
-			array_map( SearchResult::newFromTitle( ... ), $resultTitles )
+			$results
 		);
 
 		$mockSearchEngine = $this->mockSearchEngine( $searchResults );
@@ -373,9 +371,9 @@ class SpecialSearchTest extends MediaWikiIntegrationTestCase {
 
 		$html = $search->getContext()->getOutput()->getHTML();
 		if ( $expectedLimit === null ) {
-			$this->assertDoesNotMatchRegularExpression( "/ title=\"Next page\"/", $html );
+			$this->assertDoesNotMatchRegularExpression( "/ title=\"Next \\d+ results\"/", $html );
 		} else {
-			$this->assertMatchesRegularExpression( "/ title=\"Next page\"/", $html );
+			$this->assertMatchesRegularExpression( "/ title=\"Next $expectedLimit results\"/", $html );
 		}
 	}
 

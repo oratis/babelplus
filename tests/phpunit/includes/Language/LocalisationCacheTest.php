@@ -1,12 +1,7 @@
 <?php
 
-namespace MediaWiki\Tests\Language;
-
-use LocalisationCache;
-use MediaWiki\Tests\Mocks\Language\MockLocalisationCacheTrait;
+use MediaWiki\Tests\Language\MockLocalisationCacheTrait;
 use MediaWiki\Tests\Unit\DummyServicesTrait;
-use MediaWikiIntegrationTestCase;
-use UnexpectedValueException;
 use Wikimedia\TestingAccessWrapper;
 
 /**

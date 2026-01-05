@@ -15,7 +15,6 @@ namespace MediaWiki\Api;
 use MediaWiki\Exception\ILocalizedException;
 use MediaWiki\Language\Language;
 use MediaWiki\Language\RawMessage;
-use MediaWiki\Linker\Linker;
 use MediaWiki\Message\Message;
 use MediaWiki\Page\PageReference;
 use MediaWiki\Page\PageReferenceValue;
@@ -360,7 +359,7 @@ class ApiErrorFormatter {
 
 			case 'html':
 				$value += [
-					'html' => Linker::expandLocalLinks( $msg->parse() ),
+					'html' => $msg->parse(),
 					ApiResult::META_CONTENT => 'html',
 				];
 				break;

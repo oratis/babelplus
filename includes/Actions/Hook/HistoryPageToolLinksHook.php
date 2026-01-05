@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Actions\Hook;
+namespace MediaWiki\Hook;
 
 use MediaWiki\Context\IContextSource;
 use MediaWiki\Linker\LinkRenderer;
@@ -25,6 +25,3 @@ interface HistoryPageToolLinksHook {
 	 */
 	public function onHistoryPageToolLinks( IContextSource $context, LinkRenderer $linkRenderer, array &$links );
 }
-
-/** @deprecated class alias since 1.46 */
-class_alias( HistoryPageToolLinksHook::class, 'MediaWiki\\Hook\\HistoryPageToolLinksHook' );

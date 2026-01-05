@@ -140,10 +140,4 @@ class LCStoreDB implements LCStore {
 
 		return $this->dbw;
 	}
-
-	/** @inheritDoc */
-	public function lateFallback(): bool {
-		return false;
-	}
-
 }

@@ -210,12 +210,14 @@ class ParserCache {
 	 */
 	private function incrementStats( PageRecord $page, $status, $reason = null ) {
 		$contentModel = $this->getContentModelFromPage( $page );
+		$metricSuffix = $reason ? "{$status}_{$reason}" : $status;
 
 		$this->stats->getCounter( 'ParserCache_operation_total' )
 			->setLabel( 'name', $this->name )
 			->setLabel( 'contentModel', $contentModel )
 			->setLabel( 'status', $status )
 			->setLabel( 'reason', $reason ?: 'n/a' )
+			->copyToStatsdAt( "{$this->name}.{$contentModel}.{$metricSuffix}" )
 			->increment();
 	}
 
@@ -231,6 +233,7 @@ class ParserCache {
 			->setLabel( 'name', $this->name )
 			->setLabel( 'contentModel', $contentModel )
 			->setLabel( 'reason', $renderReason )
+			->copyToStatsdAt( "{$this->name}.{$contentModel}.reason.{$renderReason}" )
 			->increment();
 	}
 
@@ -325,7 +328,7 @@ class ParserCache {
 		ParserOptions $options,
 		?array $usedOptions = null
 	): string {
-		$usedOptions ??= ParserOptions::allCacheVaryingOptions( $options->getPostproc() );
+		$usedOptions ??= ParserOptions::allCacheVaryingOptions();
 		$title = $this->titleFactory->newFromPageIdentity( $page );
 		$hash = $options->optionsHash( $usedOptions, $title );
 		// idhash seem to mean 'page id' + 'rendering hash' (r3710)
@@ -416,7 +419,7 @@ class ParserCache {
 	 * @param ParserOutput $parserOutput
 	 * @param PageRecord $page
 	 * @param ParserOptions $popts
-	 * @param string|null $cacheTime TS::MW timestamp when the cache was generated
+	 * @param string|null $cacheTime TS_MW timestamp when the cache was generated
 	 * @param int|null $revId Revision ID that was parsed
 	 */
 	public function save(

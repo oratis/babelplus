@@ -1,13 +1,6 @@
 <?php
 
-namespace MediaWiki\Tests\ExternalStore;
-
-use ExternalStoreAccess;
-use ExternalStoreException;
-use ExternalStoreFactory;
-use ExternalStoreMemory;
 use MediaWiki\MainConfigNames;
-use MediaWikiIntegrationTestCase;
 use Wikimedia\FileBackend\MemoryFileBackend;
 use Wikimedia\Rdbms\LBFactory;
 use Wikimedia\Rdbms\LoadBalancer;
