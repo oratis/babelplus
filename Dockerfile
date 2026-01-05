@@ -1,5 +1,4 @@
-# 使用最新的 1.42 镜像（通常自带 PHP 8.2+）
-FROM mediawiki:1.42
+FROM mediawiki:1.45.1
 
 # 1. 复制当前目录下的所有文件（包括 LocalSettings.php）到容器目录
 COPY . /var/www/html/
