@@ -1,12 +1,10 @@
-# 使用官方 MediaWiki 镜像作为基础
 FROM mediawiki:1.41
 
-# Cloud Run 必须监听 8080 端口，而 MediaWiki 默认是 80
-# 我们需要修改 Apache 配置
+# 1. 复制当前目录下的所有文件（包括 LocalSettings.php）到容器目录
+COPY . /var/www/html/
+
+# 2. 必须修改端口为 8080
 RUN sed -i 's/80/8080/g' /etc/apache2/sites-available/000-default.conf /etc/apache2/ports.conf
 
-# (可选) 如果你需要安装额外的 PHP 扩展，可以在这里添加
-# RUN apt-get update && apt-get install -y ...
-
-# 确保文件夹权限正确
-RUN chown -R www-data:www-data /var/www/html
+# 3. 设置权限（非常重要，否则 MediaWiki 无法读取）
+RUN chown -R www-data:www-data /var/www/html/
