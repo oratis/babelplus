@@ -1,0 +1,51 @@
+{
+    "youtube": {
+        "api_key": "YOUR_YOUTUBE_API_KEY_HERE",
+        "base_url": "https://www.googleapis.com/youtube/v3",
+        "max_results_per_page": 50,
+        "max_creators": 10000,
+        "request_delay": 1.0,
+        "timeout": 30
+    },
+    "socialblade": {
+        "base_url": "https://socialblade.com",
+        "request_delay": 2.0,
+        "timeout": 30
+    },
+    "target_regions": [
+        "US",
+        "CA",
+        "GB",
+        "AU",
+        "NZ",
+        "SG"
+    ],
+    "region_names": {
+        "US": "United States",
+        "CA": "Canada",
+        "GB": "United Kingdom",
+        "AU": "Australia",
+        "NZ": "New Zealand",
+        "SG": "Singapore"
+    },
+    "criteria": {
+        "active_days": 30,
+        "min_view_ratio": 0.60,
+        "require_email": true
+    },
+    "analysis": {
+        "stability_window_days": 7,
+        "growth_threshold": 0.1
+    },
+    "export": {
+        "formats": ["csv", "json", "excel"],
+        "csv_delimiter": ",",
+        "json_indent": 2
+    },
+    "paths": {
+        "data_dir": "data",
+        "output_dir": "data/output",
+        "log_dir": "data/logs",
+        "cache_dir": "data/cache"
+    }
+}

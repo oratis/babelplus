@@ -1,0 +1,25 @@
+# Core Dependencies
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+python-dateutil>=2.8.0
+
+# Data Processing
+pandas>=1.5.0
+openpyxl>=3.0.0
+
+# Development & Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Optional: For enhanced logging
+colorlog>=6.7.0
+
+# Optional: For async operations
+aiohttp>=3.8.0
+asyncio>=3.4.0
+
+# Optional: For database operations
+sqlalchemy>=2.0.0
+
+# Note: Install openpyxl separately if not using the full requirements
+# pip install openpyxl
