@@ -18,8 +18,9 @@
 | [0002](0002-notification-channels.md) | 邮件是唯一的失联恢复通道，Telegram 只能做锦上添花 | 设计稿 v1，待实施 |
 | [0003](0003-web-hosting-and-reachability.md) | 控制面托管按实测可达性选型，必须用自有域名 + 镜像 | 设计稿 v1，待实施 |
 | [0004](0004-transport-hardening.md) | 传输层按「特征混同」而非「性能最优」调参 | 设计稿 v1，待实施 |
+| [0005](0005-database-selection.md) | Cloud SQL Postgres 17 + Unix socket，在线态用 UNLOGGED 表不买 Redis | 设计稿 v1，待实施 |
+| [0006](0006-api-stack.md) | Go + chi + pgx/sqlc + OpenAPI spec-first，理由是与节点端同语言生态 | 设计稿 v1，待实施 |
+| [0007](0007-node-migration.md) | 混合迁移：新建 bp-node-hk1，vpn-us/vpn-jp 原封不动 | 设计稿 v1，待实施 |
 
 ## 待写
-- [ ] `0005` — 数据库选型（Cloud SQL vs serverless Postgres vs 自建）
-- [ ] `0006` — API 实现语言与框架
-- [ ] `0007` — 现有 vpn-us/vpn-jp 原地改造 vs 新建 bp-node-* 并行
+- [ ] `0008` — 旧节点退役（需 bp 侧连续 30 天零回滚事件后才写）

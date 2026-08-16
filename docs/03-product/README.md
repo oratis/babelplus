@@ -6,7 +6,5 @@
 |---|---|---|
 | [pricing-and-plans.md](pricing-and-plans.md) | 设计方案 | **草稿** — 价格待出口成本实测后定稿 |
 | [tutorials-spec.md](tutorials-spec.md) | 设计方案 | 设计稿 v1（2026-08-16） |
-
-## 待写
-- [ ] `user-journey.md` — 注册→下单→接入→续费全流程
-- [ ] `page-inventory.md` — 用户面板与后台的页面清单
+| [user-journey.md](user-journey.md) | 设计方案 | 设计稿 v1（2026-08-16） |
+| [page-inventory.md](page-inventory.md) | 设计方案 | 设计稿 v1（2026-08-16） |

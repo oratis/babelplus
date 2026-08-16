@@ -115,6 +115,8 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | 目录 | 文档 | 状态 |
 |---|---|---|
 | **00-overview** | [product-brief.md](00-overview/product-brief.md) — 产品定位与范围 | 设计稿 v1 |
+| | [roadmap.md](00-overview/roadmap.md) — 路线图与排期 | 设计稿 v1 |
+| | [glossary.md](00-overview/glossary.md) — 术语表 | 执行中 |
 | **01-research** | [competitor-conyss.md](01-research/competitor-conyss.md) — 竞品一手走查 | 已完成 |
 | | [reference-repos.md](01-research/reference-repos.md) — Proxy_Skill + Diogenes | 已完成 |
 | | [protocol-and-infra.md](01-research/protocol-and-infra.md) — 协议与基础设施 | 已完成 |
@@ -123,13 +125,23 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [admin-support-docs.md](01-research/admin-support-docs.md) — 后台/工单/通知/文档站 | 已完成 |
 | **02-architecture** | [as-built-gcp.md](02-architecture/as-built-gcp.md) — GCP 资产清点 | **As-Built**（2026-08-16） |
 | | [system-design.md](02-architecture/system-design.md) — 系统架构 | 设计稿 v1，未实施 |
+| | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | 设计稿 v1 |
+| | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | 设计稿 v1 |
 | **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，价格待实测 |
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
+| | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
+| | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
 | **04-ops** | [runbook-node-health.md](04-ops/runbook-node-health.md) — 节点健康与封锁取证 | 设计稿 v1 |
+| | [node-provisioning.md](04-ops/node-provisioning.md) — 建机与装机 | 设计稿 v1 |
+| | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 设计稿 v1 |
+| | [monitoring.md](04-ops/monitoring.md) — 监控与告警 | 设计稿 v1 |
 | **05-adr** | [0001](05-adr/0001-cloudflare-tos-risk.md) — CF 只承载控制面 | **提案，未批准** |
 | | [0002](05-adr/0002-notification-channels.md) — 邮件是唯一失联恢复通道 | 设计稿 v1 |
 | | [0003](05-adr/0003-web-hosting-and-reachability.md) — 托管按实测可达性选型 | 设计稿 v1 |
 | | [0004](05-adr/0004-transport-hardening.md) — 传输层按特征混同调参 | 设计稿 v1 |
+| | [0005](05-adr/0005-database-selection.md) — Cloud SQL Postgres 17 | 设计稿 v1 |
+| | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | 设计稿 v1 |
+| | [0007](05-adr/0007-node-migration.md) — 节点混合迁移 | 设计稿 v1 |
 | **evidence** | *（空）* — 全部 P0 阻塞实测项见 [evidence/README.md](evidence/README.md) | 待采集 |
 
 ---
@@ -142,6 +154,6 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 |---|---|---|---|
 | 1 | **[ADR 0001](05-adr/0001-cloudflare-tos-risk.md) 未获批准** | Cloudflare 数据面用不用，决定整个拓扑与成本模型 | **需用户决策** |
 | 2 | **零实测数据** | 协议选型、区域选型、网络层级、定价、托管选型全部悬空 | 需搭测试环境 |
-| 3 | 数据库选型未裁决 | API 无法动工 | 待写 ADR 0005 |
+| 3 | ~~数据库选型未裁决~~ | **已解决** — [ADR 0005](05-adr/0005-database-selection.md) | ✅ |
 | 4 | 支付通道未落实 | 收款闭环 | 需申请与尽调 |
 | 5 | 邮件送达率未验证 | [ADR 0002](05-adr/0002-notification-channels.md) 的整个前提 | 需实测 |

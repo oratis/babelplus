@@ -11,7 +11,8 @@
 |---|---|---|
 | [as-built-gcp.md](as-built-gcp.md) | 证据型核查 | **As-Built**（2026-08-16） |
 | [system-design.md](system-design.md) | 设计方案 | 设计稿 v1（2026-08-16，未实施） |
+| [data-model.md](data-model.md) | 设计方案 | 设计稿 v1（2026-08-16） |
+| [api-contract.md](api-contract.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 
-## 待写
-- [ ] `data-model.md` — 完整 DDL
-- [ ] `api-contract.md` — 用户端/节点端/管理端 API 规格
+> `openapi/openapi.yaml` 是 API 契约的**事实源**，本目录的 `api-contract.md` 是它的设计说明与背景。
+> 两者不一致时以 `openapi/openapi.yaml` 为准。
