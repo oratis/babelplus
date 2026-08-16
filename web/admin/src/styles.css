@@ -1,0 +1,94 @@
+@import 'tailwindcss';
+
+/*
+ * shared/ 在 vite root 之外，Tailwind 的自动扫描覆盖不到，必须显式声明。
+ * 漏了这一行的症状是：共享组件的样式在 dev 下正常、构建后全没了。
+ */
+@source '../../shared/src';
+
+/*
+ * 与用户面板同一套 token（两边视觉一致，评审时不用来回适应），但约束的来源不同：
+ * 后台的大陆可达性要求是「不要求」，所以这里用系统字体栈**不是**为了体积，
+ * 而是为了「不引用任何第三方主机名」这条一致的纪律 ——
+ * 后台一旦引了外部 CDN，等于在 IP 白名单 / IAP 之后又开了一个对外连接。
+ *
+ * 若将来要上 webfont，同样必须放进 public/fonts/ 自托管。
+ */
+@theme {
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* 浅色是基准。深色在下面的 media query 里覆盖同名变量。 */
+  --color-bg: oklch(99% 0.003 250);
+  --color-surface: oklch(100% 0 0);
+  --color-surface-alt: oklch(97% 0.005 250);
+  --color-line: oklch(90% 0.008 250);
+  --color-fg: oklch(25% 0.02 250);
+  --color-fg-muted: oklch(50% 0.015 250);
+  --color-fg-subtle: oklch(64% 0.012 250);
+  --color-skeleton: oklch(93% 0.008 250);
+
+  --color-accent: oklch(55% 0.16 250);
+  --color-accent-strong: oklch(48% 0.17 250);
+  --color-accent-fg: oklch(100% 0 0);
+
+  --color-ok: oklch(52% 0.13 150);
+  --color-warn: oklch(58% 0.13 75);
+  --color-danger: oklch(55% 0.19 25);
+}
+
+/*
+ * 深色。写在 @layer 之外，所以优先级高于 @theme 生成的 :root 变量。
+ * 不做手动切换开关 —— 跟随系统即可，少一个要存的偏好、少一处要同步的状态。
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: oklch(18% 0.012 250);
+    --color-surface: oklch(22% 0.014 250);
+    --color-surface-alt: oklch(26% 0.014 250);
+    --color-line: oklch(32% 0.016 250);
+    --color-fg: oklch(94% 0.006 250);
+    --color-fg-muted: oklch(72% 0.012 250);
+    --color-fg-subtle: oklch(58% 0.012 250);
+    --color-skeleton: oklch(30% 0.014 250);
+
+    --color-accent: oklch(70% 0.14 250);
+    --color-accent-strong: oklch(76% 0.14 250);
+    --color-accent-fg: oklch(18% 0.012 250);
+
+    --color-ok: oklch(72% 0.14 150);
+    --color-warn: oklch(78% 0.13 75);
+    --color-danger: oklch(70% 0.17 25);
+  }
+}
+
+html {
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  /* 移动端旋转时不要自动放大字号，否则 375px 布局会错位。 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+  /*
+   * 后台是 M3（桌面优先），**不设 overflow-x: hidden** ——
+   * 宽表格在小屏上横向滚动是可以接受的降级，而 hidden 会把内容直接切掉看不见。
+   * M2 的三个模块（工单 / 节点 / 订单）则要求卡片化，那是组件层的事。
+   */
+}
+
+/* 尊重「减少动态效果」——骨架屏的脉冲对前庭敏感用户是负担。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

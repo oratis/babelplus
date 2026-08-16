@@ -1,0 +1,48 @@
+# babel.plus 编辑器约定
+#
+# 目的不是统一审美，是让「谁的编辑器」不出现在 diff 里。
+# 真正的格式权威仍是各语言的格式化器（gofmt / prettier / ruff），
+# 本文件只覆盖它们管不到的地方：字符集、换行符、行尾空白、以及没有格式化器的文件类型。
+#
+# https://editorconfig.org —— 多数编辑器需要装插件才生效（VS Code / JetBrains 内置）。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Go 用 tab —— 这不是偏好，是 gofmt 的输出。改成空格会与 CI 的 gofmt 检查直接冲突。
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# go.mod / go.sum 同样由 go 工具链维护。
+[go.{mod,sum}]
+indent_style = tab
+
+# Makefile 的配方行**必须**以 tab 开头，这是 make 的语法而不是风格。
+[{Makefile,*.mk}]
+indent_style = tab
+
+# Python：PEP 8 的 4 空格。api/scripts/gen_stubs.py 就是这么写的。
+[*.py]
+indent_size = 4
+
+# Shell：infra/ 下的脚本。2 空格与 shellcheck 无关，纯粹是可读性。
+[*.sh]
+indent_size = 2
+
+# Markdown：全仓文档都是中文散文，不依赖「行尾两个空格 = 换行」这条语法
+# （需要断行时用空行分段）。所以这里**不**豁免 trim_trailing_whitespace ——
+# 豁免了就等于允许不可见字符进 diff。
+[*.md]
+indent_size = 2
+
+# SQL：migrations 与 queries。
+[*.sql]
+indent_size = 2

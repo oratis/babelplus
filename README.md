@@ -3,8 +3,13 @@
 内部使用的流量中转服务 —— 让中国境内用户经由 Cloudflare 边缘 + Google Cloud 出口，
 稳定访问全球网络与服务。配套完整的账户、订阅、计费、后台与工单体系。
 
-> **状态：P0 调研与设计阶段。** 目前仓库中只有文档，尚无实现代码。
-> 先读 [`docs/00-overview/product-brief.md`](docs/00-overview/product-brief.md)。
+> **状态：P0 设计已完成，P1 脚手架已落地。**
+> 契约（`openapi/`）、API 骨架（`api/`）、前端工作区（`web/`）、部署脚本（`infra/`）都已建起来，
+> 但 128 个 operation 里仍有 122 个返回 `501`
+> （[local-development.md §4](docs/04-ops/local-development.md)），
+> 且 [deploy.md](docs/04-ops/deploy.md) 的状态仍是「待实施」—— GCP 上还没有 `bp-` 资源。
+> 先读 [`docs/00-overview/product-brief.md`](docs/00-overview/product-brief.md)，
+> 再读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ---
 
@@ -12,6 +17,8 @@
 
 | 我想… | 去这里 |
 |---|---|
+| **把项目在本机跑起来** | [本地开发（无需装 Go）](docs/04-ops/local-development.md) |
+| **提第一个 PR** | [CONTRIBUTING.md](CONTRIBUTING.md) ← **动手前必读** |
 | 了解这个项目做什么、不做什么 | [产品定位与范围](docs/00-overview/product-brief.md) |
 | 看竞品长什么样 | [Conyss 竞品调研](docs/01-research/competitor-conyss.md) |
 | 了解协议选型与基础设施 | [协议与基础设施调研](docs/01-research/protocol-and-infra.md) |
@@ -23,17 +30,37 @@
 
 ## 仓库结构
 
+**单仓，分开部署**（[ADR 0006 §13](docs/05-adr/0006-api-stack.md)）。
+
 ```
 babel.plus/
+├── openapi/
+│   └── openapi.yaml       # 🔴 全仓契约的唯一事实源，128 个 operation
+├── api/                   # Go 服务 → Cloud Run (bp-api)
+│   ├── cmd/server/        # 入口
+│   ├── internal/gen/      # oapi-codegen 生成物，禁止手改
+│   ├── internal/handler/  # 实现；unimplemented.gen.go 是生成的 501 兜底
+│   ├── db/migrations/     # 12 组 up/down
+│   ├── db/queries/        # sqlc 输入
+│   ├── db/gen/            # sqlc 生成物，禁止手改
+│   └── Makefile           # 全部目标走容器，本机不需要装 Go
+├── web/                   # pnpm workspace → 静态托管 (bp-web)
+│   ├── shared/            # 共享客户端与组件；shared/api/ 是 openapi-typescript 生成物
+│   ├── user/              # 用户面板
+│   └── admin/             # 后台
+├── infra/                 # GCP 资源创建、节点 provisioning、部署脚本
 ├── docs/                  # 全部调研、设计、裁决、手册（详见 docs/README.md）
-├── apps/
-│   ├── api/               # API 服务（独立部署）
-│   └── web/               # 用户面板 + 后台（独立部署）
-├── infra/                 # IaC、节点 provisioning、部署脚本
-└── AGENTS.md              # 给 Agent 的项目规则
+├── .github/workflows/     # ci.yml（PR/push）· deploy.yml（手动）
+├── AGENTS.md              # 给 Agent 的项目规则
+└── CONTRIBUTING.md        # 怎么跑、怎么提交、什么时候要写 ADR
 ```
 
-> `apps/` 与 `infra/` 尚未创建 —— P1 阶段落地。
+单仓不等于单体部署：CI 与部署都按路径过滤，
+`api/**` 与 `openapi/**` 走 API 侧，`web/**` 与 `openapi/**` 走 Web 侧。
+
+> **四处生成物必须与源文件一起提交**，CI 用 `git diff --exit-code` 卡漂移：
+> `api/internal/gen/`、`api/db/gen/`、`api/internal/handler/unimplemented.gen.go`、
+> `web/shared/api/`。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
