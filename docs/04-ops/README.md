@@ -10,5 +10,6 @@
 | [node-provisioning.md](node-provisioning.md) | 执行手册 | 设计稿 v1（2026-08-16） |
 | [deploy.md](deploy.md) | 执行手册 | 设计稿 v1（2026-08-16） |
 | [monitoring.md](monitoring.md) | 执行手册 | 设计稿 v1（2026-08-16） |
+| [local-development.md](local-development.md) | 执行手册 | **As-Built**（2026-08-16 实测通过） |
 
 > 这些手册的可执行形式在 `infra/` 下。手册与脚本不一致时，**以脚本为准并回头修手册**。
