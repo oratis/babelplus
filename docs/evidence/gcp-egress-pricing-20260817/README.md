@@ -155,7 +155,10 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ## 9 · 这次没有解决的
 
 - [ ] Premium vs Standard 的**性能差异**未测 —— 成本侧已定量，性能侧仍是 [ADR 0004 §3.7](../../05-adr/0004-transport-hardening.md) 的空白。
-- [ ] **IPv6 是否真的只有 Premium 支持**未在 API 层面核实（这是选 Premium 的唯一理由）。
+- [x] ~~IPv6 是否真的只有 Premium 支持~~ **✅ 已核实** —— Google 网络层级文档明写 Standard 下
+      「Regional external IPv6 addresses」与「Global external IPv4 and IPv6 addresses」均为 *Not supported*。
+      但**这个理由已不成立**：OONI 受控对比证明 GFW 的 SNI 封锁在 IPv6 上同等有效，
+      见 [ADR 0008](../../05-adr/0008-network-tier-standard.md) 与 [ipv6-censorship-20260817](../ipv6-censorship-20260817/)。
 - [ ] 共享核机型（e2-micro / e2-small）的 **Spot 价格**未查（本次只查了网络 SKU）。
 - [x] ~~Cloud SQL SKU 未查~~ **✅ 已核实**，见 §8。实例价 $7.665/月与 ADR 0005 一致。
 - [ ] Cloud SQL 的**存储与备份** SKU 未单独核实（$1.70 + $0.16 仍是文档值）。
