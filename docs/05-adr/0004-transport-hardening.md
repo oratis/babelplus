@@ -8,6 +8,10 @@
 > [0001](0001-cloudflare-tos-risk.md)、[0003](0003-web-hosting-and-reachability.md)
 > ⚠️ 本裁决**修正**了 [system-design.md](../02-architecture/system-design.md) §3.3 的区域与网络层级选择，
 > 并**部分推翻** [reference-repos.md](../01-research/reference-repos.md) §1.5 第 4 条关于 mux 的结论。
+>
+> 🔴 **本裁决的 §1 第 4 条（网络层级用 Premium）与 §3.7 已被
+> [ADR 0008](0008-network-tier-standard.md) 推翻（2026-08-17）** —— 改用 Standard。
+> 其余五条裁决**全部继续有效**。正文保持原样以保留裁决谱系。
 
 ---
 
@@ -192,6 +196,12 @@ TLS 1.3 起初不受影响（1.3 握手中证书是加密的），但 **2025-07-
 **即：GCP 上买不到 CN2 GIA，这是结构性的，不是配置问题。**
 
 ### 3.7 网络层级改回 Premium —— 因为 Standard 没有 IPv6
+
+> 🔴 **本节已被 [ADR 0008](0008-network-tier-standard.md) 推翻（2026-08-17）。**
+> 本节保持原样不改，以保留裁决谱系 —— 一条裁决被推翻时，它的理由不会自动消失。
+> 推翻的依据：OONI 受控对比证明 **GFW 的 SNI 触发式 RST 在 IPv6 上与 IPv4 完全同等有效**，
+> 而 SNI 封锁正是威胁我们的主要机制；同时 Billing API 显示代价是每用户每月最多 $23。
+> 逐条落点见 [ADR 0008 §2](0008-network-tier-standard.md)。
 
 [system-design](../02-architecture/system-design.md) §3.3 此前按成本裁定用 Standard
 （$0.11/GiB vs $0.23，另有 200 GiB/区域/月免费额度）。**这个裁定需要修正**：

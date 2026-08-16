@@ -21,6 +21,7 @@
 | [0005](0005-database-selection.md) | Cloud SQL Postgres 17 + Unix socket，在线态用 UNLOGGED 表不买 Redis | 设计稿 v1，待实施 |
 | [0006](0006-api-stack.md) | Go + chi + pgx/sqlc + OpenAPI spec-first，理由是与节点端同语言生态 | 设计稿 v1，待实施 |
 | [0007](0007-node-migration.md) | 混合迁移：新建 bp-node-hk1，vpn-us/vpn-jp 原封不动 | 设计稿 v1，待实施 |
+| [0008](0008-network-tier-standard.md) | 网络层级改用 Standard，放弃为 IPv6 支付 Premium 溢价 —— **推翻 0004 §3.7** | 设计稿 v1，待实施 |
 
 ## 待写
 - [ ] `0008` — 旧节点退役（需 bp 侧连续 30 天零回滚事件后才写）
