@@ -14,7 +14,8 @@
 
 ## 当前待采集（全部为 P0 阻塞项）
 
-- [ ] `egress-cost-*` — GCP 出口到中国大陆的实际账单核对
+- [x] ~~`egress-cost-*` — GCP 出口单价~~ **✅ 已完成** → [gcp-egress-pricing-20260817](gcp-egress-pricing-20260817/)
+      （单价已定；**实际账单核对**仍待有真实用量后做）
 - [ ] `protocol-throughput-*` — REALITY vs Hysteria2，电信/联通/移动 × 晚高峰
 - [ ] `region-ab-*` — asia-east1 vs asia-northeast1
 - [ ] `nettier-ab-*` — Standard vs Premium 网络层级
