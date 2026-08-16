@@ -12,6 +12,16 @@
 - 二进制/大文件附 `SHA256SUMS.txt`
 - **失败样本要保留**，不要只留成功的
 
+## 已完成
+
+| 证据目录 | 解决了什么 |
+|---|---|
+| [gcp-egress-pricing-20260817](gcp-egress-pricing-20260817/) | **B2** GCP 出口单价（Billing Catalog API 权威价目）。Standard $0.11/GiB + 200GiB/区域/月免费；Premium $0.23/GiB 无免费额度 |
+| [v2node-contract-20260817](v2node-contract-20260817/) | **B6** 鉴权形态、**B18** 两个字段语义、**B16** 设备计数口径、ADR 0006 的 ETag 前提。全部靠读源码解决，无需真实节点 |
+
+> 这两次的共同经验：**大量标着「需实测」的条目其实是「没读源码/没查 API」。**
+> 在租机器测之前，先穷尽「读开源代码」与「查厂商 API」这两条零成本路径。
+
 ## 当前待采集（全部为 P0 阻塞项）
 
 - [x] ~~`egress-cost-*` — GCP 出口单价~~ **✅ 已完成** → [gcp-egress-pricing-20260817](gcp-egress-pricing-20260817/)

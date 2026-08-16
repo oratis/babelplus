@@ -514,7 +514,7 @@ flowchart TD
 
 | # | 阻塞项 | 卡住了什么 | 归属 | 登记处 |
 |---|---|---|---|---|
-| B6 | **节点密钥走 query string 还是 Bearer 未裁决** | UniProxy 鉴权实现；ADR 0006 §10.2 与冻结契约直接冲突 | 需实测（v2node 能力）+ 待裁决 | node-provisioning §10 🔴、api-contract §14 🔴、ADR 0006 §10.2 |
+| B6 | ~~节点密钥走 query string 还是 Bearer 未裁决~~ **✅ 2026-08-17 解决** —— 读 v2node 源码：**只发 query，无 Authorization 支持，无开关**。裁决为 query（唯一可行），保留每节点独立密钥 + 哈希存储 + scope | 鉴权已实现并实测通过 | ✅ 已解决 | node-provisioning §10 🔴、api-contract §14 🔴、ADR 0006 §10.2 |
 | B7 | **v2node 收到 401/403 是否清空用户列表** | 一次密钥失误是否 = 全员瞬时掉线；**这是唯一一条「实现方不是我们、后果由我们承担」的条款** | **可直接做** | api-contract §14 🔴 |
 | B8 | **v2node 承载哪些协议（是否内置 HY2 core）** | 节点装机工作量；若不内置，HY2 要单独装一套并自己解决用户同步 | **可直接做**（读源码） | node-provisioning §10 🔴、ADR 0007 §10 |
 | B9 | **`*.run.app` / 自定义域名的证书签发者未实测** | API 的入口形态：若是 GTS，中国用户路径必须过能钉 LE 的代理（CF 橙云 $0 或 GCLB 约 $18/月待核实） | **可直接做**（10 秒） | deploy §15 🔴 |
@@ -524,9 +524,9 @@ flowchart TD
 | B13 | **现有节点网络层级未查** | ADR 0004 §3.7 无法复审；reference-repos §1.5 的吞吐实测没有层级归属 | **可直接做** | ADR 0007 §11、ADR 0004 §6 |
 | B14 | **旧节点是否有人在用** | ADR 0007 裁决第 4 条（回滚落点是否真实存在） | **需用户决策** | ADR 0007 §11 🔴 |
 | B15 | **mux 与 XTLS-Vision 是否互斥** | 可能推翻 ADR 0004 §3.3 或 system-design §3.1 之一 | **可直接做**（实验） | node-provisioning §10 |
-| B16 | **`alivelist` 的设备计数口径**（按 IP 还是按连接） | `user_device_state` 主键的正确性；设备数杠杆（2/5/10）能否成立；「家里能用、公司连不上」的具体形态 | 需实测 | page-inventory §8、data-model §16、api-contract §14、user-journey §16 |
+| B16 | ~~`alivelist` 的设备计数口径~~ **✅ 部分解决** —— **按 IP**：节点上报 `{uid:["ip1","ip2"]}`，面板回 `{"alive":{uid:count}}`。`user_device_state` 以 IP 为主键是对的。🔴 另发现 **`alivelist` 失败时 v2node 静默降级为「零在线设备」**，即设备数限制会静默失效 —— 它只能是软限制，不能作为计费或防滥用的强保证 | 主键设计已验证；限制强度需在产品文案中说明 | ✅ 已解决（口径）/ 需产品决策（软限制如何表述） | page-inventory §8、data-model §16、api-contract §14、user-journey §16 |
 | B17 | **各客户端真实 UA 字符串未抓取** | 订阅分发表错一行，对应客户端拿到错格式 | **可直接做** | api-contract §14 |
-| B18 | **`base_config.device_online_min_traffic` / `node_report_min_traffic` 语义未知** | v2node 会读它们而我们不知道填什么 | 需实测 | api-contract §14 |
+| B18 | ~~两个 base_config 字段语义未知~~ **✅ 2026-08-17 解决** —— `device_online_min_traffic` **单位是 KB**（代码里 `devicemin*1000` 转字节），作用是把本轮流量低于此值的用户**排除出在线设备统计**（防止空闲客户端吃掉设备名额）；`node_report_min_traffic` 是流量上报的下限过滤。建议初值 `device_online_min_traffic=1000`（1 MB），**仍需真实用量调参** | 设备数杠杆可以落地了 | ✅ 已解决（语义）/ 需调参 | api-contract §14 |
 | B19 | **`bp-admin` 是否独立 Cloud Run 服务未定** | 它会再吃一份 max-instances 与连接数预算，ADR 0005 §6.2 的公式要重算 | **可直接做** | deploy §15 |
 
 ### 9.3 T3 · 卡住 P2（商业链）

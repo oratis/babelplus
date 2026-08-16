@@ -555,6 +555,11 @@ babel-plus/
 - [ ] 🔴 **v2node 是否发送 `If-None-Match` 未验证。** 见 §11.4。
       不验证这一条，§11 的整套 ETag 设计与 §3.3 的降载算术全部悬空。
       **这是本 ADR 里唯一一条「不验证就不能动工」的前置项**，且它与语言选型无关，应立即做。
+- [x] ~~🔴 v2node 是否发送 `If-None-Match`（最高优先级未知）~~ —— **✅ 2026-08-17 已解决：发。**
+      v2node 完整实现条件请求（发送 → 304 短路 → 保存新 ETag），ETag 降载设计成立。
+      证据 [v2node-contract-20260817 §2](../evidence/v2node-contract-20260817/)。
+      🔴 但浮现一个新约束：**v2node 默认超时 15 秒且只重试 1 次** ——
+      `/user` 的 p99 必须远低于 15 秒，一次冷启动超时就会让该节点这轮拿不到用户列表。
 - [ ] 🔴 **逐语言 Cloud Run 冷启动需实测。** 方法：同一个「hello + 一次 DB 主键查询」的服务，
       用 Go / Node(Hono) / Python(FastAPI) 各部署一个 Cloud Run service，
       同配置（1 vCPU / 512 MiB / gen1 / startup CPU boost 开），

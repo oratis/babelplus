@@ -25,7 +25,7 @@
 | 1 | **只有 `/api/v1/server/UniProxy/*` 是冻结契约**，其余全是我们的设计，不背 v2board 的兼容包袱 | 冻结的目的是让 v2node 开箱即用，冻结面越小越好 |
 | 2 | **UniProxy 面禁止使用统一响应信封**，响应是裸 JSON，形状逐字段照抄 Xboard | v2node 用 Go 结构体直接反序列化，包一层 `{"data":…}` 立刻不兼容 |
 | 3 | **`node_id` 从密钥推导，请求里带的 `node_id` 一律忽略**；若不一致返 403 并告警 | 这是 Xboard/SSPanel「持 token 者可冒充任意节点」漏洞的根治点，不是缓解 |
-| 4 | **认证凭据走 `Authorization: Bearer`；query string 形式是有期限的过渡态**，且过渡态也必须是每节点独立密钥 | 见 §3.2.4 —— v2node 现状很可能只会发 query，这是本文最大的落地风险 |
+| 4 | ~~认证凭据走 `Authorization: Bearer`；query string 是**有期限的**过渡态~~ → **✅ 2026-08-17 已读源码核实：v2node 只发 query，无 Authorization 支持，也无开关。** query 是**当前唯一可行形态**，「有期限」这个前提不成立（退出它需要给上游提 PR 或自行 fork）。每节点独立密钥 + scope 白名单仍然保留 | 证据 [v2node-contract-20260817 §3](../evidence/v2node-contract-20260817/) |
 | 5 | **`/push` 在 HTTP 层不可能幂等，幂等做在队列侧**：入库拿 `batch_id` → 入队 → 任务处理器用 `claimed_at` 抢占 | Cloud Tasks 是 at-least-once，节点重试是另一回事，两者要分开治 |
 | 6 | **流量累加不 bump `user_rev`，但「跨过 `transfer_enable` 阈值」必须 bump** | ADR 0006 §11.2 只说了前半句；不补后半句，配额耗尽的用户永远不会从节点列表消失 |
 | 7 | **到期不是写操作，必须靠定时任务 bump `user_rev`** | 到期是时间驱动的状态变化，没有任何写操作会触发它 —— 这是 ETag 设计里最容易漏的一条 |
@@ -353,7 +353,15 @@ node_keys(
 | **B. 接受 per-node token 走 query 作为过渡** | 加固三条里保住两条（每节点独立 + 可吊销 + scope），丢掉一条（凭据进 access log 与 Referer） | ⚠️ 过渡 |
 | C. 换节点端软件 | 推翻 ADR 0007 与 system-design §3.2 | ❌ |
 
-**裁决：A 为目标态，B 为有期限的过渡态。** 过渡态的三条硬约束：
+**裁决：A 为目标态，B 为当前唯一可行形态。**
+
+> 🔴 **2026-08-17 修正**：原文写「B 为**有期限的**过渡态」，隐含「等实测确认后可以关掉」。
+> 已读 v2node 源码核实：它用 `client.SetQueryParams({node_type, node_id, token})` 鉴权，
+> **全仓没有任何一处为鉴权设置 Authorization 头，也没有配置开关**。
+> 所以退出条件不成立 —— 关掉 query 需要改上游。证据见 [v2node-contract-20260817 §3](../evidence/v2node-contract-20260817/)。
+> 另：`node_type` 的值是字面量 `"v2node"`，不是协议名，参数校验不能按协议名做枚举。
+
+B 的三条硬约束（仍然全部成立）：
 
 1. query 形态的 token **也必须是每节点独立密钥**，绝不接受全局共享 token。
 2. 每次经 query 认证都写一条 `WARN` 结构化日志（带 `key_id`），使其在监控上可见、可计数。

@@ -25,12 +25,18 @@ import (
 //  2. **DB 只存 sha256 哈希**，泄库拿不到可用密钥
 //  3. **scope 白名单**，密钥泄漏也只能调它被授权的那几个端点
 //
-// 凭据位置：`Authorization: Bearer` 为目标态。
-// query string 形式是**有期限的过渡态** —— api-contract.md §3.2.4 记录了理由：
-// v2node 现状很可能只会发 query（XrayR 就是用 resty 的 SetQueryParams）。
-// 过渡态也必须是每节点独立密钥，只是丢掉「凭据不进 access log」这一条。
+// 凭据位置：本实现优先读 `Authorization: Bearer`，回退到 `?token=`。
+// 后者**不是妥协，是 v2node 的唯一形态**：
 //
-// 🔴 v2node 到底能不能配 Authorization 头 **需实测**，这是 ADR 0006 记录的最大落地风险。
+// ✅ 2026-08-17 已读 v2node 源码核实（evidence/v2node-contract-20260817）：
+//   它用 client.SetQueryParams({node_type, node_id, token}) 鉴权，
+//   **全仓没有任何一处为鉴权设置 Authorization 头，也没有开关可切换。**
+//
+// 所以「过渡态」这个说法要修正：query token 不是有期限的妥协，
+// 而是**当前唯一可行的形态**。退出它需要给 v2node 提 PR 或自己 fork，
+// 不是「等实测确认后关掉」那么简单。AllowQueryToken 的默认值 true 是强制的。
+//
+// 另注：node_type 的值是字面量 "v2node"，不是协议名 —— 不要按协议名做枚举校验。
 
 type ctxKey int
 
@@ -68,9 +74,11 @@ type NodeAuthConfig struct {
 	DB     NodeAuthenticator
 	Pepper string
 	Logger *slog.Logger
-	// AllowQueryToken 控制是否接受过渡态的 ?token=。
-	// 默认应为 true（v2node 兼容），但**必须可关闭** —— 实测确认 v2node 支持
-	// Authorization 头之后就关掉，这是「过渡态有期限」的技术保障。
+	// AllowQueryToken 控制是否接受 ?token=。
+	//
+	// **对 v2node 必须为 true** —— 它只发 query，不发 Authorization 头（已读源码核实）。
+	// 保留这个开关是为了将来接入支持 Bearer 的节点端时能收紧，
+	// 而不是为了「等 v2node 支持后关掉」（它不会自己支持）。
 	AllowQueryToken bool
 }
 
@@ -126,9 +134,11 @@ func AuthenticateNode(ctx context.Context, cfg NodeAuthConfig, r *http.Request, 
 	}
 
 	if from == tokenFromQuery {
-		// 过渡态用量要能被观测到，否则「有期限」会变成「永远」。
+		// 记录 query 凭据的使用量。它对 v2node 是常态，不是异常 ——
+		// 但凭据会进 access log 与 Referer，这个暴露面需要能被观测到，
+		// 以便将来接入支持 Bearer 的节点端后确认可以收紧。
 		// monitoring.md 基于这条日志建了 log-based metric。
-		cfg.Logger.InfoContext(ctx, "节点使用 query string 凭据（过渡态）",
+		cfg.Logger.InfoContext(ctx, "节点使用 query string 凭据",
 			"server_code", row.ServerCode, "key_prefix", row.KeyPrefix)
 	}
 
@@ -159,7 +169,7 @@ const (
 	tokenFromQuery
 )
 
-// extractNodeToken 优先取 Authorization 头，其次才是过渡态的 query。
+// extractNodeToken 优先取 Authorization 头，回退到 query。v2node 走后者。
 func extractNodeToken(r *http.Request, allowQuery bool) (string, tokenSource) {
 	if h := r.Header.Get("Authorization"); h != "" {
 		if v, ok := strings.CutPrefix(h, "Bearer "); ok {
