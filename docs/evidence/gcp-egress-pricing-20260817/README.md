@@ -132,10 +132,33 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 > 2. SKU 价目**不含** Free Tier 抵扣、承诺使用折扣与促销额度，
 > 实际账单可能低于此。反过来说，**用它做定价下限是安全的**。
 
-## 8 · 这次没有解决的
+## 8 · 附带核实：Cloud SQL 实例价（ADR 0005 的成本基础）
+
+同一次采集顺带核实了 [ADR 0005](../../05-adr/0005-database-selection.md) 的价格
+（Cloud SQL 服务 ID `9662-B51E-5089`，`us-central1`）：
+
+| SKU | 单价 | 折月（×730h） | ADR 0005 写的 |
+|---|---|---|---|
+| PostgreSQL **Zonal - Micro instance**（db-f1-micro） | **$0.0105/hour** | **$7.665** | **$7.665** ✅ 分毫不差 |
+| PostgreSQL Regional - Micro instance | $0.021/hour | $15.33 | —（高可用版，未选） |
+| PostgreSQL **Zonal - Small instance**（db-g1-small） | **$0.035/hour** | **$25.55** | $27.41（含存储，量级一致） |
+
+> **ADR 0005 的实例成本是准确的。** 它标的「实例 $7.665 + 10 GB SSD $1.70 + 备份约 $0.16
+> = 约 $9.53/月」中，最大的一项已获权威确认。
+>
+> ⚠️ 但要注意 SKU 里有大量 **"Extended support"** 变体（f1-micro v10–v96），
+> 单价 $0.018/hour（比标准 $0.0105 贵 71%）。这是**旧版本 Postgres 过保后的加价**。
+> ADR 0005 选的是 **PostgreSQL 17**，当前不受影响 ——
+> **但版本过保后会自动转入 Extended support 计价**，这是一笔会在未来某天悄悄出现的涨价。
+> 已列入下面的未解决项。
+
+## 9 · 这次没有解决的
 
 - [ ] Premium vs Standard 的**性能差异**未测 —— 成本侧已定量，性能侧仍是 [ADR 0004 §3.7](../../05-adr/0004-transport-hardening.md) 的空白。
 - [ ] **IPv6 是否真的只有 Premium 支持**未在 API 层面核实（这是选 Premium 的唯一理由）。
 - [ ] 共享核机型（e2-micro / e2-small）的 **Spot 价格**未查（本次只查了网络 SKU）。
-- [ ] Cloud SQL、Cloud Run 的 SKU 未查，[ADR 0005](../../05-adr/0005-database-selection.md) 的 $9.53/月仍是文档值。
+- [x] ~~Cloud SQL SKU 未查~~ **✅ 已核实**，见 §8。实例价 $7.665/月与 ADR 0005 一致。
+- [ ] Cloud SQL 的**存储与备份** SKU 未单独核实（$1.70 + $0.16 仍是文档值）。
+- [ ] **Postgres 版本过保后转入 Extended support 计价**（$0.018/h，+71%）的时间点未查 —— 这是一笔预定会发生的涨价。
+- [ ] Cloud Run 的 SKU 未查（本次筛选条件没命中，需换关键词重查）。
 - [ ] 未验证 200 GiB 免费额度是否与 GCP Always Free 层级叠加或互斥。
