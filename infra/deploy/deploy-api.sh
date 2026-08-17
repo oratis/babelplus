@@ -335,9 +335,25 @@ BP_ALLOWED_ORIGINS=${origins}"
   当前修订版会立刻停止接收新请求。
   ⚠️ 若本次发布改了 DB schema，请记住：**代码能秒级回滚，schema 不能**（deploy.md §12.3）。" "promote"
     ok "流量：新修订版 100%"
-  else
+  elif gcloud run services describe "$SERVICE" \
+         --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1; then
     args+=(--no-traffic --tag=candidate)
     ok "流量：0%（候选修订版，tag=candidate）"
+  else
+    # ⚠️ **创建新服务时 gcloud 不接受 --no-traffic**：
+    #   ERROR: --no-traffic not supported when creating a new service.
+    # 2026-08-17 首次部署实测踩到。
+    #
+    # 这个限制是合理的：候选修订版策略的意义是「新版本先不接流量，
+    # 验证通过再切」，而首次部署根本没有旧修订版可保护 ——
+    # 不接流量就等于服务对外完全不可用，没有任何东西被保护。
+    #
+    # 所以首次部署直接接 100% 流量。**后续部署会自动走上面的候选分支**，
+    # 因为那时 describe 就能查到服务了。
+    warn "服务 ${SERVICE} 尚不存在 —— 这是首次部署，直接接 100% 流量。
+     （--no-traffic 在创建新服务时不被支持，且首次部署没有旧修订版需要保护。
+       下次部署会自动变回不接流量的候选修订版。）"
+    ok "流量：新服务 100%"
   fi
 
   run "${args[@]}"
