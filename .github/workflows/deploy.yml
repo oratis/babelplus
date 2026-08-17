@@ -385,7 +385,11 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
-      id-token: write
+      # 这里**不能**给 id-token: write —— 本作业没有 google-github-actions/auth 步骤，
+      # 不走 WIF，用不到它；而下面「发布」步骤是 eval "$WEB_DEPLOY_CMD"（内容来自
+      # vars.BP_WEB_DEPLOY_CMD）。给了 id-token 就等于让这条 eval 出来的任意命令能
+      # 自行签发本仓库的 OIDC token，再按文件顶部的 WIF 绑定换成 bp-deploy-sa 的
+      # GCP 短期凭据。真需要 WIF 时，请连同 auth 步骤一起加回来。
     steps:
       - uses: actions/checkout@v4
 

@@ -120,6 +120,20 @@ done
 assert_target_safe "$NODE"
 [ -n "$NEW_ADDRESS" ] && assert_target_safe "$NEW_ADDRESS"
 
+# REGION 与 ZONE 是两个独立默认值、由两个独立开关覆盖，只传 --zone 而忘了 --region
+# 就会在 A region 预留地址、再拿它去挂 B region 的实例 —— gcloud 必然拒绝，而拒绝的
+# 时机正好在「已摘掉 access-config、还没挂上新地址」的窗口里，节点就此停在没有公网
+# IP 的状态。create-node.sh 有这道校验（见其 zone/region 一致性检查），这里补齐。
+# 注意不照搬 create-node.sh 的「拒绝 -b 结尾 zone」规则：那是建机时的选址裁决，
+# 而本脚本操作的是已经存在的节点，它在哪个 zone 不由这里决定。
+case "$ZONE" in
+    "$REGION"-*) : ;;
+    *) die "zone '$ZONE' 与 region '$REGION' 不匹配。
+      新地址会预留在 $REGION，而实例在 $ZONE —— 跨 region 挂不上去，
+      且失败点在「已摘旧地址、未挂新地址」的窗口内，会导致节点失去公网 IP。
+      请同时指定 --region 与 --zone（或同时用 BP_REGION / BP_ZONE）。" ;;
+esac
+
 run() {
     if [ "$DRY_RUN" = 1 ]; then
         _run_out=""
@@ -240,10 +254,37 @@ run gcloud compute instances delete-access-config "$NODE" \
     --project="$PROJECT" --zone="$ZONE" \
     --access-config-name="$AC_NAME" --network-interface=nic0
 
-run gcloud compute instances add-access-config "$NODE" \
-    --project="$PROJECT" --zone="$ZONE" \
-    --access-config-name="$AC_NAME" --address="$NEW_IP" \
-    --network-tier=PREMIUM --network-interface=nic0
+# 从上面摘掉 access-config 到这一步成功为止，节点没有公网 IP。set -euo pipefail
+# 会让挂载失败直接退出，把节点**永久留在**这个状态 —— 而这正是上面那行警告描述的
+# 「全部用户掉线」。旧地址此刻尚未释放（释放在下面「旧地址处置」一节，且默认不释放），
+# 所以回滚条件是具备的：失败必须先把旧 IP 挂回去，不能裸奔退出。
+if ! run gcloud compute instances add-access-config "$NODE" \
+        --project="$PROJECT" --zone="$ZONE" \
+        --access-config-name="$AC_NAME" --address="$NEW_IP" \
+        --network-tier=PREMIUM --network-interface=nic0; then
+    warn "挂载新地址 $NEW_IP 失败 —— 节点当前没有公网 IP，全部用户掉线。"
+
+    if [ -z "${OLD_IP:-}" ]; then
+        die "切换前就没查到旧 IP，无法自动回滚。节点仍无公网 IP，需要立刻人工介入：
+      gcloud compute instances add-access-config '$NODE' --project='$PROJECT' \\
+          --zone='$ZONE' --access-config-name='$AC_NAME' --network-interface=nic0"
+    fi
+
+    warn "正在把旧 IP $OLD_IP 挂回去……"
+    if run gcloud compute instances add-access-config "$NODE" \
+            --project="$PROJECT" --zone="$ZONE" \
+            --access-config-name="$AC_NAME" --address="$OLD_IP" \
+            --network-tier=PREMIUM --network-interface=nic0; then
+        die "已回滚到旧 IP $OLD_IP，服务已恢复。新地址 $NEW_ADDRESS 仍保留着，
+      排查后可重试。最常见的原因是 --region 与 --zone 不在同一 region，
+      导致新地址与实例跨 region（脚本开头的一致性校验会拦掉这种情况）。"
+    fi
+
+    die "回滚也失败了 —— 节点仍然没有公网 IP，必须立刻人工介入：
+      gcloud compute instances add-access-config '$NODE' --project='$PROJECT' \\
+          --zone='$ZONE' --access-config-name='$AC_NAME' --address='$OLD_IP' \\
+          --network-tier=PREMIUM --network-interface=nic0"
+fi
 
 ok "已切换到 $NEW_IP"
 
