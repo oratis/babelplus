@@ -148,7 +148,9 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "缺少命令：$1"
 }
 
-# shellcheck disable=SC2329  # 由 main 里的 trap cleanup EXIT 调用
+# 由 main 里的 trap cleanup EXIT 调用，shellcheck 看不出间接调用。
+# 两个码都要留：0.9.0（CI 的 ubuntu-24.04 预装版）报 SC2317，SC2329 是 0.10.0 才引入的。
+# shellcheck disable=SC2317,SC2329
 cleanup() {
   if [ "$KEEP_OUT" -eq 0 ] && [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
