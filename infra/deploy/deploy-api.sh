@@ -251,12 +251,23 @@ deploy() {
   # 只想改一项时用 --update-env-vars / --update-secrets，不要改这里。
   #
   # PORT 不在列表里 —— Cloud Run 自己注入，手工设会冲突。
+  # BP_ALLOWED_ORIGINS：CORS 白名单，**prod 下 config 是 fail-closed 的**——
+  # 不设这一项，容器会拒绝启动（config.parseAllowedOrigins）。
+  # 2026-08-17 首次部署前发现漏了它：部署会「成功」，但修订版永远起不来。
+  #
+  # 值取自 ALLOWED_ORIGINS 环境变量，默认是 system-design §4.1 规划的 Web 域名。
+  # ⚠️ 这些域名**目前还不存在**（web 尚未部署），所以现在填的是「将来会是什么」而不是
+  #    「现在是什么」。真实域名池定下来后必须回来改 —— 域名池是会轮换的，
+  #    每加一个镜像域名都要同步进这里，否则那个域名下的面板调不通 API。
+  local origins="${ALLOWED_ORIGINS:-https://web.babel.plus,https://admin.babel.plus}"
+
   local env_vars="\
 BP_ENV=prod,\
 BP_GCP_PROJECT_ID=${PROJECT_ID},\
 BP_DB_MAX_CONNS=2,\
 BP_LOG_LEVEL=info,\
-BP_TRUST_PROXY_HEADERS=true"
+BP_TRUST_PROXY_HEADERS=true,\
+BP_ALLOWED_ORIGINS=${origins}"
 
   local -a args=(
     gcloud run deploy "$SERVICE"
