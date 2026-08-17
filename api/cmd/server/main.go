@@ -111,8 +111,13 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 	//
 	// 理由：strict 中间件能拿到 **operationID**，于是「哪个 operation 需要哪个 scope」
 	// 可以集中成一张表（nodeOperationScopes）。按 chi 路由挂载则要在路由注册处
-	// 重复一遍路径字符串，规格改了路径就会静默失配 —— 而这里改了 operationID
-	// 会因为表里找不到而**明确报错**。
+	// 重复一遍路径字符串，规格改了路径就会静默失配。
+	//
+	// ⚠️ 但**不要**以为写错 operationID 会报错：查不到的 key 只是让 isNodeOp=false，
+	// 中间件原样放行，没有任何提示。兜底只有 handler 里的 NodeAuthFrom（见下面那段
+	// 注释），而 501 stub 不调它 —— 所以拼错的 key 会一路静默到「实现该端点的那天」。
+	// 这里曾经就把 PushUniProxyStatus 写成了 GetUniProxyStatus。
+	// TODO(P1): 加启动期断言，用生成的 operationID 全集交叉校验本表的每个 key。
 	strict := gen.NewStrictHandlerWithOptions(srv,
 		[]gen.StrictMiddlewareFunc{nodeScopeMiddleware(nodeAuth)},
 		gen.StrictHTTPServerOptions{
@@ -137,7 +142,7 @@ var nodeOperationScopes = map[string]string{
 	"PushUniProxyTraffic":  "node:traffic:write",
 	"PushUniProxyAlive":    "node:alive:write",
 	"GetUniProxyAliveList": "node:alive:read",
-	"GetUniProxyStatus":    "node:status:write",
+	"PushUniProxyStatus":   "node:status:write",
 }
 
 // nodeScopeMiddleware 对节点面 operation 做鉴权与 scope 校验，其余 operation 原样放行。
