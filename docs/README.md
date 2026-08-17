@@ -135,6 +135,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [node-provisioning.md](04-ops/node-provisioning.md) — 建机与装机 | 设计稿 v1 |
 | | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 设计稿 v1 |
 | | [monitoring.md](04-ops/monitoring.md) — 监控与告警 | 设计稿 v1 |
+| | [local-development.md](04-ops/local-development.md) — 本地开发（无需装 Go） | **As-Built** |
 | **05-adr** | [0001](05-adr/0001-cloudflare-tos-risk.md) — CF 只承载控制面 | **提案，未批准** |
 | | [0002](05-adr/0002-notification-channels.md) — 邮件是唯一失联恢复通道 | 设计稿 v1 |
 | | [0003](05-adr/0003-web-hosting-and-reachability.md) — 托管按实测可达性选型 | 设计稿 v1 |

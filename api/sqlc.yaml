@@ -1,0 +1,58 @@
+# sqlc 配置（ADR 0006 §8：pgx/v5 + sqlc，不引入 ORM）
+#
+# 生成物 db/gen/ **必须提交进仓库** —— CI 用 `git diff --exit-code` 卡生成物漂移。
+# 改了 db/migrations/*.sql 或 db/queries/*.sql 之后必须重新跑：
+#   docker run --rm -v "$PWD":/src -w /src sqlc/sqlc generate
+#
+# ⚠️ sqlc 自动忽略 golang-migrate 的 *.down.sql，所以 schema 指向整个 migrations 目录即可。
+# ⚠️ migration 0012 的触发器在生成的 Go 代码里是**隐形的**（data-model §15.1 已登记这个代价）：
+#    改 users 的 group_id/uuid/banned/expired_at/transfer_enable/speed_limit_mbps/
+#    device_limit/deleted_at/expiry_applied_at 会自动 bump node_rev.user_rev，
+#    而调用方在 Go 代码里看不到任何线索。
+
+version: "2"
+
+sql:
+  - engine: "postgresql"
+    schema: "db/migrations"
+    queries: "db/queries"
+
+    gen:
+      go:
+        package: "dbgen"
+        out: "db/gen"
+        sql_package: "pgx/v5"
+
+        # 可空列生成 *T 而不是 pgtype.T —— 业务代码里 NULL 的判断是 `== nil`，
+        # 不是 `.Valid`。这条是任务书点名的硬要求。
+        emit_pointers_for_null_types: true
+
+        # 生成 Querier 接口：handler 依赖接口而不是具体结构体，测试可以塞假实现。
+        emit_interface: true
+
+        # 空结果返回 []T{} 而不是 nil —— JSON 序列化出 [] 而不是 null。
+        # 节点面的 /user 返回 {"users":[]} 与 {"users":null} 对 v2node 是两回事。
+        emit_empty_slices: true
+
+        emit_prepared_queries: false
+        emit_exact_table_names: false
+        emit_json_tags: true
+        json_tags_case_style: "snake"
+
+        # 一条查询一个 Params/Row 结构体，即使只有一个参数 —— 加字段时调用点不会静默错位。
+        emit_result_struct_pointers: false
+        emit_params_struct_pointers: false
+
+        overrides:
+          # inet 用 netip.Addr（单个地址）而不是 pgx 默认的 netip.Prefix。
+          # 我们存的全是单机地址（登录 IP、设备 IP、请求 IP），带掩码的 Prefix 是噪音。
+          - db_type: "inet"
+            go_type: "net/netip.Addr"
+          # ⚠️ 结构化写法里 `type` 是**裸类型名**，包限定符由 `import` 推出。
+          #    写成 "netip.Addr" 会生成 `*netip.netip.Addr`，Go 编译不过。
+          - db_type: "inet"
+            nullable: true
+            go_type:
+              type: "Addr"
+              import: "net/netip"
+              pointer: true

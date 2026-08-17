@@ -48,3 +48,13 @@ Thumbs.db
 # local scratch
 tmp/
 .cache/
+
+# 容器内 Go 构建缓存（本机没装 Go，全部走 docker）
+.gocache/
+.gomodcache/
+.gorun.sh
+
+# 生成物必须提交 —— CI 用 git diff --exit-code 卡漂移，别加进忽略：
+#   api/internal/gen/   (oapi-codegen)
+#   api/db/gen/         (sqlc)
+#   api/internal/handler/unimplemented.gen.go
