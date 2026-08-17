@@ -1,8 +1,0 @@
-{
-	"testparam": "english $1",
-	"testblock": "english <div>stuff</div>",
-	"testlink": "english [[link]]",
-	"testpagename": "{{PAGENAME}}",
-	"testblank": "",
-	"testdisabled": "-"
-}
