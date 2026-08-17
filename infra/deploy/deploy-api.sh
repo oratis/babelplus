@@ -261,12 +261,16 @@ deploy() {
   #    每加一个镜像域名都要同步进这里，否则那个域名下的面板调不通 API。
   local origins="${ALLOWED_ORIGINS:-https://web.babel.plus,https://admin.babel.plus}"
 
-  local env_vars="\
-BP_ENV=prod,\
-BP_GCP_PROJECT_ID=${PROJECT_ID},\
-BP_DB_MAX_CONNS=2,\
-BP_LOG_LEVEL=info,\
-BP_TRUST_PROXY_HEADERS=true,\
+  # ⚠️ 用 gcloud 的**自定义分隔符**语法 `^@^k=v@k=v`，不能用默认的逗号。
+  # BP_ALLOWED_ORIGINS 的值本身就含逗号（多个 Origin），用默认分隔符会被切错：
+  #   ERROR: argument --set-env-vars: Bad syntax for dict arg: [https://admin.babel.plus]
+  # 2026-08-17 首次部署实测踩到。选 @ 是因为它不会出现在 URL 与我们的任何值里。
+  local env_vars="^@^\
+BP_ENV=prod@\
+BP_GCP_PROJECT_ID=${PROJECT_ID}@\
+BP_DB_MAX_CONNS=2@\
+BP_LOG_LEVEL=info@\
+BP_TRUST_PROXY_HEADERS=true@\
 BP_ALLOWED_ORIGINS=${origins}"
 
   local -a args=(
