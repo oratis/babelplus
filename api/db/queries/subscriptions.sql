@@ -126,3 +126,25 @@ ORDER BY count(DISTINCT f.request_ip) DESC;
 -- Cloud Scheduler 每天跑一次。
 -- name: CleanupOldSubscriptionFetchLog :execrows
 DELETE FROM subscription_fetch_log WHERE request_at < now() - ($1::interval);
+
+
+-- ============================================================
+-- 订阅下发（GET /s/{token} 与 GET /api/v1/client/subscribe）
+-- ============================================================
+
+-- subscription-userinfo 响应头需要的用量数字（api-contract §4.4）。
+--
+-- 🔴 刻意**不**并进 ResolveSubscriptionToken，也不复制一份「带 user_traffic 的
+--    resolve 变体」：404 判定（token 不存在 / 已吊销 / issued_at < sub_revoked_at）
+--    必须只有一个事实源。复制一份出来就等于把防枚举的判定写了两遍，
+--    两份迟早会漂移，而漂移的现象是「某条路径下已吊销的 token 还能拉到节点」——
+--    那是最不该靠人工发现的一类缺陷。
+--    代价是每次拉取多一次主键等值查找（< 1 ms），而订阅拉取量级是 10³/天，可以接受。
+--
+-- ⚠️ u / d 是**本周期**用量（周期重置会清零），u_lifetime / d_lifetime 是累计值。
+--    subscription-userinfo 的 upload/download 要用本周期的那两个 ——
+--    客户端的流量条对应的是「这个计费周期还剩多少」。
+-- name: GetSubscriptionUsage :one
+SELECT ut.u, ut.d, ut.u_lifetime, ut.d_lifetime
+FROM user_traffic ut
+WHERE ut.user_id = $1;

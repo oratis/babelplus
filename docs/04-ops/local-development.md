@@ -109,6 +109,19 @@ make test         # 单测
 make check        # fmt-check + vet + build + test，CI 跑的就是这个
 ```
 
+**基线（2026-08-17 实测）**：`make check` 全绿，155 个顶层用例 + 98 个子用例，0 失败。
+
+竞态检测不在 `make check` 里，因为 `-race` 需要 cgo，而 `golang:1.25-alpine`
+默认没有 C 工具链（直接跑会报 `-race requires cgo`）。要跑的话：
+
+```bash
+make GO=go test   # 本机装了 Go 的话最简单；否则在容器里先装 gcc：
+# docker run ... golang:1.25-alpine sh -c 'apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -race ./...'
+```
+
+2026-08-17 用上面第二条跑过一次，全部包通过（订阅面有异步 `TouchSubscriptionToken`
+的 goroutine，值得偶尔跑一次）。
+
 ### 3.2 起本地数据库并灌表
 
 ```bash
@@ -508,5 +521,24 @@ cd web && pnpm dev:user      # → http://localhost:5173
 - [ ] **`deploy.yml` 从未真实运行过。** WIF、Cloud Run 部署、隔离核对全是纸面的；
       `vars.GCP_WIF_PROVIDER` / `GCP_DEPLOY_SA` / `BP_WEB_DEPLOY_CMD` / `BP_MIGRATE_JOB`
       四个仓库变量都还没配。
+- [ ] 🔴 **`db/queries/stats.sql` 的 `BulkAddUserTraffic` 是坏的**（已在真库复现，不是理论风险）：
+      两个 `bigint` 算术表达式没写 `::bigint`，sqlc 推成 `int4`，生成的 Row 字段是 `int32`。
+      用户本周期累计超过 2 GiB 时 pgx 在 **Scan 阶段**报错、事务回滚、整批流量丢失。
+      最小套餐也是几十 GB，上线第一天就会踩到。当前由 `servers.sql` 的 `AddNodeTrafficBatch`
+      （同语义、显式 `::bigint`）顶住，但那是**两份同义 SQL 并存**。
+      修法：给原查询加 `::bigint` → `make gen-db` → 删掉副本、调用方切回去。
+      **同类风险值得全仓扫一遍**：任何 `:many/:one` 里 bigint 算术没显式转型的地方都可能被推成 int32。
+- [ ] **`api/.env.example` 里没有 `BP_ALLOWED_ORIGINS`。** dev 有默认值不受影响，
+      staging/prod 缺失即拒绝启动（错误消息自带格式说明与示例，不会让人卡住），
+      但样例文件应当补上。同时缺的还有 `BP_WEB_BASE_URL`：
+      订阅响应里的 `profile-web-page-url` 与伪节点名里的 Web 域名目前借用
+      `BP_ALLOWED_ORIGINS` 的第一项，等于把「放行某个 Origin」和「告诉用户去哪续费」绑死了，
+      而 ADR 0002 的失联恢复会轮换 Web 域名。
+- [ ] **订阅的 404 写不进 `subscription_fetch_log`**：该表 `user_id` 是 NOT NULL，
+      而走到 404 恰恰意味着不知道 user_id。后果是「有人拿着已吊销的 token 一直在刷」
+      在审计表里完全看不见，只有应用日志里一条 INFO。
+      修法需要 DDL 改动（user_id 可空，或另开一张匿名拉取表）。
+      注意 `db/queries/subscriptions.sql` 的注释写着「每次拉取都写一条，包括 304 与 404」——
+      那句话与当前 DDL 自相矛盾，需要一并裁决。
 - [ ] `AGENTS.md` §1/§2 仍写着「仓库中只有文档，没有实现代码」，**已经过时**，
       需要有人回去改（本次未动，不在分配范围内）。

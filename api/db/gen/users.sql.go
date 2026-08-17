@@ -234,6 +234,55 @@ func (q *Queries) ConsumeEmailVerification(ctx context.Context, id int64) error 
 	return err
 }
 
+const countRecentEmailVerifications = `-- name: CountRecentEmailVerifications :one
+SELECT
+  count(*)::bigint          AS sent_in_window,
+  max(created_at)::timestamptz AS last_sent_at
+FROM email_verifications
+WHERE lower(email) = lower($1) AND purpose = $2 AND created_at > $3
+`
+
+type CountRecentEmailVerificationsParams struct {
+	Lower     string              `json:"lower"`
+	Purpose   VerificationPurpose `json:"purpose"`
+	CreatedAt pgtype.Timestamptz  `json:"created_at"`
+}
+
+type CountRecentEmailVerificationsRow struct {
+	SentInWindow int64              `json:"sent_in_window"`
+	LastSentAt   pgtype.Timestamptz `json:"last_sent_at"`
+}
+
+// 发码限流（api-contract §10.2「精确档」）。**不需要 rate_limit 表**：
+// email_verifications 本身就逐条记录了每次发码的 created_at，
+// 「窗口内条数」与「上一条时刻」一次查询就能拿到，且天然跨 Cloud Run 实例一致
+// （进程内计数会被 max-instances 放大 8 倍，而这里是发信配额，8 倍是真实损失）。
+func (q *Queries) CountRecentEmailVerifications(ctx context.Context, arg CountRecentEmailVerificationsParams) (CountRecentEmailVerificationsRow, error) {
+	row := q.db.QueryRow(ctx, countRecentEmailVerifications, arg.Lower, arg.Purpose, arg.CreatedAt)
+	var i CountRecentEmailVerificationsRow
+	err := row.Scan(&i.SentInWindow, &i.LastSentAt)
+	return i, err
+}
+
+const countRecentEmailVerificationsByIP = `-- name: CountRecentEmailVerificationsByIP :one
+SELECT count(*)::bigint FROM email_verifications
+WHERE request_ip = $1 AND purpose = $2 AND created_at > $3
+`
+
+type CountRecentEmailVerificationsByIPParams struct {
+	RequestIp *netip.Addr         `json:"request_ip"`
+	Purpose   VerificationPurpose `json:"purpose"`
+	CreatedAt pgtype.Timestamptz  `json:"created_at"`
+}
+
+// per IP 维度（forgot 的 10/h）。同上，靠既有记录而不是额外的计数表。
+func (q *Queries) CountRecentEmailVerificationsByIP(ctx context.Context, arg CountRecentEmailVerificationsByIPParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentEmailVerificationsByIP, arg.RequestIp, arg.Purpose, arg.CreatedAt)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countUsersForAdmin = `-- name: CountUsersForAdmin :one
 SELECT count(*)::bigint FROM users u
 WHERE u.deleted_at IS NULL
@@ -253,6 +302,63 @@ func (q *Queries) CountUsersForAdmin(ctx context.Context, arg CountUsersForAdmin
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const createEmailLog = `-- name: CreateEmailLog :one
+
+INSERT INTO email_log (user_id, to_email, to_domain, esp, template, subject, status, sent_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, user_id, to_email, to_domain, esp, template, subject, provider_msg_id, status, bounce_code, bounce_type, sent_at, delivered_at, redeemed_at, created_at
+`
+
+type CreateEmailLogParams struct {
+	UserID   *int64             `json:"user_id"`
+	ToEmail  string             `json:"to_email"`
+	ToDomain string             `json:"to_domain"`
+	Esp      string             `json:"esp"`
+	Template string             `json:"template"`
+	Subject  string             `json:"subject"`
+	Status   string             `json:"status"`
+	SentAt   pgtype.Timestamptz `json:"sent_at"`
+}
+
+// ---------- 邮件发送日志 / 送达率探针 ----------
+// ⚠️ email_log 的归属其实是「运营」（0011_ops），本该放在一个 ops.sql 里。
+//
+//	暂时落在这里，因为目前只有 /auth/email-code 与 /auth/password/forgot 写它，
+//	而 api-contract §5.1 把「每次发码写一条 email_probe」定为该端点**存在的第二个理由**
+//	（ADR 0002：邮件是唯一失联恢复通道，收不到验证码的用户就是封锁当天必然失联的用户）。
+//	等 ops 面的查询成文时应当整体迁走。
+func (q *Queries) CreateEmailLog(ctx context.Context, arg CreateEmailLogParams) (EmailLog, error) {
+	row := q.db.QueryRow(ctx, createEmailLog,
+		arg.UserID,
+		arg.ToEmail,
+		arg.ToDomain,
+		arg.Esp,
+		arg.Template,
+		arg.Subject,
+		arg.Status,
+		arg.SentAt,
+	)
+	var i EmailLog
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ToEmail,
+		&i.ToDomain,
+		&i.Esp,
+		&i.Template,
+		&i.Subject,
+		&i.ProviderMsgID,
+		&i.Status,
+		&i.BounceCode,
+		&i.BounceType,
+		&i.SentAt,
+		&i.DeliveredAt,
+		&i.RedeemedAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const createEmailVerification = `-- name: CreateEmailVerification :one
@@ -501,6 +607,72 @@ func (q *Queries) FindUsersOverInviteCodeQuota(ctx context.Context) ([]FindUsers
 	return items, nil
 }
 
+const getEmailVerificationByCodeHash = `-- name: GetEmailVerificationByCodeHash :one
+SELECT id, email, user_id, purpose, code_hash, attempts, max_attempts, expires_at, consumed_at, request_ip, created_at FROM email_verifications
+WHERE code_hash = $1 AND purpose = $2
+  AND consumed_at IS NULL AND expires_at > now()
+`
+
+type GetEmailVerificationByCodeHashParams struct {
+	CodeHash []byte              `json:"code_hash"`
+	Purpose  VerificationPurpose `json:"purpose"`
+}
+
+// 只用于**找回密码**：那条链路的输入只有 token，没有邮箱，无法按 (email, purpose) 定位。
+//
+// 🔴 因此重置令牌必须是高熵随机串（32 字节 CSPRNG），**绝不能是 6 位数字验证码**：
+//
+//	按 code_hash 全表定位意味着一个随便猜的 6 位数会命中**任意用户**的待重置记录 ——
+//	这个查询的形状本身就把「重置令牌用什么」这件事定死了。
+func (q *Queries) GetEmailVerificationByCodeHash(ctx context.Context, arg GetEmailVerificationByCodeHashParams) (EmailVerification, error) {
+	row := q.db.QueryRow(ctx, getEmailVerificationByCodeHash, arg.CodeHash, arg.Purpose)
+	var i EmailVerification
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.UserID,
+		&i.Purpose,
+		&i.CodeHash,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.RequestIp,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getInviteCodeAnyState = `-- name: GetInviteCodeAnyState :one
+
+SELECT id, code, owner_user_id, max_uses, used_count, expires_at, revoked_at, note, created_at FROM invite_codes WHERE code = $1
+`
+
+// ============================================================
+// 账户体系补充（internal/handler/auth.go 用）
+// ============================================================
+// 与 GetInviteCodeByCode 的区别：**不过滤任何状态**。
+// GET /api/v1/invite/verify 必须区分「无效」与「已用尽」（api-contract §5.1：
+// 两者的用户动作完全不同 —— 前者去要一个新码，后者去催邀请人再生成一个），
+// 而 GetInviteCodeByCode 把 used_count >= max_uses 一并滤成了 ErrNoRows，
+// 用它就**不可能**满足这条契约。核销路径仍然走 RedeemInviteCode 的原子 UPDATE。
+func (q *Queries) GetInviteCodeAnyState(ctx context.Context, code string) (InviteCode, error) {
+	row := q.db.QueryRow(ctx, getInviteCodeAnyState, code)
+	var i InviteCode
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.OwnerUserID,
+		&i.MaxUses,
+		&i.UsedCount,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.Note,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getInviteCodeByCode = `-- name: GetInviteCodeByCode :one
 
 SELECT id, code, owner_user_id, max_uses, used_count, expires_at, revoked_at, note, created_at FROM invite_codes
@@ -559,6 +731,22 @@ func (q *Queries) GetLatestEmailVerification(ctx context.Context, arg GetLatestE
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const getRegistrationGroupID = `-- name: GetRegistrationGroupID :one
+SELECT id FROM server_groups ORDER BY (code = 'basic') DESC, id LIMIT 1
+`
+
+// 注册时 users.group_id 是 NOT NULL 外键，必须给一个值。
+// 这个值只是**占位**：新用户 transfer_enable = 0，在 ListAvailableUsersByServer 的
+// 「u + d < transfer_enable」判定里天然为假，所以他落在哪个分组都看不到节点。
+// 真正的分组在 ApplyUserEntitlement（开通套餐）时按 plan.group_id 覆盖。
+// 优先 'basic'，否则取 id 最小的一个 —— 排序确定，避免不同实例挑到不同分组。
+func (q *Queries) GetRegistrationGroupID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getRegistrationGroupID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
@@ -1049,6 +1237,31 @@ func (q *Queries) ListUsersForAdmin(ctx context.Context, arg ListUsersForAdminPa
 	return items, nil
 }
 
+const markEmailProbeRedeemed = `-- name: MarkEmailProbeRedeemed :exec
+UPDATE email_log SET redeemed_at = now()
+WHERE id = (
+  SELECT el.id FROM email_log el
+  WHERE lower(el.to_email) = lower($1) AND el.template = $2 AND el.redeemed_at IS NULL
+  ORDER BY el.created_at DESC
+  LIMIT 1
+)
+`
+
+type MarkEmailProbeRedeemedParams struct {
+	Lower    string `json:"lower"`
+	Template string `json:"template"`
+}
+
+// 用户回填验证码的时刻。sent_at → redeemed_at 的差值就是**真实端到端送达时延**，
+// 这是 ADR 0002 §7 要求的送达率实测数据里唯一无法从 ESP 回调拿到的一项。
+// ⚠️ 子查询必须起别名：不起别名时 `template` 同时可解析到外层 UPDATE 的目标表，
+//
+//	PG 直接报 "column reference is ambiguous"。
+func (q *Queries) MarkEmailProbeRedeemed(ctx context.Context, arg MarkEmailProbeRedeemedParams) error {
+	_, err := q.db.Exec(ctx, markEmailProbeRedeemed, arg.Lower, arg.Template)
+	return err
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE users SET email_verified_at = now(), updated_at = now()
 WHERE id = $1 AND email_verified_at IS NULL
@@ -1129,6 +1342,28 @@ UPDATE invite_codes SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL
 func (q *Queries) RevokeInviteCode(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, revokeInviteCode, id)
 	return err
+}
+
+const revokeOtherUserSessions = `-- name: RevokeOtherUserSessions :execrows
+UPDATE user_sessions SET revoked_at = now()
+WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL
+`
+
+type RevokeOtherUserSessionsParams struct {
+	UserID int64 `json:"user_id"`
+	ID     int64 `json:"id"`
+}
+
+// 改密码后「其余会话失效」（api-contract §5.1）：当前这条留着，其余全撤。
+// 与 RevokeAllUserSessions 分开而不是加一个可空参数：
+// 「排除哪一条」写成参数时，传 NULL 会让 id <> NULL 恒为 NULL，一条都撤不掉 ——
+// 而现象是「改完密码别的设备还在线」，没有任何报错。
+func (q *Queries) RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeOtherUserSessions, arg.UserID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const revokeUserSession = `-- name: RevokeUserSession :exec

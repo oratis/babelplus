@@ -98,6 +98,19 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 	r.Use(mw.Recover(logger))
 	r.Use(mw.AccessLog(logger))
 
+	// CORS 挂在 AccessLog **之后**，两个理由：
+	//  1. 预检（OPTIONS）会被 CORS 短路掉，挂在前面就永远不会出现在访问日志里 ——
+	//     而「预检失败」正是跨域故障的典型现象，日志里看不见它等于失去唯一线索。
+	//  2. CORS 在调 next 之前就把响应头写进 header map，所以 Recover 兜底的 500
+	//     也会带上 CORS 头 —— 否则浏览器连错误响应都读不到，前端只看到一个 network error。
+	//
+	// 节点面（/api/v1/server/*）由中间件内部跳过，不需要在这里分路由挂载。
+	r.Use(mw.CORS(mw.CORSConfig{
+		AllowedOrigins: cfg.AllowedOrigins,
+		// 用户面会话走 Authorization 头（将来可能加 cookie），两者都需要它。
+		AllowCredentials: true,
+	}))
+
 	nodeAuth := mw.NodeAuthConfig{
 		DB:     db,
 		Pepper: cfg.NodeKeyPepper,
@@ -107,19 +120,40 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 		AllowQueryToken: true,
 	}
 
+	userAuth := mw.UserAuthConfig{
+		DB:     db,
+		Pepper: cfg.SessionSigningKey,
+		Logger: logger,
+		// AllowCookie 保持 false（零值）。打开它之前必须先有 CSRF 防护：
+		// 独立主域名池意味着 web 与 api 是**跨站**，SameSite=Lax 下 cookie 根本不会发出，
+		// 真要用就得 SameSite=None —— 而 None 完全没有 CSRF 防护。
+		// 当前 web 客户端只用 Authorization: Bearer，没有任何东西依赖 cookie 形态。
+	}
+
 	// 鉴权走 StrictMiddlewareFunc 而不是 chi 的按路由挂载。
 	//
-	// 理由：strict 中间件能拿到 **operationID**，于是「哪个 operation 需要哪个 scope」
-	// 可以集中成一张表（nodeOperationScopes）。按 chi 路由挂载则要在路由注册处
-	// 重复一遍路径字符串，规格改了路径就会静默失配。
+	// 理由：strict 中间件能拿到 **operationID**，于是「哪个 operation 需要哪种凭据」
+	// 可以集中成几张表（operationAuth）。按 chi 路由挂载则要在路由注册处
+	// 重复一遍路径字符串，规格改了路径就会静默失配 —— 而这里改了 operationID
+	// 会被 TestOperationAuthCoverage **在编译测试阶段**抓住。
 	//
-	// ⚠️ 但**不要**以为写错 operationID 会报错：查不到的 key 只是让 isNodeOp=false，
-	// 中间件原样放行，没有任何提示。兜底只有 handler 里的 NodeAuthFrom（见下面那段
-	// 注释），而 501 stub 不调它 —— 所以拼错的 key 会一路静默到「实现该端点的那天」。
-	// 这里曾经就把 PushUniProxyStatus 写成了 GetUniProxyStatus。
-	// TODO(P1): 加启动期断言，用生成的 operationID 全集交叉校验本表的每个 key。
+	// 那个测试不是防御性洁癖，是一次真实事故的产物：本表曾把 PushUniProxyStatus
+	// 写成 GetUniProxyStatus，而查不到的 key 只会让中间件原样放行，没有任何提示，
+	// 于是该节点端点**完全无鉴权**（bc06ed028）。当时留的 TODO 是「加启动期断言」，
+	// 这里用测试期反射兑现得更早一步：启动期断言炸的是生产冷启动，测试炸的是 CI。
+	//
+	// handler.RequestBinding 把原始 *http.Request 放进 ctx。
+	//
+	// 为什么必须有：strict 接口只把 ctx 与解包后的参数交给 handler，**拿不到请求头**。
+	// 订阅下发要读 User-Agent（决定下发 YAML / JSON / base64）与来源 IP
+	// （写 subscription_fetch_log，账号共享检测的唯一数据来源），两者只在原始请求里。
+	// 缺了它订阅端点会返回 500 而不是静默降级 —— 见 handler.errNoBoundRequest。
+	//
+	// ⚠️ 生成代码的包裹顺序是 `for _, m := range middlewares { h = m(h, opID) }`，
+	// 即**切片里越靠后越靠外**。RequestBinding 放在后面 → 它最先执行，
+	// 于是鉴权中间件与 handler 都能从 ctx 里取到原始请求。
 	strict := gen.NewStrictHandlerWithOptions(srv,
-		[]gen.StrictMiddlewareFunc{nodeScopeMiddleware(nodeAuth)},
+		[]gen.StrictMiddlewareFunc{authMiddleware(nodeAuth, userAuth), handler.RequestBinding()},
 		gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  requestErrorHandler(logger),
 			ResponseErrorHandlerFunc: responseErrorHandler(logger),
@@ -131,42 +165,7 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 	return r
 }
 
-// nodeOperationScopes 是节点面 operation 到所需 scope 的映射。
-//
-// ⚠️ 这是权限控制的**唯一事实源**。不在这张表里的 operation 不会被当作节点面处理。
-// 新增节点端点时必须同步加进来，否则它会以「非节点面」身份放行到 handler ——
-// handler 里的 NodeAuthFrom 会失败并返回 errNoNodeAuth，属于装配错误而非鉴权绕过。
-var nodeOperationScopes = map[string]string{
-	"GetUniProxyConfig":    "node:config:read",
-	"GetUniProxyUsers":     "node:users:read",
-	"PushUniProxyTraffic":  "node:traffic:write",
-	"PushUniProxyAlive":    "node:alive:write",
-	"GetUniProxyAliveList": "node:alive:read",
-	"PushUniProxyStatus":   "node:status:write",
-}
-
-// nodeScopeMiddleware 对节点面 operation 做鉴权与 scope 校验，其余 operation 原样放行。
-//
-// TODO(P1): 用户面与管理面的鉴权中间件尚未实现。在此之前它们全部返回 501
-// （Unimplemented），因此**没有鉴权缺口** —— 但实现任何一个用户面 operation
-// 之前必须先补上对应的鉴权中间件。
-func nodeScopeMiddleware(cfg mw.NodeAuthConfig) gen.StrictMiddlewareFunc {
-	return func(f gen.StrictHandlerFunc, operationID string) gen.StrictHandlerFunc {
-		scope, isNodeOp := nodeOperationScopes[operationID]
-		if !isNodeOp {
-			return f
-		}
-		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-			auth, authErr := mw.AuthenticateNode(ctx, cfg, r, scope)
-			if authErr != nil {
-				mw.WriteAuthError(w, authErr)
-				// 返回 nil,nil：响应已经写完，生成代码不应再写一次。
-				return nil, nil
-			}
-			return f(mw.WithNodeAuth(ctx, auth), w, r, request)
-		}
-	}
-}
+// 鉴权装配（operation → 凭据类型的五张表 + authMiddleware）在 authmap.go。
 
 // responseErrorHandler 把 handler 返回的 error 映射成 HTTP 响应。
 //
@@ -182,8 +181,10 @@ func responseErrorHandler(logger *slog.Logger) func(http.ResponseWriter, *http.R
 			return
 		}
 		logger.ErrorContext(r.Context(), "handler 返回错误",
-			"err", err, "path", r.URL.Path, "request_id", mw.RequestIDFrom(r.Context()))
-		writeErr(w, http.StatusInternalServerError, "INTERNAL", "内部错误")
+			"err", err, "path", mw.RedactPath(r.URL.Path), "request_id", mw.RequestIDFrom(r.Context()))
+		// 码必须是 openapi 的 ErrorCode enum 成员：前端按 code 做分支，
+		// enum 外的值会全部落到兜底分支，用户看到的是「未知错误」而不是可操作的提示。
+		writeErr(w, http.StatusInternalServerError, "INTERNAL_ERROR", "内部错误")
 	}
 }
 
@@ -191,7 +192,7 @@ func responseErrorHandler(logger *slog.Logger) func(http.ResponseWriter, *http.R
 func requestErrorHandler(logger *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		logger.WarnContext(r.Context(), "请求解析失败",
-			"err", err, "path", r.URL.Path, "request_id", mw.RequestIDFrom(r.Context()))
+			"err", err, "path", mw.RedactPath(r.URL.Path), "request_id", mw.RequestIDFrom(r.Context()))
 		writeErr(w, http.StatusBadRequest, "VALIDATION_MALFORMED_BODY", err.Error())
 	}
 }

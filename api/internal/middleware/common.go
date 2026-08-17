@@ -88,7 +88,9 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			logger.LogAttrs(r.Context(), lvl, "http",
 				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
+				// ⚠️ 必须走 RedactPath —— 订阅短链 /s/{token} 把凭据放在**路径**里，
+				// 直接记 r.URL.Path 等于把可用的订阅 token 抄进日志。见 RedactPath 的注释。
+				slog.String("path", RedactPath(r.URL.Path)),
 				slog.Int("status", sw.status),
 				slog.Int64("duration_ms", time.Since(start).Milliseconds()),
 				slog.Int("bytes", sw.bytes),
@@ -108,16 +110,58 @@ func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 				if v := recover(); v != nil {
 					logger.ErrorContext(r.Context(), "handler panic",
 						"panic", v,
-						"path", r.URL.Path,
+						"path", RedactPath(r.URL.Path),
 						"request_id", RequestIDFrom(r.Context()),
 						"stack", string(debug.Stack()),
 					)
-					writeErrEnvelope(w, http.StatusInternalServerError, "INTERNAL", "内部错误")
+					writeErrEnvelope(w, http.StatusInternalServerError, "INTERNAL_ERROR", "内部错误")
 				}
 			}()
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ---- 日志脱敏 ----
+
+// subShortLinkPrefix 是订阅短链的路径前缀。与 openapi 的 `/s/{token}` 对应。
+const subShortLinkPrefix = "/s/"
+
+// tokenPrefixLen 是允许留在日志里的明文位数。
+//
+// 8 不是随手取的：`subscription_tokens.token_prefix` 就是「明文前 8 位」，
+// DDL 注释写明它的用途是「面板列表与日志定位」。
+// 保持一致意味着日志里的这 8 位可以直接 join 回 token_prefix 列定位到具体那条订阅，
+// 而这 8 位本身已经被设计为非秘密。
+const tokenPrefixLen = 8
+
+// RedactPath 把路径里的凭据换成「前 8 位 + 省略号」。
+//
+// 🔴 为什么必须有：订阅短链 `/s/{token}` 把**可直接使用的凭据放在路径里**，
+// 而访问日志、panic 日志、请求解析失败日志都记录路径。不脱敏的后果是
+// Cloud Logging 里躺着一份可用订阅 token 的明文清单 —— 而日志的读取权限
+// 比数据库宽得多（值班、排障、日志导出、log sink 到 BigQuery 都会拿到），
+// 数据库里那份反而是 sha256 哈希。等于加密存储被日志绕过。
+//
+// 节点密钥不受影响：v2node 走 query string，而这里记的是 r.URL.Path，
+// query 从来没有被写进日志（这一点已在冒烟里实测过）。
+//
+// 只处理 `/s/{token}`，不做通配的「像 token 的段一律打码」：
+// 后者会把 `/api/v1/orders/{trade_no}` 这类需要在日志里被搜索的业务标识
+// 一起打掉，排障时反而查不出来。新增把凭据放进路径的端点时，必须回到这里加分支。
+func RedactPath(path string) string {
+	rest, ok := strings.CutPrefix(path, subShortLinkPrefix)
+	if !ok {
+		return path
+	}
+	// 只截第一段：/s/{token}/anything 的后续段落不是凭据，但也没有保留价值。
+	token, _, _ := strings.Cut(rest, "/")
+	if len(token) <= tokenPrefixLen {
+		// 太短，本来就不是有效 token（形态校验会直接 404）。原样保留，
+		// 因为这类请求正是扫描探测，路径本身是有用的取证信息。
+		return path
+	}
+	return subShortLinkPrefix + token[:tokenPrefixLen] + "…"
 }
 
 // ---- 客户端 IP ----

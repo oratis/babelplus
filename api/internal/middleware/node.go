@@ -99,7 +99,7 @@ func (e *AuthError) Error() string { return e.Code + ": " + e.Message }
 func AuthenticateNode(ctx context.Context, cfg NodeAuthConfig, r *http.Request, requiredScope string) (*NodeAuth, *AuthError) {
 	raw, from := extractNodeToken(r, cfg.AllowQueryToken)
 	if raw == "" {
-		return nil, &AuthError{http.StatusUnauthorized, "NODE_KEY_MISSING", "缺少节点密钥"}
+		return nil, &AuthError{http.StatusUnauthorized, "NODE_KEY_INVALID", "缺少节点密钥"}
 	}
 
 	// 长度/字符集不合法直接拒，不查库 —— 省掉一次数据库往返，
@@ -115,10 +115,10 @@ func AuthenticateNode(ctx context.Context, cfg NodeAuthConfig, r *http.Request, 
 			return nil, &AuthError{http.StatusUnauthorized, "NODE_KEY_INVALID", "节点密钥无效或已吊销"}
 		}
 		cfg.Logger.ErrorContext(ctx, "节点鉴权查询失败", "err", err)
-		return nil, &AuthError{http.StatusInternalServerError, "INTERNAL", "内部错误"}
+		return nil, &AuthError{http.StatusInternalServerError, "INTERNAL_ERROR", "内部错误"}
 	}
 	if !row.ServerEnabled {
-		return nil, &AuthError{http.StatusForbidden, "NODE_DISABLED", "节点已停用"}
+		return nil, &AuthError{http.StatusForbidden, "AUTH_PERMISSION_DENIED", "节点已停用"}
 	}
 
 	auth := &NodeAuth{
@@ -130,7 +130,7 @@ func AuthenticateNode(ctx context.Context, cfg NodeAuthConfig, r *http.Request, 
 	if !auth.HasScope(requiredScope) {
 		cfg.Logger.WarnContext(ctx, "节点 scope 不足",
 			"server_code", row.ServerCode, "want", requiredScope, "have", row.Scopes)
-		return nil, &AuthError{http.StatusForbidden, "SCOPE_DENIED", "该密钥无权访问此端点"}
+		return nil, &AuthError{http.StatusForbidden, "NODE_SCOPE_DENIED", "该密钥无权访问此端点"}
 	}
 
 	if from == tokenFromQuery {
