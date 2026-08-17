@@ -1,8 +1,0 @@
-{
-	"testparam": "arabic $1",
-	"testblock": "arabic <div>stuff</div>",
-	"testlink": "arabic [[link]]",
-	"testpagename": "{{PAGENAME}}",
-	"testblank": "",
-	"testdisabled": "-"
-}
