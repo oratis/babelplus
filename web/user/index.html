@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- M1 移动优先：viewport-fit=cover 让全面屏手机的安全区可用，配合 CSS env()。 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1d21" media="(prefers-color-scheme: dark)" />
+    <!--
+      订阅链接、工单内容都不该被搜索引擎收录；面板本身也没有被索引的价值，
+      反而多一条被自动化扫描发现域名的路径。
+    -->
+    <meta name="robots" content="noindex, nofollow" />
+    <!--
+      Referrer 收紧：订阅 token 有可能出现在 URL 里（/auth/reset?token=），
+      默认策略会把完整 URL 发给外链目标。
+    -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- favicon 用内联 data URI：零外部请求，且不多一次可能失败的往返（ADR 0003 §5）。 -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6feb'/%3E%3Cpath d='M9 22V10h6a3.5 3.5 0 0 1 0 7H9m0 0h7a3.5 3.5 0 0 1 0 7H9' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+
+    <title>babel.plus 用户面板</title>
+
+    <!--
+      🔴 运行时配置。**同步加载，在应用之前**。
+      备用域名列表必须在首屏、零 API 依赖的前提下可见（page-inventory §2.2「网络不可达」态）。
+      部署时只覆盖这一个文件即可新增镜像域名，不需要重新构建（ADR 0003 §5）。
+      ⚠️ 部署要求：这个文件必须以 `Cache-Control: no-cache` 下发，
+      否则改了域名池而用户拿的是旧缓存 —— 恰好在最需要它的时候失效。
+    -->
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="padding: 24px; font-family: system-ui, sans-serif; line-height: 1.7">
+        <h1 style="font-size: 18px">这个面板需要 JavaScript</h1>
+        <p>你的订阅仍然有效，已连接的设备不受影响。</p>
+        <p>如果面板打不开，请查收我们发给你的邮件，里面有备用域名。</p>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

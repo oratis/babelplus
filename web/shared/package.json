@@ -1,0 +1,30 @@
+{
+  "name": "@babelplus/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "用户面板与后台共享的 API 客户端、运行时配置、三态组件与格式化工具。源码直出，不产出构建物。",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./api/index.ts",
+    "./ui": "./src/ui/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "typescript": "5.9.3"
+  }
+}
