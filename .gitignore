@@ -49,12 +49,22 @@ Thumbs.db
 tmp/
 .cache/
 
+# infra/scripts/verify-isolation.sh --out= 的落地目录。
+# deploy.yml 的 isolation-before / isolation-after 两步就写这两个名字，本地手跑也是。
+# 里面是现有 GCP 资产的清单（无密钥值），不该进仓库。
+.isolation/
+.isolation-after/
+
 # 容器内 Go 构建缓存（本机没装 Go，全部走 docker）
 .gocache/
 .gomodcache/
 .gorun.sh
 
 # 生成物必须提交 —— CI 用 git diff --exit-code 卡漂移，别加进忽略：
-#   api/internal/gen/   (oapi-codegen)
-#   api/db/gen/         (sqlc)
-#   api/internal/handler/unimplemented.gen.go
+#   api/internal/gen/                        (oapi-codegen)
+#   api/db/gen/                              (sqlc)
+#   api/internal/handler/unimplemented.gen.go (gen_stubs.py)
+#   api/internal/handler/operations.txt       (gen_stubs.py，与上一条同一次生成)
+#   web/shared/api/schema.d.ts                (openapi-typescript)
+# 上面这五处是 .github/workflows/ci.yml 的 contract-drift 作业逐一比对的路径。
+# 注意 dist/ 与 node_modules/ 被忽略不影响它们 —— web/shared/api/ 不在 dist/ 下。

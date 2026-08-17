@@ -1,0 +1,489 @@
+# babel.plus CI
+#
+# 事实源：openapi/openapi.yaml 是全仓契约的唯一事实源（ADR 0006 §9）。
+# 本文件的存在理由只有一条：**ADR 0006 §14.2 说「整条防线就是 CI 里那一行 git diff --exit-code」。**
+# 在这条流水线建起来之前，契约漂移没有任何机制拦得住。
+#
+# 设计要点：
+#  1. **路径过滤只在 PR 上生效。** push 到 master 与手动触发一律跑全量 ——
+#     过滤器判错时的后果是「CI 全绿但什么都没跑」，这种静默失效比多跑几分钟贵得多。
+#  2. 本地开发那套 docker 绕过（mirror.gcr.io / 清空代理，见 docs/04-ops/local-development.md §2）
+#     **在 CI 上不需要**：GitHub runner 能直连 Docker Hub 与 proxy.golang.org，装真 Go 也不要钱。
+#     唯一继续走容器的是 sqlc（官方不发 GitHub Action，容器是它的一等分发形态）。
+#  3. 每个作业失败时都要能直接告诉人「本地敲哪条命令能修」，不要只吐一段 diff。
+#
+# 关联：docs/05-adr/0006-api-stack.md §9/§13、docs/04-ops/local-development.md §3.3、CONTRIBUTING.md
+
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# PR 上新推提交取消旧运行；master 上不取消（要留下每个 commit 的绿灯记录）。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # go.mod 写的是 go 1.25.0；pgx/v5 要求 Go 1.25+（ADR 0006 §1），这是下限不是偏好。
+  GO_VERSION: "1.25"
+  # docs/04-ops/local-development.md §1 记录的已验证版本：Node 24.12 / pnpm 10.33。
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10"
+  # 2026-08-17 在开发机上实测：这个版本的 sqlc generate 输出与仓库里的 db/gen/ **逐字节一致**。
+  # 不写 :latest —— sqlc 升版会改生成物，那会表现为「谁都没改代码但 CI 红了」。
+  SQLC_IMAGE: "sqlc/sqlc:1.31.1"
+  # 与 api/Makefile 的 gen-api 目标保持同一版本，两处必须一起改。
+  OAPI_CODEGEN_VERSION: "v2.4.1"
+  # 2026-08-17 实测 @redocly/cli 2.46.1 对 openapi/openapi.yaml 返回 exit 0（2 条 warning）。
+  REDOCLY_MAJOR: "2"
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────
+  # 路径过滤：单仓 ≠ 单体（ADR 0006 §13）。openapi/** 同时触发 api 与 web 两侧。
+  # ───────────────────────────────────────────────────────────────────
+  changes:
+    name: 路径过滤
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+      infra: ${{ steps.filter.outputs.infra }}
+      openapi: ${{ steps.filter.outputs.openapi }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # TODO(供应链)：第三方 action 应当钉到 commit SHA 而不是浮动 tag。
+      # 这里暂用 @v3 —— 钉 SHA 需要先核实一个真实 digest，编一个是更坏的做法。
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'api/**'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - '.github/workflows/ci.yml'
+            infra:
+              - 'infra/**'
+              - '.github/workflows/ci.yml'
+            openapi:
+              - 'openapi/**'
+              - '.github/workflows/ci.yml'
+
+  # ───────────────────────────────────────────────────────────────────
+  # Go：编译 / vet / 单测 / 格式
+  # ───────────────────────────────────────────────────────────────────
+  go:
+    name: Go 构建与测试
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.api == 'true'
+      || needs.changes.outputs.openapi == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...
+
+      # 放在最后：先让编译错误暴露出来，格式问题是最不重要的那个。
+      - name: gofmt
+        run: |
+          test -z "$(gofmt -l .)" || {
+            echo "::error::以下文件未格式化，本地跑 make fmt 后重新提交"
+            gofmt -l .
+            exit 1
+          }
+
+  # ───────────────────────────────────────────────────────────────────
+  # 契约漂移：ADR 0006 §9.2 / §14.2 点名要求的那一步
+  #
+  # 四处生成物，重新生成后必须与提交版本逐字节一致：
+  #   api/internal/gen/                        ← oapi-codegen ← openapi/openapi.yaml
+  #   api/db/gen/                              ← sqlc         ← db/migrations + db/queries
+  #   api/internal/handler/unimplemented.gen.go ← gen_stubs.py ← 上面生成的接口
+  #   api/internal/handler/operations.txt       ← gen_stubs.py（实现进度清单，同一次生成）
+  #   web/shared/api/                          ← openapi-typescript ← openapi/openapi.yaml
+  #
+  # ⚠️ gofmt 那一步不是可选的：gen_stubs.py 的原始输出里有一处多余空行，
+  #    make generate 靠尾部的 fmt 收掉它。CI 若不 fmt，这里会稳定报出一行假漂移
+  #    （2026-08-17 实测过这个现象）。
+  # ───────────────────────────────────────────────────────────────────
+  contract-drift:
+    name: 契约漂移检查
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.api == 'true'
+      || needs.changes.outputs.web == 'true'
+      || needs.changes.outputs.openapi == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 重新生成 Go 服务端接口（oapi-codegen）
+        working-directory: api
+        run: |
+          go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@${OAPI_CODEGEN_VERSION} \
+            -config oapi-codegen.yaml ../openapi/openapi.yaml
+
+      - name: 重新生成 sqlc 查询层
+        working-directory: api
+        # --user 是必须的：容器默认 root，写出的文件属 root，后面的 gofmt -w 会 permission denied。
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD":/src -w /src \
+            "$SQLC_IMAGE" generate
+
+      - name: 重新生成 501 stub 与 operation 清单
+        working-directory: api
+        run: python3 scripts/gen_stubs.py
+
+      - name: gofmt（make generate 的收尾步，不能省）
+        working-directory: api
+        run: gofmt -w .
+
+      - name: 重新生成 TS 类型（openapi-typescript）
+        run: |
+          if [ ! -f web/package.json ]; then
+            echo "::error::web/package.json 不存在 —— TS 侧契约无人校验，见 ADR 0006 §9.2"
+            exit 1
+          fi
+          if ! grep -q '"gen:api"' web/package.json; then
+            echo "::error::web/package.json 缺少 gen:api 脚本；契约漂移检查依赖它，改了脚本名就要同步改本文件"
+            exit 1
+          fi
+          cd web
+          pnpm install --frozen-lockfile
+          pnpm run gen:api
+
+      - name: 断言生成物与提交版本一致
+        run: |
+          paths=(
+            api/internal/gen
+            api/db/gen
+            api/internal/handler/unimplemented.gen.go
+            api/internal/handler/operations.txt
+          )
+          if [ -d web/shared/api ]; then
+            paths+=(web/shared/api)
+          fi
+
+          # git diff --exit-code 看不见**新增的未跟踪文件**（比如 spec 里加了一个新 schema
+          # 导致生成了一个新文件却忘了 git add）。先 add 再比 index，才盖得住这一类。
+          git add -A -- "${paths[@]}"
+          if ! git diff --cached --quiet -- "${paths[@]}"; then
+            echo "::error::生成物与 spec 不一致。本地依次跑：cd api && make generate  然后  cd web && pnpm run gen:api，把生成物一起提交"
+            git diff --cached --stat -- "${paths[@]}"
+            echo "──────── 前 400 行差异 ────────"
+            git diff --cached -- "${paths[@]}" | head -400
+            exit 1
+          fi
+          echo "生成物与 spec 一致"
+
+  # ───────────────────────────────────────────────────────────────────
+  # migration 正反向验证
+  #
+  # 目前 migration 是裸 psql 灌文件，没有版本表（local-development.md §6 已登记这个缺口）。
+  # 正因为没有迁移工具兜底，「每个 up 都有能真正跑通的 down」只能靠这个作业证明。
+  # ───────────────────────────────────────────────────────────────────
+  migrations:
+    name: migration 正反向验证
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        # 与 ADR 0005 裁决的 Cloud SQL PostgreSQL 17 主版本一致。
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: devpass
+          POSTGRES_DB: babelplus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: devpass
+      PGDATABASE: babelplus
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 确认 psql 可用
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+          psql --version
+
+      - name: 依序执行全部 up migration
+        run: |
+          for f in db/migrations/*.up.sql; do
+            echo "  → $(basename "$f")"
+            psql -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: 清点建出来的对象
+        run: |
+          tables=$(psql -qtAc "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE';")
+          indexes=$(psql -qtAc "select count(*) from pg_indexes where schemaname='public';")
+          views=$(psql -qtAc "select count(*) from information_schema.views where table_schema='public';")
+          echo "表 $tables · 索引 $indexes · 视图 $views"
+          echo "2026-08-16 开发机实测基线：43 表 / 118 索引 / 4 视图"
+          echo "（数量变化本身不算失败 —— 加表是正常演进；但 PR 描述里要说明变的是什么）"
+          if [ "$tables" -eq 0 ]; then
+            echo "::error::灌完全部 up migration 之后一张表都没有，migration 没有真正执行"
+            exit 1
+          fi
+
+      - name: 逆序回滚全部 down migration
+        run: |
+          for f in $(ls db/migrations/*.down.sql | sort -r); do
+            echo "  → $(basename "$f")"
+            psql -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: 断言回滚后归零
+        run: |
+          tables=$(psql -qtAc "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE';")
+          views=$(psql -qtAc "select count(*) from information_schema.views where table_schema='public';")
+          # 自定义枚举类型由 0001 建、0001.down 删。它残留不影响建表，但会让重复灌库报
+          # 「type already exists」，属于 down 没写干净，一并卡住。
+          types=$(psql -qtAc "select count(*) from pg_type t join pg_namespace n on n.oid=t.typnamespace where n.nspname='public' and t.typtype='e';")
+          echo "回滚后残留：表 $tables · 视图 $views · 枚举类型 $types"
+          fail=0
+          [ "$tables" -eq 0 ] || { echo "::error::回滚后仍残留 $tables 张表"; fail=1; }
+          [ "$views" -eq 0 ]  || { echo "::error::回滚后仍残留 $views 个视图"; fail=1; }
+          [ "$types" -eq 0 ]  || { echo "::error::回滚后仍残留 $types 个枚举类型"; fail=1; }
+          exit $fail
+
+  # ───────────────────────────────────────────────────────────────────
+  # OpenAPI lint
+  # ───────────────────────────────────────────────────────────────────
+  openapi-lint:
+    name: OpenAPI lint
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.openapi == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # 钉大版本不钉小版本：Redocly 的规则集在小版本里基本只增不改，
+      # 钉死小版本会让「规则更新」变成一次人工升级任务。
+      - name: redocly lint
+        run: npx --yes "@redocly/cli@${REDOCLY_MAJOR}" lint openapi/openapi.yaml
+
+  # ───────────────────────────────────────────────────────────────────
+  # Web：构建 + 类型检查
+  # ───────────────────────────────────────────────────────────────────
+  web:
+    name: Web 构建与类型检查
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.web == 'true'
+      || needs.changes.outputs.openapi == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 确认 web workspace 声明了 build 与 typecheck
+        # pnpm -r run <script> 对没有该脚本的包是**静默跳过**的。
+        # 没有这一步，「所有包都忘了写 typecheck」会表现为绿灯。
+        run: |
+          for s in build typecheck; do
+            if ! grep -rq "\"$s\"" --include=package.json --exclude-dir=node_modules web; then
+              echo "::error::web/ 下没有任何 package 定义 $s 脚本"
+              exit 1
+            fi
+          done
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: pnpm install
+        working-directory: web
+        # --frozen-lockfile：lockfile 与 package.json 不一致时**失败**而不是悄悄更新。
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        working-directory: web
+        run: pnpm -r build
+
+      - name: 类型检查
+        working-directory: web
+        run: pnpm -r typecheck
+
+      # ADR 0003：面板不得引用任何外部 CDN 资源（在中国会整页卡住）。
+      # --if-present 只判断 package.json 里有没有声明这个脚本；
+      # 声明了却跑不起来（比如脚本文件还没写）**会让作业失败** —— 这是想要的行为。
+      - name: 外链资源检查
+        working-directory: web
+        run: pnpm run --if-present lint:no-external
+
+  # ───────────────────────────────────────────────────────────────────
+  # shellcheck：infra/ 下全部 .sh
+  #
+  # 这些脚本会对着生产 GCP 项目跑 gcloud，而项目里还住着 vpn-us / vpn-jp
+  # 与三个现有 Cloud Run 服务（AGENTS.md §4）。一个未加引号的变量在这里的代价
+  # 不是「脚本报错」，是「删错资源」。
+  # ───────────────────────────────────────────────────────────────────
+  shellcheck:
+    name: shellcheck
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 扫 infra/**/*.sh
+        shell: bash
+        run: |
+          shellcheck --version
+          if [ ! -d infra ]; then
+            echo "::notice::infra/ 不存在，无脚本可扫"
+            exit 0
+          fi
+          mapfile -t files < <(find infra -type f -name '*.sh' | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::notice::infra/ 下没有 .sh 文件"
+            exit 0
+          fi
+          printf '  → %s\n' "${files[@]}"
+          # -x 让 shellcheck 跟进 source 的文件；不加 -S，即默认最严（style 及以上全部致命）。
+          # 确实需要放宽时在**脚本里**写 shellcheck disable 注释并写明理由，不要在这里整体降级。
+          shellcheck -x "${files[@]}"
+
+  # ───────────────────────────────────────────────────────────────────
+  # 部署镜像构建验证（只构建，不推送）
+  # ───────────────────────────────────────────────────────────────────
+  docker-build:
+    name: Dockerfile 构建验证
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker build（不推送）
+        run: |
+          # 本地那套 --build-arg HTTP_PROXY= 的清空动作在 CI 上不需要：
+          # runner 没有代理注入问题（local-development.md §2.2 是开发机的环境事实）。
+          docker build \
+            --build-arg VERSION="${GITHUB_SHA::7}" \
+            -t bp-api:ci \
+            api/
+
+      - name: 报告镜像体积
+        run: |
+          # 两个口径都打出来，因为它们会不一致，而只打一个会让人以为镜像突然瘦了 4 倍：
+          #   docker images 的 SIZE      —— 展开后的磁盘占用，16.4 MB 这个基线就是它
+          #   inspect 的 {{.Size}}       —— 构建带 attestation / 多平台 manifest 时，
+          #                                 它解析到的是单平台 config，2026-08-17 在开发机上
+          #                                 对同一个镜像分别报 16.4MB 与 4.0 MiB
+          # 谁对不重要，重要的是别拿 inspect 的数去比 docker images 的基线。
+          echo "docker images SIZE : $(docker images bp-api:ci --format '{{.Size}}')"
+          bytes=$(docker image inspect bp-api:ci --format '{{.Size}}')
+          echo "inspect .Size      : $((bytes / 1024 / 1024)) MiB（$bytes 字节）"
+          echo "2026-08-16 开发机实测基线：16.4 MB（FROM scratch，docker images 口径）"
+          echo "（体积直接影响冷启动，min-instances=0 下每次缩容后的首个请求都在付这笔钱）"
+
+  # ───────────────────────────────────────────────────────────────────
+  # 汇总门禁：分支保护规则只需要勾这一个
+  #
+  # 直接把 8 个作业逐个勾进分支保护是行不通的 —— 被路径过滤跳过的作业永远处于
+  # pending，PR 会卡死。这个作业把「skipped 视为通过、失败/取消视为失败」显式化。
+  # ───────────────────────────────────────────────────────────────────
+  ci-ok:
+    name: CI 汇总门禁
+    if: always()
+    needs:
+      - changes
+      - go
+      - contract-drift
+      - migrations
+      - openapi-lint
+      - web
+      - shellcheck
+      - docker-build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 判定
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "各作业结果：$RESULTS"
+          fail=0
+          for r in $RESULTS; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::有作业未通过：$r"; fail=1 ;;
+            esac
+          done
+          exit $fail

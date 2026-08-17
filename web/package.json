@@ -1,0 +1,23 @@
+{
+  "name": "babelplus-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "gen:api": "openapi-typescript ../openapi/openapi.yaml --output shared/api/schema.d.ts",
+    "gen:api:check": "pnpm run gen:api && git diff --exit-code -- shared/api/schema.d.ts",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint:no-external": "node scripts/check-no-external-assets.mjs",
+    "dev:user": "pnpm --filter @babelplus/user dev",
+    "dev:admin": "pnpm --filter @babelplus/admin dev"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

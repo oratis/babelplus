@@ -1,0 +1,524 @@
+# babel.plus 部署（手动触发）
+#
+# 事实源：docs/04-ops/deploy.md —— 本文件是那份手册的可执行形式，参数一字不改。
+# 手册状态是「待实施」（其 40 余条命令**一次都没在 oratis-491316 上真跑过**），
+# 所以本工作流同样标 **待实测**：第一次执行必然会撞上参数名与权限的偏差，
+# 撞到就回写 deploy.md，不要在这里悄悄改一个能跑通的写法了事。
+#
+# ───────────── 五条不许违反的（deploy.md §1，违反的后果写在括号里）─────────────
+#  1. 禁止 gcloud run deploy --source .（会复用 cloud-run-source-deploy 仓库，
+#     那是 anthropic-relay / lisa-cloud / lisa-web 三个现有服务的镜像所在地）
+#  2. 禁止项目级 secretmanager.secretAccessor（会读到 anthropic-api-key / relay-token）
+#  3. 禁止 --no-cpu-throttling（计费从 request-based 切到 instance-based，成本模型作废）
+#  4. 禁止 --vpc-connector / --network / --subnet（default 网络住着 vpn-us / vpn-jp）
+#  5. 禁止 --max-instances 缺省（默认 100，db-f1-micro 只有 25 个连接 → too many clients）
+#
+# ───────────── 为什么不用长期密钥 JSON ─────────────
+# 走 Workload Identity Federation：GitHub 用 OIDC token 换 GCP 短期凭据，
+# 仓库里与 Secrets 里都不存在一份能长期冒充 bp-deploy-sa 的东西。
+# service-account JSON 一旦泄漏就是「对着住着现有服务的项目的长期通行证」。
+#
+# 🔴 TODO(待填)：以下四项在 GCP 与仓库设置里配好之后填进 repo/environment variables。
+#     provider 与 SA 都留 TODO，本工作流在缺失时**直接失败**而不是跳过认证。
+#       vars.GCP_WIF_PROVIDER
+#         形如 projects/<项目编号>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+#         建 provider 时**必须**加 attribute-condition 限定
+#         assertion.repository == '<owner>/babel-plus'，否则任何仓库都能换到凭据。
+#       vars.GCP_DEPLOY_SA
+#         bp-deploy-sa@oratis-491316.iam.gserviceaccount.com（setup-infra.sh 已建）
+#         绑定 principalSet 时同样按 repository 限定。
+#       vars.BP_WEB_DEPLOY_CMD
+#         web 静态产物的发布命令。ADR 0003 的托管选型**尚未裁决**，所以现在是空的，
+#         空值时 deploy-web 会**失败**（见该作业注释：假装发布成功比失败更糟）。
+#       staging 环境的资源命名
+#         deploy.md 只写了 prod 形态。staging 用不用独立 GCP 项目、bp-db 要不要第二个实例，
+#         **都还没有裁决**。下面的 -staging 后缀是占位，落地前必须补一份 ADR。
+#
+# 关联：docs/04-ops/deploy.md、docs/05-adr/0005-database-selection.md §6/§10、
+#       docs/05-adr/0006-api-stack.md §13、infra/scripts/verify-isolation.sh
+
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 部署目标环境
+        type: choice
+        options:
+          - staging
+          - prod
+        default: staging
+        required: true
+      target:
+        description: 部署哪一侧（auto = 按路径过滤自动判断）
+        type: choice
+        options:
+          - auto
+          - api
+          - web
+          - both
+        default: auto
+        required: true
+      base_ref:
+        description: 路径过滤的比较基线（留空则用 deploy/<环境> 标签）
+        type: string
+        default: ""
+        required: false
+
+# 同一环境同时只允许一次部署。**不取消进行中的那次** ——
+# 半路被取消的 gcloud run deploy 会留下一个状态不明的修订版。
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: oratis-491316
+  GCP_REGION: us-central1
+  AR_REPO: bp-images
+  ISOLATION_SCRIPT: infra/scripts/verify-isolation.sh
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10"
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────
+  # 决定部署哪一侧
+  #
+  # ADR 0006 §13：单仓 ≠ 单体。api/** 与 openapi/** 触发 API 部署，
+  # web/** 与 openapi/** 触发 Web 部署。手动触发没有「本次推送改了什么」这个概念，
+  # 所以基线取上一次成功部署打下的 deploy/<环境> 标签。
+  # ───────────────────────────────────────────────────────────────────
+  plan:
+    name: 决定部署哪一侧
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ steps.plan.outputs.api }}
+      web: ${{ steps.plan.outputs.web }}
+      sha: ${{ steps.plan.outputs.sha }}
+      base: ${{ steps.plan.outputs.base }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 要能 diff 到 deploy/<环境> 标签，必须有完整历史与全部标签。
+          fetch-depth: 0
+
+      - id: plan
+        env:
+          TARGET: ${{ inputs.target }}
+          BASE_INPUT: ${{ inputs.base_ref }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          sha=$(git rev-parse --short=7 HEAD)
+          api=false
+          web=false
+          base=""
+
+          case "$TARGET" in
+            api)  api=true ;;
+            web)  web=true ;;
+            both) api=true; web=true ;;
+            auto)
+              base="$BASE_INPUT"
+              if [ -z "$base" ]; then
+                tag="deploy/${ENVIRONMENT}"
+                if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+                  base="$tag"
+                fi
+              fi
+              if [ -z "$base" ]; then
+                # 找不到基线时**部署两侧**，不是「跳过两侧」。
+                # 猜错方向的代价不对称：多部署一次是幂等的，漏部署是静默事故。
+                echo "::warning::找不到比较基线（deploy/${ENVIRONMENT} 标签不存在且未指定 base_ref），按 both 处理"
+                api=true
+                web=true
+              else
+                changed=$(git diff --name-only "${base}...HEAD")
+                echo "相对 ${base} 变更的文件："
+                echo "$changed" | sed 's/^/  /'
+                if echo "$changed" | grep -Eq '^(api|openapi)/'; then api=true; fi
+                if echo "$changed" | grep -Eq '^(web|openapi)/'; then web=true; fi
+              fi
+              ;;
+          esac
+
+          {
+            echo "api=$api"
+            echo "web=$web"
+            echo "sha=$sha"
+            echo "base=$base"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "本次：环境=${ENVIRONMENT} commit=${sha} 部署 API=${api} 部署 Web=${web}"
+
+      - name: 两侧都不部署时直接失败
+        if: steps.plan.outputs.api != 'true' && steps.plan.outputs.web != 'true'
+        run: |
+          echo "::error::按路径过滤本次没有任何东西要部署。若确实要重发，把 target 显式选成 api / web / both"
+          exit 1
+
+  # ───────────────────────────────────────────────────────────────────
+  # 部署前：隔离快照
+  #
+  # as-built §2.1 第 5 条的可执行形式。判定标准不是「diff 为空」（新增 bp- 资源本来就会让
+  # diff 非空），而是「**排除 bp- 前缀之后逐字节相同**」。
+  #
+  # ⚠️ 这是事后发现不是事前阻止（deploy.md §14.2 已经承认了这一点）。
+  #    它拦不住一条打错名字的 delete，只能告诉你出事了 —— 所以它不允许跳过。
+  # ───────────────────────────────────────────────────────────────────
+  isolation-before:
+    name: 部署前隔离快照
+    needs: plan
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write # WIF 换凭据必需
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 前置检查
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          DEPLOY_SA: ${{ vars.GCP_DEPLOY_SA }}
+        run: |
+          if [ -z "$WIF_PROVIDER" ] || [ -z "$DEPLOY_SA" ]; then
+            echo "::error::未配置 vars.GCP_WIF_PROVIDER / vars.GCP_DEPLOY_SA，见本文件顶部 TODO"
+            exit 1
+          fi
+          if [ ! -x "$ISOLATION_SCRIPT" ]; then
+            echo "::error::找不到可执行的 ${ISOLATION_SCRIPT}"
+            echo "本文件依赖的接口（以脚本 --help 为准）："
+            echo "  verify-isolation.sh --out=<目录>       抓快照，写 <目录>/isolation.txt"
+            echo "  verify-isolation.sh --baseline=<目录>  再抓一份并与该目录的 isolation.txt 逐字节比对"
+            exit 1
+          fi
+          # 2026-08-17 端到端核对：脚本**只认 --key=value**，不认位置参数。
+          # 之前这里写的是 `verify-isolation.sh before <目录>`，脚本会以
+          # 「未知参数：before」exit 2 —— 部署前的隔离核对会在第一步就硬失败。
+          # 与其在真部署时才发现，不如在这里把接口断言出来。
+          if ! ./"$ISOLATION_SCRIPT" --help | grep -q -- '--baseline='; then
+            echo "::error::${ISOLATION_SCRIPT} 的接口变了（--help 里找不到 --baseline=）。"
+            echo "本文件的 isolation-before / isolation-after 两步要同步改。"
+            exit 1
+          fi
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # --out=<目录> 让脚本把本次观测（各资源的 .json + 规范化的 isolation.txt）留在
+      # 工作区里，好上传成 artifact；不给 --out 时它写临时目录并在退出时删掉。
+      # 这一步同时会跑第一层「硬期望」判定：现有资产与 as-built 不符就直接非 0 退出。
+      - name: 抓部署前快照
+        run: ./${ISOLATION_SCRIPT} --out="$GITHUB_WORKSPACE/.isolation"
+
+      # 快照里只有资源**名称**与元数据（没有密钥值），但它同时也是一份现有资产清单。
+      # 保留期设短，别让它长期躺在 artifact 里。
+      - uses: actions/upload-artifact@v4
+        with:
+          name: isolation-snapshot-${{ inputs.environment }}-${{ needs.plan.outputs.sha }}
+          path: .isolation/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ───────────────────────────────────────────────────────────────────
+  # bp-api：构建 → 推 Artifact Registry → 迁移 → 起不接流量的候选版本 → 验证 → 切流量
+  # ───────────────────────────────────────────────────────────────────
+  deploy-api:
+    name: 部署 bp-api
+    needs: [plan, isolation-before]
+    if: needs.plan.outputs.api == 'true'
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SHA: ${{ needs.plan.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: 解析本环境的资源名
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          # 🔴 staging 的资源命名尚未裁决（deploy.md 只写了 prod 形态）。这里是占位。
+          if [ "$ENVIRONMENT" = "prod" ]; then
+            service="bp-api"
+            sql_instance="bp-db"
+          else
+            echo "::warning::staging 的资源命名与是否独立 GCP 项目**尚未裁决**，下面用的是占位名"
+            service="bp-api-staging"
+            sql_instance="bp-db-staging"
+          fi
+          conn="${GCP_PROJECT_ID}:${GCP_REGION}:${sql_instance}"
+          image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${AR_REPO}/bp-api:${SHA}"
+          {
+            echo "SERVICE=$service"
+            echo "SQL_CONN=$conn"
+            echo "IMAGE=$image"
+          } >> "$GITHUB_ENV"
+
+      - name: 构建并推镜像
+        run: |
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+          # --platform=linux/amd64 不是可选的：runner 虽然是 amd64，但写死它能保证
+          # 换成 arm runner 时不会推上去一个 Cloud Run 拉不起来的镜像（exec format error）。
+          docker buildx build \
+            --platform=linux/amd64 \
+            --build-arg VERSION="${SHA}" \
+            -t "${IMAGE}" \
+            --push \
+            api/
+
+      - name: 执行数据库迁移
+        env:
+          MIGRATE_JOB: ${{ vars.BP_MIGRATE_JOB }}
+        run: |
+          # 🔴 TODO：目前 migration 是裸 psql 灌文件，没有版本表、不防重复执行
+          #    （local-development.md §6 已登记）。deploy.md §6.3 的 bp-migrate
+          #    Cloud Run Job 尚未建。在换成真正的迁移工具之前，这一步是空的。
+          #
+          # ⚠️ deploy.md §12.3：schema 是整条流水线里**唯一不可回滚**的一步。
+          #    一次发布只做 expand（加列/加表/加可空字段），contract 放下一次。
+          if [ -z "$MIGRATE_JOB" ]; then
+            echo "::warning::未配置 vars.BP_MIGRATE_JOB，跳过迁移。若本次改了 db/migrations/**，必须先补齐迁移作业"
+            exit 0
+          fi
+          gcloud run jobs execute "$MIGRATE_JOB" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --wait
+
+      - name: 部署候选修订版（不接流量）
+        env:
+          BP_ENV_VALUE: ${{ inputs.environment }}
+        run: |
+          # 逐参数依据见 deploy.md §5.1。这里只重复三条最容易被「顺手改一下」的：
+          #   --max-instances=8    来自 db-f1-micro 的 25 连接：8 × 2 + 6 = 22 ≤ 25 − 3
+          #                        （ADR 0005 §6.2）。**这个数字属于数据库，不属于 Cloud Run。**
+          #   BP_DB_MAX_CONNS=2    同一条公式的另一半，两者必须一起改。
+          #   --concurrency=80     调低它等于变相调高实例数，会直接撞上连接数天花板。
+          #
+          # ⚠️ 环境变量名以 **api/internal/config/config.go 的实现为准**（BP_ 前缀 + 一条完整 DSN），
+          #    不是 deploy.md §5 里写的 DB_HOST / DB_NAME / DB_USER / DB_PASSWORD 那一套 ——
+          #    那份手册写在 config 包落地之前，两者不一致，已在交付说明里登记。
+          #    secret 名以 infra/deploy/setup-infra.sh 里 SECRET_* 常量为准。
+          #    版本号不走环境变量：它由 --build-arg VERSION 烧进 main.version。
+          gcloud run deploy "${SERVICE}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE}" \
+            --revision-suffix="${SHA}" \
+            --service-account="bp-api-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com" \
+            --add-cloudsql-instances="${SQL_CONN}" \
+            --allow-unauthenticated \
+            --ingress=all \
+            --min-instances=0 \
+            --max-instances=8 \
+            --concurrency=80 \
+            --cpu=1 \
+            --memory=512Mi \
+            --timeout=120 \
+            --cpu-boost \
+            --set-env-vars="BP_ENV=${BP_ENV_VALUE},BP_GCP_PROJECT_ID=${GCP_PROJECT_ID},BP_DB_MAX_CONNS=2" \
+            --set-secrets="BP_DATABASE_URL=bp-database-url:latest,BP_SUBSCRIPTION_TOKEN_PEPPER=bp-sub-token-pepper:latest,BP_NODE_KEY_PEPPER=bp-node-token-pepper:latest,BP_SESSION_SIGNING_KEY=bp-jwt-signing-key:latest" \
+            --no-traffic \
+            --tag=candidate
+
+      - name: 验证候选修订版
+        run: |
+          url=$(gcloud run services describe "${SERVICE}" \
+            --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" --format=json \
+            | jq -r '.status.traffic[] | select(.tag=="candidate") | .url')
+          if [ -z "$url" ] || [ "$url" = "null" ]; then
+            echo "::error::拿不到 candidate 标签的 URL —— gcloud 的字段路径在版本间变过，**待核实**"
+            exit 1
+          fi
+          echo "candidate: $url"
+          # /healthz 不查数据库（deploy.md §5.3：控制面故障不得升级为数据面故障）。
+          # 它证明的是「进程起来了、能接 HTTP、配置没有 fail-closed 退出」。
+          curl -fsS --max-time 20 --retry 5 --retry-delay 3 "${url}/healthz"
+          echo
+          # 🔴 deploy.md §5.3 还要求一个查库的 /readyz，但 openapi/openapi.yaml 里**目前没有这条路径**
+          #    （2026-08-17 核实），而路由完全由契约生成，所以这里探不了。
+          #    后果：数据库连不上时本步骤仍会通过，切流量之后才暴露。
+          #    补法：先往契约里加 /readyz，再把探测加回这里。
+
+      - name: 切 100% 流量到候选版本
+        run: |
+          # ⚠️ 不做灰度。节点每 60 秒轮询一次，10% 的流量切分意味着同一个节点在相邻两次
+          #    轮询里可能拿到两个版本的响应，会让节点反复失效 ETag 缓存（deploy.md §12.1）。
+          gcloud run services update-traffic "${SERVICE}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --to-tags=candidate=100
+
+      - name: 回滚提示
+        if: failure()
+        run: |
+          echo "::error::部署失败。候选修订版没有流量，线上仍是旧版本 —— 这是 --no-traffic 的用途。"
+          echo "手动回滚：gcloud run services update-traffic ${SERVICE} --project=${GCP_PROJECT_ID} --region=${GCP_REGION} --to-revisions=<旧修订版>=100"
+
+  # ───────────────────────────────────────────────────────────────────
+  # bp-web：构建静态产物 → 发布到镜像域名池
+  # ───────────────────────────────────────────────────────────────────
+  deploy-web:
+    name: 部署 bp-web
+    needs: [plan, isolation-before]
+    if: needs.plan.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      # 这里**不能**给 id-token: write —— 本作业没有 google-github-actions/auth 步骤，
+      # 不走 WIF，用不到它；而下面「发布」步骤是 eval "$WEB_DEPLOY_CMD"（内容来自
+      # vars.BP_WEB_DEPLOY_CMD）。给了 id-token 就等于让这条 eval 出来的任意命令能
+      # 自行签发本仓库的 OIDC token，再按文件顶部的 WIF 绑定换成 bp-deploy-sa 的
+      # GCP 短期凭据。真需要 WIF 时，请连同 auth 步骤一起加回来。
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: 构建
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r build
+
+      - name: 发布
+        env:
+          WEB_DEPLOY_CMD: ${{ vars.BP_WEB_DEPLOY_CMD }}
+        run: |
+          # 🔴 ADR 0003 的托管选型依赖尚未采集的中国可达性实测数据，**发布目标还没裁决**。
+          #    这里**故意失败**而不是「构建成功就算部署成功」——
+          #    一个报绿但什么都没发布的部署，比一个红的部署危险得多。
+          if [ -z "$WEB_DEPLOY_CMD" ]; then
+            echo "::error::未配置 vars.BP_WEB_DEPLOY_CMD。web 的发布目标尚未裁决（ADR 0003），产物已构建但没有发布。"
+            echo "补齐裁决后把发布命令填进 vars.BP_WEB_DEPLOY_CMD，并注意 deploy.md §12.2：必须发布到池内**全部**镜像域名，只发一个会让用户在不同域名上看到不同版本。"
+            exit 1
+          fi
+          cd web
+          eval "$WEB_DEPLOY_CMD"
+
+      - name: 留存构建产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist-${{ inputs.environment }}-${{ needs.plan.outputs.sha }}
+          path: web/*/dist/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ───────────────────────────────────────────────────────────────────
+  # 部署后：再抓一次快照并比对
+  #
+  # 无论部署成功还是失败都要跑 —— 失败的部署同样可能已经动过资源。
+  # ───────────────────────────────────────────────────────────────────
+  isolation-after:
+    name: 部署后隔离核对
+    needs: [plan, isolation-before, deploy-api, deploy-web]
+    if: always() && needs.isolation-before.result == 'success'
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: isolation-snapshot-${{ inputs.environment }}-${{ needs.plan.outputs.sha }}
+          path: .isolation/
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # --baseline 指向上一步下载下来的部署前快照目录（脚本读的是它里面的 isolation.txt）。
+      # 再给一个独立的 --out，是为了让失败时两份快照都还在磁盘上可供人工 diff ——
+      # 不给 --out 的话 after 那份写在临时目录，退出时就删了，正好在你最需要它的时候没有。
+      - name: 比对：现有资源必须逐字节未变
+        run: |
+          ./${ISOLATION_SCRIPT} \
+            --baseline="$GITHUB_WORKSPACE/.isolation" \
+            --out="$GITHUB_WORKSPACE/.isolation-after"
+
+      - name: 保留部署后快照（仅失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: isolation-after-${{ inputs.environment }}-${{ needs.plan.outputs.sha }}
+          path: .isolation-after/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: 人工复核清单
+        run: |
+          echo "自动比对通过 ≠ 万事大吉。deploy.md §2.1 要求逐条人工复核（一条都不能少）："
+          echo "  · vpn-us     us-west1-a / e2-micro / 8.231.52.43 / RUNNING"
+          echo "  · vpn-jp     asia-northeast1-a / e2-micro / 34.104.192.233 / RUNNING"
+          echo "  · vpn-us-ip-v4 与 vpn-jp-ip 均 IN_USE，地址不变"
+          echo "  · 10 条防火墙规则一条不增不减不改"
+          echo "  · anthropic-relay / lisa-cloud / lisa-web 的 URL 与 lastDeployed 不变"
+          echo "  · anthropic-api-key / relay-token 存在且版本数不变"
+          echo "  · cloud-run-source-deploy 仓库存在且镜像数不减少"
+
+  # ───────────────────────────────────────────────────────────────────
+  # 全绿之后把 deploy/<环境> 标签移到本次 commit，作为下次路径过滤的基线
+  # ───────────────────────────────────────────────────────────────────
+  mark-deployed:
+    name: 标记本次部署
+    needs: [plan, deploy-api, deploy-web, isolation-after]
+    if: >-
+      always()
+      && needs.isolation-after.result == 'success'
+      && needs.deploy-api.result != 'failure'
+      && needs.deploy-web.result != 'failure'
+      && needs.deploy-api.result != 'cancelled'
+      && needs.deploy-web.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # 只用来移动 deploy/<环境> 标签
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 移动 deploy/<环境> 标签
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tag="deploy/${ENVIRONMENT}"
+          git tag -f "$tag"
+          git push -f origin "refs/tags/${tag}"
+          echo "已把 ${tag} 指向 ${{ needs.plan.outputs.sha }}"
