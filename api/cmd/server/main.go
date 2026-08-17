@@ -102,8 +102,8 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 		DB:     db,
 		Pepper: cfg.NodeKeyPepper,
 		Logger: logger,
-		// 过渡态：v2node 现状很可能只发 query（api-contract §3.2.4）。
-		// 实测确认它支持 Authorization 头之后，把这里改成 false 即可关闭过渡态。
+		// v2node **只发 query token**，不发 Authorization 头（2026-08-17 读源码核实，
+		// evidence/v2node-contract-20260817 §3）。这个 true 是强制的，不是保守默认。
 		AllowQueryToken: true,
 	}
 
