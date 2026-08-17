@@ -1,0 +1,25 @@
+# oapi-codegen 配置（ADR 0006：OpenAPI 3.1 spec-first）
+#
+# 生成物 internal/gen/ **必须提交进仓库** —— CI 用 `git diff --exit-code` 卡漂移。
+# 改了 openapi/openapi.yaml 之后必须重新跑：
+#   make generate
+#
+# 为什么用 strict-server：
+#   strict 模式把请求解包/响应封包交给生成代码，handler 只处理 typed 的
+#   Request/Response 结构体。这样 128 个 operation 的参数绑定与校验不用手写，
+#   而且改规格后 handler 签名不匹配会**编译失败**而不是运行时 404。
+package: gen
+output: internal/gen/api.gen.go
+
+generate:
+  strict-server: true
+  chi-server: true
+  models: true
+  embedded-spec: true
+
+output-options:
+  # 不裁剪未被引用的 schema —— 我们有些 schema 只在文档里引用，
+  # 裁掉之后 web 侧生成的 TS 类型会与 Go 侧对不上。
+  skip-prune: true
+  # 用 nullable 而非 omitempty 表达可空，与 sqlc 的 emit_pointers_for_null_types 对齐。
+  nullable-type: true
