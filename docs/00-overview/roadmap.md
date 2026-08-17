@@ -505,7 +505,7 @@ flowchart TD
 | # | 阻塞项 | 卡住了什么 | 归属 | 登记处 | 解锁于 |
 |---|---|---|---|---|---|
 | B1 | **ADR 0001 未获批准** | 拓扑与成本模型，进而定价、ADR 0004 的层级复审、CF 应急通道的存在与否 | **需用户决策** | README §7、ADR 0001 §7 | P0 |
-| B2 | **GCP 出口到中国大陆的准确单价未核实**（$0.11 vs $0.23/GiB，差一倍） | 全部定价（当前留空）、ADR 0001 §6 代价第 1 条的 $23/人/月、product-brief §8「单用户月成本可覆盖」 | **需实测** + 需核实官方价目表 | pricing §7 🔴、ADR 0001 §7、ADR 0004 §5、user-journey §16 🔴 | P0 |
+| B2 | ~~GCP 出口到中国大陆的准确单价未核实~~ **✅ 2026-08-17 已解决** —— Cloud Billing Catalog API 权威价目：Standard **$0.11/GiB + 每源区域每月 200 GiB 免费**（不区分目的地）；Premium **$0.23/GiB**（中国是香港出口最贵的目的地）。证据 [evidence/gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/) | 定价可以定稿了；但**用量分布仍无数据**，总成本预测仍是猜的 | ✅ 已解决（单价）/ 仍需用量基线 | pricing §2 |
 | B3 | **v2node 是否发 `If-None-Match`** | 整套 ETag、`node_rev` 表、ADR 0006 §3.3 的 Cloud Run 免费额度算术（10 节点 = 86%）、data-model §12.1 的「1.33 次索引查找/秒」 | **可直接做**（起容器） | ADR 0006 §15 🔴、data-model §16 🔴、api-contract §14 🔴、node-provisioning §10 🔴 | P0 |
 | B4 | **域名一个都没注册 + 域名策略未裁决**（system-design §2 用子域 vs §4.1 禁止子域，**同一文档内矛盾**） | 部署、API 入口、镜像池、Hysteria2 的 LE 证书、deploy 全文的 `*.babel.plus` 占位符 | **需用户决策** + 可直接做 | product-brief §11、page-inventory §8 🔴、deploy §15、api-contract §13 | P0 |
 | B5 | **「域名被封」的自动检测机制不存在** | product-brief §8 承诺的「域名失联恢复 ≤ 30 分钟」**零机制支撑**；域名池表存什么列是猜的；管理面模块 17 无法设计 | 待裁决（需一份合并 ADR） | ADR 0002 §7、ADR 0003 §7、system-design §9、user-journey §16 🔴、api-contract §14、data-model §16、runbook §7 —— **七处** | P0 设计 / P3 实现 |
@@ -514,7 +514,7 @@ flowchart TD
 
 | # | 阻塞项 | 卡住了什么 | 归属 | 登记处 |
 |---|---|---|---|---|
-| B6 | **节点密钥走 query string 还是 Bearer 未裁决** | UniProxy 鉴权实现；ADR 0006 §10.2 与冻结契约直接冲突 | 需实测（v2node 能力）+ 待裁决 | node-provisioning §10 🔴、api-contract §14 🔴、ADR 0006 §10.2 |
+| B6 | ~~节点密钥走 query string 还是 Bearer 未裁决~~ **✅ 2026-08-17 解决** —— 读 v2node 源码：**只发 query，无 Authorization 支持，无开关**。裁决为 query（唯一可行），保留每节点独立密钥 + 哈希存储 + scope | 鉴权已实现并实测通过 | ✅ 已解决 | node-provisioning §10 🔴、api-contract §14 🔴、ADR 0006 §10.2 |
 | B7 | **v2node 收到 401/403 是否清空用户列表** | 一次密钥失误是否 = 全员瞬时掉线；**这是唯一一条「实现方不是我们、后果由我们承担」的条款** | **可直接做** | api-contract §14 🔴 |
 | B8 | **v2node 承载哪些协议（是否内置 HY2 core）** | 节点装机工作量；若不内置，HY2 要单独装一套并自己解决用户同步 | **可直接做**（读源码） | node-provisioning §10 🔴、ADR 0007 §10 |
 | B9 | **`*.run.app` / 自定义域名的证书签发者未实测** | API 的入口形态：若是 GTS，中国用户路径必须过能钉 LE 的代理（CF 橙云 $0 或 GCLB 约 $18/月待核实） | **可直接做**（10 秒） | deploy §15 🔴 |
@@ -524,9 +524,9 @@ flowchart TD
 | B13 | **现有节点网络层级未查** | ADR 0004 §3.7 无法复审；reference-repos §1.5 的吞吐实测没有层级归属 | **可直接做** | ADR 0007 §11、ADR 0004 §6 |
 | B14 | **旧节点是否有人在用** | ADR 0007 裁决第 4 条（回滚落点是否真实存在） | **需用户决策** | ADR 0007 §11 🔴 |
 | B15 | **mux 与 XTLS-Vision 是否互斥** | 可能推翻 ADR 0004 §3.3 或 system-design §3.1 之一 | **可直接做**（实验） | node-provisioning §10 |
-| B16 | **`alivelist` 的设备计数口径**（按 IP 还是按连接） | `user_device_state` 主键的正确性；设备数杠杆（2/5/10）能否成立；「家里能用、公司连不上」的具体形态 | 需实测 | page-inventory §8、data-model §16、api-contract §14、user-journey §16 |
+| B16 | ~~`alivelist` 的设备计数口径~~ **✅ 部分解决** —— **按 IP**：节点上报 `{uid:["ip1","ip2"]}`，面板回 `{"alive":{uid:count}}`。`user_device_state` 以 IP 为主键是对的。🔴 另发现 **`alivelist` 失败时 v2node 静默降级为「零在线设备」**，即设备数限制会静默失效 —— 它只能是软限制，不能作为计费或防滥用的强保证 | 主键设计已验证；限制强度需在产品文案中说明 | ✅ 已解决（口径）/ 需产品决策（软限制如何表述） | page-inventory §8、data-model §16、api-contract §14、user-journey §16 |
 | B17 | **各客户端真实 UA 字符串未抓取** | 订阅分发表错一行，对应客户端拿到错格式 | **可直接做** | api-contract §14 |
-| B18 | **`base_config.device_online_min_traffic` / `node_report_min_traffic` 语义未知** | v2node 会读它们而我们不知道填什么 | 需实测 | api-contract §14 |
+| B18 | ~~两个 base_config 字段语义未知~~ **✅ 2026-08-17 解决** —— `device_online_min_traffic` **单位是 KB**（代码里 `devicemin*1000` 转字节），作用是把本轮流量低于此值的用户**排除出在线设备统计**（防止空闲客户端吃掉设备名额）；`node_report_min_traffic` 是流量上报的下限过滤。建议初值 `device_online_min_traffic=1000`（1 MB），**仍需真实用量调参** | 设备数杠杆可以落地了 | ✅ 已解决（语义）/ 需调参 | api-contract §14 |
 | B19 | **`bp-admin` 是否独立 Cloud Run 服务未定** | 它会再吃一份 max-instances 与连接数预算，ADR 0005 §6.2 的公式要重算 | **可直接做** | deploy §15 |
 
 ### 9.3 T3 · 卡住 P2（商业链）
@@ -534,6 +534,7 @@ flowchart TD
 | # | 阻塞项 | 卡住了什么 | 归属 |
 |---|---|---|---|
 | B20 | **Premium vs Standard 未做 A/B**（ADR 0004 §3.7 自陈论据最弱）；且被 **IPv6 参数名与 stack-type 能否事后变更未核实** 二次卡住 | 出口单价翻不翻倍 → 全部定价 | **需实测** |
+> **2026-08-17 更新（B20）**：成本侧已定量 —— Premium 相对 Standard 是 **2.09× 单价 + 完全失去 200 GiB/区域/月免费额度**，小规模下差距是「$0 vs $23/人/月」。性能侧仍需 A/B 实测，但现在知道了要用多大的性能优势才值回这个价差。
 | B21 | **支付网关未选型**（自托管 EPUSDT vs 托管 OxaPay）+ 尽调 + AML 筛查方案 | 收款闭环 | **需申请与尽调** |
 | B22 | **邮件 ESP 未选 + 送达率零数据** | ADR 0002 的**整个前提**；找回密码成功率 = 邮件送达率 | **需实测** + 需申请 |
 | B23 | **文档站大陆可达性未实测** | 「删掉面板内 `#/knowledge`」这个决定的前提；整个自助排障体系的单点 | **需实测**（连续一周） |
