@@ -1,15 +1,15 @@
 # 0001 · 裁决：Cloudflare 只承载控制面，不承载中转数据面
 
-> 日期：2026-08-16 · 性质：**架构裁决** · 状态：**提案，未批准**（等待用户决策）
+> 日期：2026-08-16 · 性质：**架构裁决** · 状态：**已批准，待实施**（2026-08-17 用户批准）
 > 事实基线：2026-08-16 实际抓取 Cloudflare 官方条款与开发者文档原文
 > 关联：[protocol-and-infra.md](../01-research/protocol-and-infra.md)、
 > [product-brief.md](../00-overview/product-brief.md)、
 > [reference-repos.md](../01-research/reference-repos.md) §1.7（Proxy_Skill 现有的 CF Tunnel 用法）
-> 裁决人：**待定** —— 本文是提案，需用户拍板
+> 裁决人：用户（2026-08-17 批准，指示「所有决策按照推荐」）
 
 ---
 
-## 1 · 裁决（提案）
+## 1 · 裁决
 
 **Cloudflare 用于承载 Web 面板、API、教程站与 DNS；不用于承载中转流量的数据面。
 中转数据面走 GCP 直连（Hysteria2 主 / REALITY 备）。CF 隧道路径只作为「直连全断」时的应急通道，
