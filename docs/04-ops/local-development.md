@@ -244,7 +244,7 @@ docker logs -f bp-smoke-api      # 等到「监听中」
 
 | 请求 | 期望 |
 |---|---|
-| `GET /healthz` | `200` `ok` |
+| `GET /-/healthz` | `200` `ok` |
 | **订阅面** | |
 | `GET /s/abc`（过短） | `404`，**不查库**直接拒 |
 | `GET /s/<含非法字符>` | `404`，同上 |
@@ -365,7 +365,7 @@ cd web && pnpm dev:user      # → http://localhost:5173
 
 2026-08-17 实测（真实浏览器，不是 curl）：
 
-| Origin | `GET /healthz`（简单请求） | `GET /user/me` 带 `Authorization`（触发预检） | `POST /auth/login`（预检 + JSON） |
+| Origin | `GET /-/healthz`（简单请求） | `GET /user/me` 带 `Authorization`（触发预检） | `POST /auth/login`（预检 + JSON） |
 |---|---|---|---|
 | `http://localhost:5173`（白名单内） | `200 ok` | `401 AUTH_TOKEN_INVALID` | `401` |
 | `http://localhost:5175`（白名单外） | `TypeError: Failed to fetch` | 同左（预检就被拦） | 同左 |

@@ -86,7 +86,7 @@ usage() {
 两段式发布（推荐）:
   ./infra/scripts/verify-isolation.sh                    # 1. 部署前基线
   ./infra/deploy/deploy-api.sh                           # 2. 起候选，不接流量
-  curl -sS https://candidate---<服务URL>/healthz          # 3. 验证候选
+  curl -sS https://candidate---<服务URL>/-/healthz          # 3. 验证候选
   ./infra/deploy/deploy-api.sh --no-build --promote      # 4. 切 100%
   ./infra/scripts/verify-isolation.sh                    # 5. 部署后核对
 
@@ -365,7 +365,7 @@ BP_ALLOWED_ORIGINS=${origins}"
   if [ -n "$url" ]; then
     log "  服务 URL      : $url"
     if [ "$DO_PROMOTE" -eq 1 ]; then
-      log "  验证          : curl -sS ${url}/healthz   # 确认 revision 是 ${TAG}"
+      log "  验证          : curl -sS ${url}/-/healthz   # 确认 revision 是 ${TAG}"
       log "  就绪（查库）  : curl -sS ${url}/readyz"
     else
       # 候选修订版的可访问地址是 https://<tag>---<服务主机名>
@@ -375,7 +375,7 @@ BP_ALLOWED_ORIGINS=${origins}"
   fi
   log ""
   log "  ⚠️ 现在跑一次 ./infra/scripts/verify-isolation.sh —— 这是「不影响已部署服务」这条承诺的可执行形式。"
-  log "  ⚠️ /healthz **不查数据库**（控制面故障不得升级为数据面故障）；要确认库连得上看 /readyz。"
+  log "  ⚠️ /-/healthz **不查数据库**（控制面故障不得升级为数据面故障）；要确认库连得上看 /readyz。"
 }
 
 # ───────────────────────── 主流程 ─────────────────────────

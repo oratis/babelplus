@@ -25,6 +25,11 @@ type Unimplemented struct{}
 
 var _ gen.StrictServerInterface = (*Unimplemented)(nil)
 
+// GetHealthz 尚未实现。
+func (Unimplemented) GetHealthz(_ context.Context, _ gen.GetHealthzRequestObject) (gen.GetHealthzResponseObject, error) {
+	return nil, ErrNotImplemented
+}
+
 // ListAdmins 尚未实现。
 func (Unimplemented) ListAdmins(_ context.Context, _ gen.ListAdminsRequestObject) (gen.ListAdminsResponseObject, error) {
 	return nil, ErrNotImplemented
@@ -607,11 +612,6 @@ func (Unimplemented) GetWallet(_ context.Context, _ gen.GetWalletRequestObject) 
 
 // ListWalletTransactions 尚未实现。
 func (Unimplemented) ListWalletTransactions(_ context.Context, _ gen.ListWalletTransactionsRequestObject) (gen.ListWalletTransactionsResponseObject, error) {
-	return nil, ErrNotImplemented
-}
-
-// GetHealthz 尚未实现。
-func (Unimplemented) GetHealthz(_ context.Context, _ gen.GetHealthzRequestObject) (gen.GetHealthzResponseObject, error) {
 	return nil, ErrNotImplemented
 }
 

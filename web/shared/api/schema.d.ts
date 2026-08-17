@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/healthz": {
+    "/-/healthz": {
         parameters: {
             query?: never;
             header?: never;

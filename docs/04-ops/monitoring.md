@@ -49,7 +49,7 @@ flowchart TB
     end
 
     subgraph OOB["带外 · 第三方 VPS（非 GCP、非 CF）"]
-      UK["Uptime Kuma<br/>域名池 + 节点 TCP + /healthz"]
+      UK["Uptime Kuma<br/>域名池 + 节点 TCP + /-/healthz"]
     end
 
     RLY --> DUTY[值班渠道]
@@ -228,7 +228,7 @@ runbook §5 给了六行巡检项与阈值。本节把它们展开成具体策�
 | 4 | **API 429** | `bp_api_429` | `> 0` | 5 分钟 | 有据（我们的规模下任何拒绝都异常） | P1 | — |
 | 5 | **API 延迟** | `request_latencies` `ALIGN_PERCENTILE_95` | `> 1500 ms` | 10 分钟 | 设定（同区 DB RTT <1 ms + Go 毫秒级处理 ⇒ 1.5 s 只可能是排队或 DB 慢） | P2 | — |
 | 6 | **冷启动延迟** | `startup_latencies` P95 | `> 3000 ms` | 30 分钟 | 基线（ADR 0006 §3 全部标需实测） | P3 | — |
-| 7 | **`/healthz` 不可达** | uptime check（§6） | 连续 2 个周期失败 | 2 分钟 | 设定 | P1 | §4 |
+| 7 | **`/-/healthz` 不可达** | uptime check（§6） | 连续 2 个周期失败 | 2 分钟 | 设定 | P1 | §4 |
 | 8 | **DB 连接数** | `num_backends` | `≥ 18` | 10 分钟 | **有据**（ADR 0005 §6.3：22 可用的 80%） | P2 **兼升配触发器** | — |
 | 9 | **DB 内存** | `database/memory/utilization` | `≥ 85%` | 30 分钟 | **有据**（ADR 0005 §6.3） | P2 兼升配触发器 | — |
 | 10 | **DB 磁盘** | `database/disk/utilization` | `≥ 80%` | 30 分钟 | 设定 | P2 | — |
@@ -334,7 +334,7 @@ gcloud alpha monitoring policies create --project=$P --policy-from-file=alerts/n
 | 60 秒 × 3 个检查 | 131,400 | **788,400** | **79% 额度，逼近上限** |
 | 300 秒 × 6 个检查 | 52,560 | 315,360 | 32% 额度 |
 
-**裁决：只有 `/healthz`（API 主域名）用 60 秒；三套域名池里的其余镜像域名一律 300 秒。**
+**裁决：只有 `/-/healthz`（API 主域名）用 60 秒；三套域名池里的其余镜像域名一律 300 秒。**
 镜像域名的作用是「主域名被封时的备胎」，它晚 5 分钟被发现不影响任何东西。
 
 ### 6.2 创建
@@ -344,7 +344,7 @@ gcloud monitoring uptime create bp-api-healthz \
   --project=$P \
   --resource-type=uptime-url \
   --resource-labels=host=api.babel.plus,project_id=$P \
-  --protocol=https --port=443 --path=/healthz \
+  --protocol=https --port=443 --path=/-/healthz \
   --period=1 --timeout=10 \
   --matcher-type=contains-string --matcher-content='"ok":true'
 ```
@@ -398,7 +398,7 @@ docker run -d --restart=always -p 3001:3001 \
 | 检查 | 类型 | 周期 | 判据 |
 |---|---|---|---|
 | 三套域名池的**每一个**域名 | HTTP(s) | 60 s | 200 + 关键字 |
-| `bp-api` `/healthz` | HTTP(s) | 60 s | 200 + `"ok":true` |
+| `bp-api` `/-/healthz` | HTTP(s) | 60 s | 200 + `"ok":true` |
 | 每个 `bp-node-*` 的 TCP 443 | TCP Port | 300 s | 能完成握手 |
 | 每个 `bp-node-*` 的证书剩余天数 | HTTP(s) 自带 | — | <14 天告警 |
 
@@ -564,7 +564,7 @@ gcloud billing budgets create --billing-account=<BILLING_ACCOUNT_ID> \
 | 告警 | 去哪一节 |
 |---|---|
 | #1 节点心跳缺失、#14 节点认证失败突增 | runbook §2（本地 vs 全局判定）→ §3（IP 封锁的三条独立证据） |
-| #7 `/healthz` 不可达、#15 证书签发者变更 | runbook §4（域名失联流程） |
+| #7 `/-/healthz` 不可达、#15 证书签发者变更 | runbook §4（域名失联流程） |
 | #2/#3/#4/#5/#8/#9/#10/#11 | **runbook 没有覆盖控制面** —— 处置写在告警的 `documentation.content` 里（§5.2） |
 | 用户报「连不上」但监控全绿 | runbook §1 分诊流程；**先读 runbook §0**（TUN/fake-ip 下系统网络工具的结果全部不可信） |
 
