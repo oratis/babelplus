@@ -43,6 +43,8 @@ DRY_RUN=0
 ASSUME_YES=0
 DO_BUILD=1
 DO_PROMOTE=0
+# 默认用 Cloud Build 在 Google 的 amd64 机器上构建，理由见 build_and_push。
+USE_CLOUD_BUILD=1
 ALLOW_DIRTY=0
 TAG=""
 
@@ -209,6 +211,31 @@ resolve_tag() {
 
 build_and_push() {
   step "构建镜像 $IMAGE"
+
+  # ── 默认走 Cloud Build，而不是本机 docker build ──
+  #
+  # 与 infra/migrate/build-and-run.sh 保持一致。本机构建在这台开发机上有三重障碍，
+  # 2026-08-17 逐个踩过：
+  #  1. 本机是 Apple Silicon（arm64），Cloud Run 只接受 amd64/linux；
+  #  2. 加 --platform 会强制去 registry 拉对应架构的基础镜像，而 Docker Hub 在这台机器上
+  #     不可达（auth.docker.io 返回 EOF），且 docker pull --platform 在 Docker Desktop 上
+  #     实测仍落回 arm64；
+  #  3. Docker daemon 本身未必在跑 —— 会话重启后就遇到过
+  #     `Cannot connect to the Docker daemon`，部署直接中断。
+  #
+  # Cloud Build 一次解决三个：跑在 amd64、直连 Docker Hub、不依赖本机 daemon。
+  # 代价是每次上传构建上下文（api/ 目录）与 Cloud Build 用量（免费额度 120 分钟/天）。
+  # --local 保留给环境正常的机器。
+  if [ "$USE_CLOUD_BUILD" -eq 1 ]; then
+    need_cmd gcloud
+    run gcloud builds submit "$ROOT/api" \
+      --project="$PROJECT_ID" \
+      --tag="$IMAGE" \
+      --timeout=15m
+    ok "镜像已构建并推送（Cloud Build）"
+    return 0
+  fi
+
   need_cmd docker
 
   # --platform=linux/amd64 不是可选的：在 Apple Silicon 上不写这个会推上去一个
@@ -385,6 +412,7 @@ main() {
   for arg in "$@"; do
     case "$arg" in
       --tag=*)     TAG="${arg#*=}" ;;
+      --local)     USE_CLOUD_BUILD=0 ;;
       --no-build)  DO_BUILD=0 ;;
       --promote)   DO_PROMOTE=1 ;;
       --allow-dirty) ALLOW_DIRTY=1 ;;

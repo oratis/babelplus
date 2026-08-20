@@ -1,0 +1,14 @@
+# Cloud Build 上传构建上下文时用的忽略清单。
+#
+# 🔴 **这个文件必须存在。**
+# `gcloud builds submit` 找不到 .gcloudignore 时会**回退使用 .gitignore**，
+# 而仓库根的 .gitignore 忽略了 .gocache/ 与 .gomodcache/ —— 那两个不影响构建，
+# 但这种「上传清单由 git 忽略规则决定」的耦合本身就是隐患：
+# 任何时候有人往 .gitignore 加一条，构建上下文就可能悄悄少一份文件，
+# 而失败现象是 Dockerfile 的 COPY 报 file not found，看起来像 Dockerfile 写错了
+# （2026-08-17 在 infra/migrate 上实测踩过一次）。
+
+.gocache/
+.gomodcache/
+*.log
+.DS_Store
