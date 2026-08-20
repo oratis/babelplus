@@ -3,13 +3,23 @@
 内部使用的流量中转服务 —— 让中国境内用户经由 Cloudflare 边缘 + Google Cloud 出口，
 稳定访问全球网络与服务。配套完整的账户、订阅、计费、后台与工单体系。
 
-> **状态：P0 设计已完成，P1 脚手架已落地。**
+> **状态：P0 设计已完成，P1 脚手架已落地，GCP 控制面已部署，但产品尚未上线。**
 > 契约（`openapi/`）、API 骨架（`api/`）、前端工作区（`web/`）、部署脚本（`infra/`）都已建起来，
 > 但 128 个 operation 里仍有 122 个返回 `501`
-> （[local-development.md §4](docs/04-ops/local-development.md)），
-> 且 [deploy.md](docs/04-ops/deploy.md) 的状态仍是「待实施」—— GCP 上还没有 `bp-` 资源。
+> （[local-development.md §4](docs/04-ops/local-development.md)）。
+> **GCP 上已经有 `bp-` 资源**：`bp-api`（Cloud Run，`us-central1`，2026-08-17 创建）、
+> `bp-db`（Cloud SQL PostgreSQL 17，`db-f1-micro`）、`bp-api-sa` 与 4 个 `bp-` secret，
+> 2026-08-20 `gcloud` 复核时都在运行 —— 清单与参数见
+> [as-built-gcp.md §10](docs/02-architecture/as-built-gcp.md)。
 > 先读 [`docs/00-overview/product-brief.md`](docs/00-overview/product-brief.md)，
 > 再读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+> ⚠️ **产品还没上线，出口流量的钱已经在花。**
+> 2026-06-28 → 08-20 的账单（BigQuery 导出 `loopback-500616.billing_export`，gross）：
+> `vpn-us` + `vpn-jp` 两个出口节点的流量合计 **2,927 GiB / $294.12**，即 **$0.1005/GiB**，
+> 与 Standard Tier 目录价 $0.11/GiB 吻合。
+> 竞品零售约 $0.042/GB —— **按竞品价卖每 GB 净亏约 $0.06**。
+> 单位经济见 [pricing-and-plans.md §2](docs/03-product/pricing-and-plans.md)。
 
 ---
 
@@ -70,7 +80,8 @@ babel.plus/
 2. **部署在 GCP 项目 `oratis-491316`，不得影响已有服务。**
    现有资产（`vpn-us` / `vpn-jp` 节点、3 个 Cloud Run 服务）清单见
    [as-built-gcp.md](docs/02-architecture/as-built-gcp.md)。
-   新资源一律 `bp-` 前缀 + 独立网络标签。
+   新资源一律 `bp-` 前缀 + 独立网络标签 —— 已建成的
+   `bp-api` / `bp-db` / `bp-api-sa` 都遵守了这一条（as-built §10）。
 3. **邀请制，不开放公开注册。**
 4. **钱包余额仅可消费，不可提现。**
 5. **不承诺流媒体解锁** —— GCP IP 段普遍被主流流媒体平台封禁，这是选择 GCP 出口的已知代价。

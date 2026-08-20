@@ -1,8 +1,11 @@
 # 部署脚本 · 每次部署以隔离快照开始、以修订版回滚收尾
 
 > 日期：2026-08-17 · 性质：**执行手册**（脚本的使用说明与偏差登记）
-> 状态：**待实施**（2026-08-17 —— 六个脚本**一次都没有在 `oratis-491316` 上真实执行过**，
-> 只在假 `gcloud` 下跑通了全部分支，见 §7 第 1 条）
+> 状态：**执行中**（2026-08-20 —— `oratis-491316` 上**已经有** `bp-api` / `bp-db` /
+> `bp-api-sa` / 4 个 `bp-` secret，且线上参数与 `setup-infra.sh`、`deploy-api.sh` 逐项一致；
+> 但本次核实只看到 GCP 上的结果状态、没有取到执行日志，**不断言资源就是这两个脚本建的**。
+> `deploy-web.sh` / `rollback.sh` / `../node/` 侧仍无线上痕迹。见 §7 第 1 条与
+> [docs/02-architecture/as-built-gcp.md §10](../../docs/02-architecture/as-built-gcp.md)）
 > 事实基线：[docs/04-ops/deploy.md](../../docs/04-ops/deploy.md)（部署手册，935 行）、
 > [docs/02-architecture/as-built-gcp.md](../../docs/02-architecture/as-built-gcp.md)（2026-08-16 `gcloud` 实测）、
 > [docs/05-adr/0005-database-selection.md](../../docs/05-adr/0005-database-selection.md)（数据库参数）、
@@ -231,10 +234,20 @@ deploy.md 写于 2026-08-16，早于 `openapi/openapi.yaml` 与 `api/` 骨架。
 
 ## 7 · 这次没有解决的
 
-- [ ] 🔴 **六个脚本一次都没有在 `oratis-491316` 上真实执行过。**
-      逻辑分支全部在假 `gcloud` 下跑通了（含「现有资源被改动」的失败路径），
-      但**所有 `gcloud` 参数名、子命令名、`--format=json` 的字段路径都 待核实**。
-      首次执行必须逐条记录偏差、回写本文与 deploy.md，并把状态从「待实施」改成「As-Built」。
+- [ ] **`deploy-web.sh` / `rollback.sh` 仍未在 `oratis-491316` 上真实执行过**，
+      它们的 `gcloud` 参数名、子命令名与 `--format=json` 字段路径仍全部 **待核实**。
+      `setup-infra.sh` / `deploy-api.sh` 这一侧则有了线上结果可对照：2026-08-20 复核，
+      `bp-api` 的 `--set-env-vars` / `--set-secrets` / `--max-instances=8` / `--cpu-boost` /
+      运行时 SA / Cloud SQL 连接**与脚本逐项一致**，4 个 secret 名也与 `setup-infra.sh` 一致
+      （[docs/02-architecture/as-built-gcp.md §10](../../docs/02-architecture/as-built-gcp.md)）——
+      但**只看到结果状态、没有执行日志**，因此不断言资源就是脚本建的，本文状态记为「执行中」而不是「As-Built」。
+- [ ] 🔴 **线上 `bp-api` 带着一个仓库里根本不存在的环境变量 `BP_ALLOWED_ORIGINS`**
+      （值 `https://web.babel.plus,https://admin.babel.plus`，2026-08-20 核实）。
+      `api/internal/config/config.go`、本目录的 `deploy-api.sh`、`.github/workflows/deploy.yml`
+      三处都没有它，`api/` 下也没有任何 CORS 中间件会读它。
+      而 `--set-env-vars` 是**全量替换**语义（`deploy-api.sh` 里那条注释与 deploy.md §7 末尾都写明了）——
+      **照现在的 `deploy-api.sh` 再部署一次，会静默删掉线上这一项。**
+      重跑之前必须先定它的去留：要么补进 `config.go` 与脚本，要么确认无用后从线上删掉。
 - [ ] **Cloud Run Job `bp-migrate` 没有脚本。** migration 怎么在生产上跑仍未定
       （deploy.md §15：迁移工具 `golang-migrate` / `atlas` / `tern` 未选）。
       `api/db/migrations/` 有 12 组可回滚的 migration，但目前只有 `make migrate-up` 这条本地路径。

@@ -1,6 +1,6 @@
 # 本地开发环境（无需在本机装 Go）
 
-> 日期：2026-08-16（2026-08-17 补 web 侧并全量复跑） · 性质：**执行手册**
+> 日期：2026-08-16（2026-08-17 补 web 侧并全量复跑；2026-08-20 按线上实况修 §4 的 GCP 一行） · 性质：**执行手册**
 > 状态：**As-Built**（2026-08-17 端到端复验通过）
 > 事实基线：本文每条命令都在这台开发机上实际跑通过，不是照着文档抄的
 > 读者：接手 `api/` 或 `web/` 的开发者。第一次拉仓库时从 §1 开始。
@@ -262,7 +262,7 @@ dev 阶段用同源代理绕过去，只会把「API 缺 CORS」这件事藏到�
 | web 登录态与路由守卫 | ⬜ **未实现**，所有页面可直达（`web/README.md` §8 已标红） |
 | 后台危险操作确认组件 `DangerAction` | ⬜ **未实现**，16 条 D 项目前只有清单展示 |
 | CI（9 个作业）与 deploy（6 个作业） | ✅ 已建；本机可复跑的作业均已等价验证 |
-| GCP 上的 `bp-` 资源 | ⬜ **一个都还没建**，`infra/` 的脚本从未真实执行过 |
+| GCP 上的 `bp-` 资源 | ✅ **`bp-api` / `bp-db` / `bp-api-sa` / 4 个 `bp-` secret 已建并在计费**（2026-08-20 复核，见 [as-built-gcp §10](../02-architecture/as-built-gcp.md)）；`bp-web`、`bp-migrate`、Scheduler / Tasks / Pub/Sub 与 `infra/node/` 侧仍无 |
 
 **实现新端点前必须先补对应的鉴权中间件** —— 见
 `cmd/server/main.go` 的 `nodeScopeMiddleware` 注释。
@@ -317,9 +317,12 @@ dev 阶段用同源代理绕过去，只会把「API 缺 CORS」这件事藏到�
       要么读运行时配置、要么由部署时注入。这是一次真正的裁决，不是补一行中间件。
 - [ ] `?state=loading|empty|error` 这个三态开关**会进生产构建**（`web/README.md` §7 代价 3）。
       它不泄漏数据，但接线时必须删掉 `resolveShellState` 对查询参数的读取。
-- [ ] **`infra/` 下的脚本一行真实变更都没跑过。** shellcheck 零告警、`bash -n`、
-      `--dry-run` 三件事都不能证明 `gcloud` 的参数组合是对的，
-      所有 `gcloud` 子命令名与 `--format=json` 字段路径仍标 **待核实**。
+- [ ] **`infra/` 下的脚本，只有 `deploy/` 侧有线上结果可对照。**
+      2026-08-20 复核：`bp-api` / `bp-db` / `bp-api-sa` / 4 个 secret 已经存在，
+      且线上参数与 `setup-infra.sh`、`deploy-api.sh` 逐项一致（as-built §10）——
+      但**没有取到执行日志**，不能断言资源就是这两个脚本建的。
+      `deploy-web.sh`、`rollback.sh` 与 `infra/node/` 的四个脚本**仍无任何线上痕迹**，
+      它们的 `gcloud` 子命令名与 `--format=json` 字段路径仍标 **待核实**。
 - [ ] **`deploy.yml` 从未真实运行过。** WIF、Cloud Run 部署、隔离核对全是纸面的；
       `vars.GCP_WIF_PROVIDER` / `GCP_DEPLOY_SA` / `BP_WEB_DEPLOY_CMD` / `BP_MIGRATE_JOB`
       四个仓库变量都还没配。

@@ -25,7 +25,12 @@
 ## 当前待采集（全部为 P0 阻塞项）
 
 - [x] ~~`egress-cost-*` — GCP 出口单价~~ **✅ 已完成** → [gcp-egress-pricing-20260817](gcp-egress-pricing-20260817/)
-      （单价已定；**实际账单核对**仍待有真实用量后做）
+      （单价已定。**实际账单核对已于 2026-08-20 补做**：`vpn-us` + `vpn-jp` 在
+      2026-06-28 → 08-20 实际发生 **2,927 GiB / $294.12 = $0.1005/GiB**，与目录价 $0.11/GiB 吻合。
+      结论写在 [pricing §2](../03-product/pricing-and-plans.md) 与
+      [as-built-gcp §10.3](../02-architecture/as-built-gcp.md)。
+      ⚠️ 这次的 BigQuery 导出**原始数据没有落进本目录** —— 按本文的约定这是一笔欠账，
+      应当补一个 `egress-billing-20260820/`。）
 - [ ] `protocol-throughput-*` — REALITY vs Hysteria2，电信/联通/移动 × 晚高峰
 - [ ] `region-ab-*` — asia-east1 vs asia-northeast1
 - [ ] `nettier-ab-*` — Standard vs Premium 网络层级

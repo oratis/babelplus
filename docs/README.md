@@ -123,17 +123,17 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [panels-and-market.md](01-research/panels-and-market.md) — 面板与市场 | 已完成 |
 | | [payments.md](01-research/payments.md) — 支付与计费 | 已完成 |
 | | [admin-support-docs.md](01-research/admin-support-docs.md) — 后台/工单/通知/文档站 | 已完成 |
-| **02-architecture** | [as-built-gcp.md](02-architecture/as-built-gcp.md) — GCP 资产清点 | **As-Built**（2026-08-16） |
+| **02-architecture** | [as-built-gcp.md](02-architecture/as-built-gcp.md) — GCP 资产清点 | **As-Built**（§2–§6 为 2026-08-16；§10 为 2026-08-20） |
 | | [system-design.md](02-architecture/system-design.md) — 系统架构 | 设计稿 v1，未实施 |
 | | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | 设计稿 v1 |
 | | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | 设计稿 v1 |
-| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，价格待实测 |
+| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，出口成本已实测（$0.1005/GiB），价格仍待定 |
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
 | **04-ops** | [runbook-node-health.md](04-ops/runbook-node-health.md) — 节点健康与封锁取证 | 设计稿 v1 |
 | | [node-provisioning.md](04-ops/node-provisioning.md) — 建机与装机 | 设计稿 v1 |
-| | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 设计稿 v1 |
+| | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 执行中（`bp-api` / `bp-db` 已上线，§5 示例命令与线上不一致） |
 | | [monitoring.md](04-ops/monitoring.md) — 监控与告警 | 设计稿 v1 |
 | | [local-development.md](04-ops/local-development.md) — 本地开发（无需装 Go） | **As-Built** |
 | **05-adr** | [0001](05-adr/0001-cloudflare-tos-risk.md) — CF 只承载控制面 | **提案，未批准** |
