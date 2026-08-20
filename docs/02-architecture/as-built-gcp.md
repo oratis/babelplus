@@ -39,6 +39,9 @@
 | `vpn-us-ip-v4` | `8.231.52.43` | `us-west1` | IN_USE |
 | `vpn-jp-ip` | `34.104.192.233` | `asia-northeast1` | IN_USE |
 
+> **2026-08-20 补一列本表当初没记的事实：四项资源（两台实例 + 两个静态 IP）
+> 全部在 `PREMIUM` 网络层。** 见 §10.4 —— 它直接决定出口单价怎么算。
+
 `vpn-us-ip-v4` 的 `-v4` 后缀印证了 `VPN方案设计.md` 记录的**静态 IP 已轮换到第四代** —— 即
 美国节点 IP 已被封锁并更换过三次。这是本项目最重要的**先验事实**：
 IP 级封锁在这条链路上是**已经反复发生过的**，不是理论风险。
@@ -197,6 +200,19 @@ gcloud services list --enabled --project=$P
       （**建 Cloud Billing budget 告警仍需计费账号级权限，是否具备未查** ——
       [monitoring.md](../04-ops/monitoring.md) §9 因此仍落不了地。）
 - [ ] §3 的三条防火墙风险**仅记录未处置**，需用户决策。
+- [ ] 🔴 **[ADR 0008](../05-adr/0008-network-tier-standard.md)「改用 Standard 网络层级」至今未实施** ——
+      §10.4 实查：两台节点与两个静态 IP 全在 `PREMIUM`。这是目前唯一一个
+      **不改产品形态就能压低单位出口成本**的杠杆，但落之前必须先解决三件事：
+      ① **省多少钱未知** —— 需要先把 $294.12 做 SKU 级拆分（§10.3 结论 2），
+      且 [evidence/gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/)
+      只取了香港/台湾/东京的 Standard 单价（$0.11/GiB），**没有取 `us-west1` 与
+      `asia-northeast1` 的**；注意实测的 Premium 混合单价 $0.1005/GiB **已经低于**那个
+      $0.11 —— 所以「切了一定更便宜」目前**不成立**，得先算。
+      ② **代价是体感** —— Standard 走公网、回程路径质量更差，对代理类产品是用户直接感知的
+      （ADR 0008 §5 代价第 3 条，该 ADR 自陈未测）。需要 `nettier-ab-*` 实测才能取舍。
+      ③ 切换本身要动 `vpn-*` 现役节点的 IP/转发规则，属于
+      [AGENTS.md](../../AGENTS.md) §4 的操作红线，**必须先获授权、在维护窗口做**。
+      **本次只记录，未做任何基础设施变更。**
 
 ---
 
@@ -277,17 +293,50 @@ gcloud services list --enabled --project=$P
 1. 🔴 **产品尚未上线（128 个 operation 里 122 个仍返回 `501`），但出口流量的钱已经在花。**
    这笔钱来自 §2 的两台自用节点，不是产品用户打出来的 ——
    也就是说「等有用户了再谈成本」这个假设从一开始就不成立。
-2. **$0.1005/GiB 与 Standard Tier 的 $0.11/GiB 目录价吻合**
-   （目录价见 [evidence/gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/)）——
-   这是**首次用真实账单验证 2026-08-17 那份 Catalog API 推算**。
-   单位经济的含义写在 [pricing-and-plans.md §2](../03-product/pricing-and-plans.md)。
-   > ⚠️ **待核实**：[ADR 0008](../05-adr/0008-network-tier-standard.md)（改用 Standard）状态仍是
-   > **待实施**，而它 §5 代价第 5 条写明 **Premium 才是 GCP 的默认值**。
-   > 两台 `vpn-*` 节点当前实际跑在哪个层级，本次没有直接查证。
-   > 另外 gross 是折扣与抵扣前的口径，Standard 的「每源区域每月前 200 GiB $0」
-   > 是否体现在 net 上同样未查。
+2. **$0.1005/GiB 是 Premium 层的混合单价，不要拿它去对目录里的任何单独一档。**
+   它混了两个源区域（`us-west1` + `asia-northeast1`）与两类 SKU
+   （Internet Data Transfer + Carrier Peering），
+   而 Premium 的计价维度是「源区域 → 目的地」配对
+   （[evidence/gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/)）——
+   所以这个数字是**一堆不同档位的加权结果**。
+   > ⚠️ **它落在 Standard 的 $0.11/GiB 附近（低 8.6%），那是巧合，不是「验证了 Standard 目录价」。**
+   > 别据此推断层级 —— §10.4 的实查是 **PREMIUM**。
+   >
+   > **2,927 GiB 被全额计费这件事反而是 Premium 的旁证**：
+   > 按 [pricing §2](../03-product/pricing-and-plans.md) 的表，
+   > Standard 有「每源区域每月前 200 GiB $0」（两区域 × 约两个月本该有约 800 GiB 免费），
+   > 而 **Premium 从第 1 字节计费、没有任何免费额度**。账单的样子与后者一致。
+   >
+   > **仍然欠一次 SKU 级对账**：把 $294.12 拆到 Internet Data Transfer / Carrier Peering
+   > 与各自的目的地档位上。在拆开之前，「到中国大陆的那部分字节占多少」是未知的 ——
+   > 这也是为什么混合单价 $0.1005 会明显低于 Premium 到中国大陆的 $0.23/GiB 目录价。
 3. **`bp-db` 的 $0.74 不是稳态月费。**
    [ADR 0005 §1](../05-adr/0005-database-selection.md) 核实的稳态是
    **$9.53/月**（实例 $7.665 + 10 GB SSD $1.70 + 备份 $0.16），
    $0.74 只相当于其中约 2.3 天 —— 与「实例在账单区间末尾才建成」一致。
    后续对账要按整月看，不要拿这个数字去推年度成本。
+
+### 10.4 网络层级实查：**全部在 PREMIUM**
+
+`gcloud compute instances list` 与 `gcloud compute addresses list`（2026-08-20）：
+
+| 资源 | 位置 | 外网 IP | 网络层级 |
+|---|---|---|---|
+| 实例 `vpn-us` | `us-west1-a` | `8.231.52.43` | **PREMIUM** |
+| 实例 `vpn-jp` | `asia-northeast1-a` | `34.104.192.233` | **PREMIUM** |
+| 静态 IP `vpn-us-ip-v4` | `us-west1` | `8.231.52.43` | **PREMIUM**（IN_USE） |
+| 静态 IP `vpn-jp-ip` | `asia-northeast1` | `34.104.192.233` | **PREMIUM**（IN_USE） |
+
+**[ADR 0008](../05-adr/0008-network-tier-standard.md)「节点使用 Standard 网络层级」至今没有实施。**
+这不是有人推翻了它 —— 它的状态本来就写着**待实施**，
+而该 ADR §5 代价第 5 条早就点明 **Premium 是 GCP 的默认值，不显式指定就会用 Premium**。
+两台节点都建于该裁决之前，于是默认值一直生效到今天。
+
+含义有两层，都记进 §9 的待办：
+
+1. **成本**：切 Standard 是目前**唯一一个不动产品形态就能改变单位成本的杠杆**。
+   但方向确定不等于金额确定 —— 见 §9 那条待办里写明的两个未知数。
+2. **性能**：Standard 走公网而非 Google 骨干，回程路径质量更差。
+   对一个**代理/VPN 类产品**来说这不是后台指标，是用户直接感知的体感 ——
+   ADR 0008 §5 代价第 3 条自己就写了「本裁决没有测过这一项」。
+   **所以这是一次需要实测的取舍，不是无脑省钱。**

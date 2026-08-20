@@ -127,7 +127,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [system-design.md](02-architecture/system-design.md) — 系统架构 | 设计稿 v1，未实施 |
 | | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | 设计稿 v1 |
 | | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | 设计稿 v1 |
-| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，出口成本已实测（$0.1005/GiB），价格仍待定 |
+| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，出口成本已实测（Premium 层混合 $0.1005/GiB），价格仍待定 |
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |

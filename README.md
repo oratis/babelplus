@@ -16,10 +16,14 @@
 
 > ⚠️ **产品还没上线，出口流量的钱已经在花。**
 > 2026-06-28 → 08-20 的账单（BigQuery 导出 `loopback-500616.billing_export`，gross）：
-> `vpn-us` + `vpn-jp` 两个出口节点的流量合计 **2,927 GiB / $294.12**，即 **$0.1005/GiB**，
-> 与 Standard Tier 目录价 $0.11/GiB 吻合。
+> `vpn-us` + `vpn-jp` 两个出口节点的流量合计 **2,927 GiB / $294.12**，即 **$0.1005/GiB** ——
+> 这是 **Premium 网络层**下、跨两个区域、Internet Data Transfer 与 Carrier Peering
+> 两类 SKU 的**混合**单价，不对应目录里任何单独一档。
 > 竞品零售约 $0.042/GB —— **按竞品价卖每 GB 净亏约 $0.06**。
-> 单位经济见 [pricing-and-plans.md §2](docs/03-product/pricing-and-plans.md)。
+> [ADR 0008](docs/05-adr/0008-network-tier-standard.md) 裁决改用 Standard，
+> 但 2026-08-20 实查：两个节点与两个静态 IP **全在 `PREMIUM` 层，该裁决至今未实施**。
+> 单位经济与这个待评估的成本杠杆见
+> [pricing-and-plans.md §2](docs/03-product/pricing-and-plans.md)。
 
 ---
 
