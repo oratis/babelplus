@@ -214,6 +214,35 @@ if [ -n "$OLD_IP" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 网络层级：**从实例现状推导，不写死**
+# ---------------------------------------------------------------------------
+# 为什么不像 create-node.sh 那样硬编码 STANDARD：
+#
+#  1. **保留地址的层级必须与网卡 access-config 的层级一致**，否则 add-access-config
+#     直接失败 —— 而失败点在「已经摘掉旧 access-config 之后」，代价是全部用户掉线。
+#     写死 STANDARD 会让本脚本在任何既有 Premium 节点上必然踩这条路径。
+#  2. 既有的 vpn-us / vpn-jp 就是 PREMIUM（2026-08-20 用 gcloud 核实）。
+#     它们是**已部署且在服务**的机器，换 IP 是应急操作，不该顺手改计费层级。
+#  3. 换 IP 与换层级是两件事。把它们捆在一起意味着一次应急操作同时改变两个变量，
+#     出问题时无法归因。要改层级请单独做，并且知道那必然换 IP。
+#
+# 换句话说：本脚本保持层级不变，create-node.sh 决定新节点的层级。
+DERIVED_TIER="$(gcloud compute instances describe "$NODE" --project="$PROJECT" --zone="$ZONE" \
+    --format='value(networkInterfaces[0].accessConfigs[0].networkTier)' 2>/dev/null || true)"
+if [ -z "$DERIVED_TIER" ]; then
+    # 查不到（dry-run／实例无 access-config）→ 用 ADR 0008 裁定的新节点默认值。
+    DERIVED_TIER="STANDARD"
+    warn "读不到实例当前网络层级，按 ADR 0008 的新节点默认值 STANDARD 处理。"
+    warn "  若目标其实是 Premium 节点，挂载新地址会失败并触发回滚 —— 先核实再跑。"
+fi
+NETWORK_TIER="$DERIVED_TIER"
+log "  网络层级：$NETWORK_TIER（沿用实例现状，本脚本不改层级）"
+if [ "$NETWORK_TIER" = "PREMIUM" ]; then
+    log "  ℹ️ 该节点是 Premium。ADR 0008 裁定新节点用 Standard（便宜 2.09 倍），"
+    log "     但迁移既有节点必然换 IP，属于独立决策，不在换 IP 这个操作的范围内。"
+fi
+
+# ---------------------------------------------------------------------------
 # 预留新地址
 # ---------------------------------------------------------------------------
 step "预留新地址"
@@ -221,7 +250,7 @@ if [ -z "$NEW_ADDRESS" ]; then
     NEW_ADDRESS="${NODE}-ip-$(date +%Y%m%d%H%M)"
     assert_target_safe "$NEW_ADDRESS"
     run gcloud compute addresses create "$NEW_ADDRESS" --project="$PROJECT" \
-        --region="$REGION" --network-tier=PREMIUM
+        --region="$REGION" --network-tier="$NETWORK_TIER"
 else
     ok "使用已存在的保留地址 $NEW_ADDRESS"
 fi
@@ -261,7 +290,7 @@ run gcloud compute instances delete-access-config "$NODE" \
 if ! run gcloud compute instances add-access-config "$NODE" \
         --project="$PROJECT" --zone="$ZONE" \
         --access-config-name="$AC_NAME" --address="$NEW_IP" \
-        --network-tier=PREMIUM --network-interface=nic0; then
+        --network-tier="$NETWORK_TIER" --network-interface=nic0; then
     warn "挂载新地址 $NEW_IP 失败 —— 节点当前没有公网 IP，全部用户掉线。"
 
     if [ -z "${OLD_IP:-}" ]; then
@@ -274,7 +303,7 @@ if ! run gcloud compute instances add-access-config "$NODE" \
     if run gcloud compute instances add-access-config "$NODE" \
             --project="$PROJECT" --zone="$ZONE" \
             --access-config-name="$AC_NAME" --address="$OLD_IP" \
-            --network-tier=PREMIUM --network-interface=nic0; then
+            --network-tier="$NETWORK_TIER" --network-interface=nic0; then
         die "已回滚到旧 IP $OLD_IP，服务已恢复。新地址 $NEW_ADDRESS 仍保留着，
       排查后可重试。最常见的原因是 --region 与 --zone 不在同一 region，
       导致新地址与实例跨 region（脚本开头的一致性校验会拦掉这种情况）。"
@@ -283,7 +312,7 @@ if ! run gcloud compute instances add-access-config "$NODE" \
     die "回滚也失败了 —— 节点仍然没有公网 IP，必须立刻人工介入：
       gcloud compute instances add-access-config '$NODE' --project='$PROJECT' \\
           --zone='$ZONE' --access-config-name='$AC_NAME' --address='$OLD_IP' \\
-          --network-tier=PREMIUM --network-interface=nic0"
+          --network-tier=$NETWORK_TIER --network-interface=nic0"
 fi
 
 ok "已切换到 $NEW_IP"

@@ -1,6 +1,9 @@
 # 0008 · 裁决：网络层级改用 Standard，放弃为 IPv6 支付 Premium 溢价
 
-> 日期：2026-08-17 · 性质：**架构裁决** · 状态：**设计稿 v1，待实施**（2026-08-17）
+> 日期：2026-08-17 · 性质：**架构裁决** · 状态：**已实施（仅新节点）**（2026-08-20）
+> 落地范围：`create-node.sh` 硬编码 STANDARD + 断言 + IPv6 互斥；`rotate-ip.sh` 改为沿用实例现状。
+> **既有 `vpn-us` / `vpn-jp` 仍是 PREMIUM 且不迁** —— 迁移必然换 IP，属独立决策。
+> 落地证据：[network-tier-implementation-20260820](../evidence/network-tier-implementation-20260820/)
 > **推翻 [0004 号 §3.7](0004-transport-hardening.md)**（该节自陈「论据最弱」，本裁决给出了推翻它的证据）
 > 事实基线：Google Cloud Billing Catalog API 权威价目 + Google 官方文档 + OONI 原始测量
 > 证据：[gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/)、
@@ -124,6 +127,12 @@ Cloud Billing Catalog API 权威价目（[证据](../evidence/gcp-egress-pricing
       本裁决只解决了「IPv6 这个理由不成立」，没有证明 Standard 的性能可接受。
 - [ ] IPv6 在**其他封锁机制**（IP 黑洞、QUIC 检测、DNS 投毒）下是否与 IPv4 等同，未测。
 - [ ] 200 GiB 免费额度是否与 GCP Always Free 层级叠加或互斥，未核实。
-- [ ] 现有 `vpn-us` / `vpn-jp` 用的是哪个层级**仍未核实**（as-built-gcp §9 的遗留项），
-      因此不知道 Proxy_Skill 的实测数据是在哪个层级下取得的 ——
-      **这会影响 §5 代价第 3 条的判断基准**。
+- [x] ~~现有 `vpn-us` / `vpn-jp` 用的是哪个层级仍未核实~~ →
+      **2026-08-20 已核实：两台实例与两个保留地址全部是 PREMIUM**
+      （[证据](../evidence/network-tier-implementation-20260820/#2--核实一既有节点全部是-premium)）。
+      **推论比原来的担心更糟**：Proxy_Skill 的延迟实测是在 Premium 下取得的，
+      因此 Standard 的性能**没有任何数据**，不是「数据不足」而是零 —— §5 代价第 3 条的
+      风险敞口据此放大。
+- [ ] 🔴 **既有 `vpn-us` / `vpn-jp` 的迁移未做也未排期。** 层级不能原地改，
+      迁移必然换 IP，会让既有用户配置立刻失效，因此不在本裁决的落地范围内。
+      在它发生之前，**实际在跑的流量 100% 按 Premium 计价** —— 本裁决省下的钱是 0。

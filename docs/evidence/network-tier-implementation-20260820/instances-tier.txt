@@ -1,0 +1,3 @@
+NAME    ZONE               NETWORK_TIER  NAT_IP
+vpn-us  us-west1-a         PREMIUM       8.231.52.43
+vpn-jp  asia-northeast1-a  PREMIUM       34.104.192.233

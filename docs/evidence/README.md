@@ -18,6 +18,7 @@
 |---|---|
 | [gcp-egress-pricing-20260817](gcp-egress-pricing-20260817/) | **B2** GCP 出口单价（Billing Catalog API 权威价目）。Standard $0.11/GiB + 200GiB/区域/月免费；Premium $0.23/GiB 无免费额度 |
 | [v2node-contract-20260817](v2node-contract-20260817/) | **B6** 鉴权形态、**B18** 两个字段语义、**B16** 设备计数口径、ADR 0006 的 ETag 前提。全部靠读源码解决，无需真实节点 |
+| [network-tier-implementation-20260820](network-tier-implementation-20260820/) | **ADR 0008 落地**：既有 vpn-us/vpn-jp 全为 PREMIUM（关闭 0008 §6 遗留项）；Standard 在 asia-east2 实测可用；IPv6 只支持 PREMIUM 是 API 硬约束 |
 
 > 这两次的共同经验：**大量标着「需实测」的条目其实是「没读源码/没查 API」。**
 > 在租机器测之前，先穷尽「读开源代码」与「查厂商 API」这两条零成本路径。

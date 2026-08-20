@@ -1,0 +1,21 @@
+# gcloud 自述的层级约束（采于 2026-08-20）
+
+## $ gcloud compute addresses create --help
+     --network-tier=NETWORK_TIER
+        The network tier to assign to the reserved IP addresses. NETWORK_TIER
+        must be one of: PREMIUM, STANDARD. The default value is PREMIUM.
+
+        While regional external addresses (--region specified, --subnet
+        omitted) can use either PREMIUM or STANDARD, global external addresses
+        (--global specified, --subnet omitted) can only use PREMIUM. Internal
+        addresses can only use PREMIUM.
+
+
+## $ gcloud compute instances create --help
+     --ipv6-network-tier=IPV6_NETWORK_TIER
+        Specifies the IPv6 network tier that will be used to configure the
+        instance network interface IPv6 access config. IPV6_NETWORK_TIER must
+        be (only one value is supported):
+
+         PREMIUM
+            High quality, Google-grade network tier.
