@@ -95,7 +95,13 @@ tags:
 security: []
 
 paths:
-  /healthz:
+  # 🔴 路径是 /-/healthz 而不是 /healthz：
+  #    **Cloud Run 的 Google Frontend 会拦截 /healthz，请求根本到不了容器。**
+  #    2026-08-17 实测：/healthz 返回 Google 的 HTML 404 页且 Cloud Run 请求日志里
+  #    连一条记录都没有；而同一部署下未注册的 /healthzz 返回我们 chi 路由的
+  #    "404 page not found"，已注册的 /api/v1/plans 正常走到鉴权中间件。
+  #    三者的唯一差别就是路径字符串，证据见 evidence/cloudrun-healthz-intercept-20260817。
+  /-/healthz:
     get:
       tags: [system]
       operationId: getHealthz

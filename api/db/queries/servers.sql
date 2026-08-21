@@ -203,6 +203,75 @@ DELETE FROM user_device_state WHERE last_seen_at < now() - interval '5 minutes';
 
 
 -- ============================================================
+-- POST /api/v1/server/UniProxy/push — 流量入账（P1 的请求内同步实现）
+-- ============================================================
+
+-- 🔴 本查询与 stats.sql 的 BulkAddUserTraffic **语义完全相同，是一份刻意的副本**。
+--    只存在一个理由 —— BulkAddUserTraffic 不可用：它的 RETURNING 投影
+--        (ut.u + ut.d) AS total_after
+--        (ut.u - i.u) + (ut.d - i.d) AS total_before
+--    被 sqlc v1.31 推断成 int4，生成的 Row 字段因此是 int32。而 u/d 是 bigint、单位是字节：
+--    任何一个用户本周期累计超过 2 GiB（2,147,483,647 字节）时，pgx 在 **Scan 阶段**报
+--    "… is greater than maximum value for int32"，事务回滚，**这一批流量全部丢失**。
+--    这不是边界情况 —— 最小的套餐也是几十 GB，上线第一天就会踩到。
+--    本副本的两个表达式显式 ::bigint，且顶层只投影两个计数（不投影那两列），双重绕开。
+--
+-- 🔴 TODO(P2): stats.sql 的 BulkAddUserTraffic 加上 ::bigint 修好之后，**删掉本查询**，
+--    调用方切回 BulkAddUserTraffic。两份同义 SQL 长期并存必然漂移，
+--    而漂移的表现是「两条入账路径算出不同的流量」—— 那正是 stats.sql 开头
+--    「Xboard 写三处，三份数字可能对不上且没有任何机制发现」批评的东西。
+--
+-- 其余设计约束与 BulkAddUserTraffic 逐条相同，不重复论证，只列必须记住的三条：
+--   1. input 先 GROUP BY 去重，否则同批重复 user_id 会让 UPDATE…FROM 静默丢数
+--   2. bumped 必须是 data-modifying CTE —— 普通 CTE 未被引用时 PostgreSQL 不执行它
+--   3. 只有「跨越阈值那一次」才 bump user_rev；累加本身不得 bump，否则 ETag 归零
+--
+-- ⚠️ 调用方必须保证三个数组等长，并与 BulkUpsertStatUserServer 在同一事务里。
+-- ⚠️ updated_users < 数组长度 说明有 user_id 在 user_traffic 里没有行（用户已删除 /
+--    开户流程没写 user_traffic）。调用方应当把这个差值打进日志，否则流量会静默蒸发。
+-- name: AddNodeTrafficBatch :one
+WITH input AS (
+  SELECT a.user_id, sum(b.u)::bigint AS u, sum(c.d)::bigint AS d
+  FROM unnest(@user_ids::bigint[])   WITH ORDINALITY AS a(user_id, n)
+  JOIN unnest(@up_bytes::bigint[])   WITH ORDINALITY AS b(u, n) ON b.n = a.n
+  JOIN unnest(@down_bytes::bigint[]) WITH ORDINALITY AS c(d, n) ON c.n = a.n
+  GROUP BY a.user_id
+),
+upd AS (
+  UPDATE user_traffic ut
+     SET u          = ut.u + i.u,
+         d          = ut.d + i.d,
+         u_lifetime = ut.u_lifetime + i.u,
+         d_lifetime = ut.d_lifetime + i.d,
+         online_at  = now(),
+         last_node_id = @server_id::bigint,
+         updated_at = now()
+    FROM input i
+   WHERE ut.user_id = i.user_id
+  RETURNING ut.user_id,
+            (ut.u + ut.d)::bigint                 AS total_after,
+            ((ut.u - i.u) + (ut.d - i.d))::bigint AS total_before
+),
+crossed AS (
+  SELECT DISTINCT u.group_id
+  FROM upd
+  JOIN users u ON u.id = upd.user_id
+  WHERE upd.total_before <  u.transfer_enable
+    AND upd.total_after  >= u.transfer_enable
+),
+bumped AS (
+  UPDATE node_rev nr
+     SET user_rev = nr.user_rev + 1, user_rev_at = now()
+   WHERE nr.server_id IN (
+     SELECT m.server_id FROM server_group_map m JOIN crossed c ON c.group_id = m.group_id
+   )
+  RETURNING nr.server_id
+)
+SELECT (SELECT count(*) FROM upd)::bigint    AS updated_users,
+       (SELECT count(*) FROM bumped)::bigint AS bumped_servers;
+
+
+-- ============================================================
 -- POST /api/v1/server/UniProxy/status — 节点负载（只写快照，不建历史表）
 -- ============================================================
 

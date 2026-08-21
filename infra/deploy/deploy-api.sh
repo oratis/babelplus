@@ -43,6 +43,8 @@ DRY_RUN=0
 ASSUME_YES=0
 DO_BUILD=1
 DO_PROMOTE=0
+# 默认用 Cloud Build 在 Google 的 amd64 机器上构建，理由见 build_and_push。
+USE_CLOUD_BUILD=1
 ALLOW_DIRTY=0
 TAG=""
 
@@ -86,7 +88,7 @@ usage() {
 两段式发布（推荐）:
   ./infra/scripts/verify-isolation.sh                    # 1. 部署前基线
   ./infra/deploy/deploy-api.sh                           # 2. 起候选，不接流量
-  curl -sS https://candidate---<服务URL>/healthz          # 3. 验证候选
+  curl -sS https://candidate---<服务URL>/-/healthz          # 3. 验证候选
   ./infra/deploy/deploy-api.sh --no-build --promote      # 4. 切 100%
   ./infra/scripts/verify-isolation.sh                    # 5. 部署后核对
 
@@ -209,6 +211,31 @@ resolve_tag() {
 
 build_and_push() {
   step "构建镜像 $IMAGE"
+
+  # ── 默认走 Cloud Build，而不是本机 docker build ──
+  #
+  # 与 infra/migrate/build-and-run.sh 保持一致。本机构建在这台开发机上有三重障碍，
+  # 2026-08-17 逐个踩过：
+  #  1. 本机是 Apple Silicon（arm64），Cloud Run 只接受 amd64/linux；
+  #  2. 加 --platform 会强制去 registry 拉对应架构的基础镜像，而 Docker Hub 在这台机器上
+  #     不可达（auth.docker.io 返回 EOF），且 docker pull --platform 在 Docker Desktop 上
+  #     实测仍落回 arm64；
+  #  3. Docker daemon 本身未必在跑 —— 会话重启后就遇到过
+  #     `Cannot connect to the Docker daemon`，部署直接中断。
+  #
+  # Cloud Build 一次解决三个：跑在 amd64、直连 Docker Hub、不依赖本机 daemon。
+  # 代价是每次上传构建上下文（api/ 目录）与 Cloud Build 用量（免费额度 120 分钟/天）。
+  # --local 保留给环境正常的机器。
+  if [ "$USE_CLOUD_BUILD" -eq 1 ]; then
+    need_cmd gcloud
+    run gcloud builds submit "$ROOT/api" \
+      --project="$PROJECT_ID" \
+      --tag="$IMAGE" \
+      --timeout=15m
+    ok "镜像已构建并推送（Cloud Build）"
+    return 0
+  fi
+
   need_cmd docker
 
   # --platform=linux/amd64 不是可选的：在 Apple Silicon 上不写这个会推上去一个
@@ -251,12 +278,27 @@ deploy() {
   # 只想改一项时用 --update-env-vars / --update-secrets，不要改这里。
   #
   # PORT 不在列表里 —— Cloud Run 自己注入，手工设会冲突。
-  local env_vars="\
-BP_ENV=prod,\
-BP_GCP_PROJECT_ID=${PROJECT_ID},\
-BP_DB_MAX_CONNS=2,\
-BP_LOG_LEVEL=info,\
-BP_TRUST_PROXY_HEADERS=true"
+  # BP_ALLOWED_ORIGINS：CORS 白名单，**prod 下 config 是 fail-closed 的**——
+  # 不设这一项，容器会拒绝启动（config.parseAllowedOrigins）。
+  # 2026-08-17 首次部署前发现漏了它：部署会「成功」，但修订版永远起不来。
+  #
+  # 值取自 ALLOWED_ORIGINS 环境变量，默认是 system-design §4.1 规划的 Web 域名。
+  # ⚠️ 这些域名**目前还不存在**（web 尚未部署），所以现在填的是「将来会是什么」而不是
+  #    「现在是什么」。真实域名池定下来后必须回来改 —— 域名池是会轮换的，
+  #    每加一个镜像域名都要同步进这里，否则那个域名下的面板调不通 API。
+  local origins="${ALLOWED_ORIGINS:-https://web.babel.plus,https://admin.babel.plus}"
+
+  # ⚠️ 用 gcloud 的**自定义分隔符**语法 `^@^k=v@k=v`，不能用默认的逗号。
+  # BP_ALLOWED_ORIGINS 的值本身就含逗号（多个 Origin），用默认分隔符会被切错：
+  #   ERROR: argument --set-env-vars: Bad syntax for dict arg: [https://admin.babel.plus]
+  # 2026-08-17 首次部署实测踩到。选 @ 是因为它不会出现在 URL 与我们的任何值里。
+  local env_vars="^@^\
+BP_ENV=prod@\
+BP_GCP_PROJECT_ID=${PROJECT_ID}@\
+BP_DB_MAX_CONNS=2@\
+BP_LOG_LEVEL=info@\
+BP_TRUST_PROXY_HEADERS=true@\
+BP_ALLOWED_ORIGINS=${origins}"
 
   local -a args=(
     gcloud run deploy "$SERVICE"
@@ -320,9 +362,25 @@ BP_TRUST_PROXY_HEADERS=true"
   当前修订版会立刻停止接收新请求。
   ⚠️ 若本次发布改了 DB schema，请记住：**代码能秒级回滚，schema 不能**（deploy.md §12.3）。" "promote"
     ok "流量：新修订版 100%"
-  else
+  elif gcloud run services describe "$SERVICE" \
+         --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1; then
     args+=(--no-traffic --tag=candidate)
     ok "流量：0%（候选修订版，tag=candidate）"
+  else
+    # ⚠️ **创建新服务时 gcloud 不接受 --no-traffic**：
+    #   ERROR: --no-traffic not supported when creating a new service.
+    # 2026-08-17 首次部署实测踩到。
+    #
+    # 这个限制是合理的：候选修订版策略的意义是「新版本先不接流量，
+    # 验证通过再切」，而首次部署根本没有旧修订版可保护 ——
+    # 不接流量就等于服务对外完全不可用，没有任何东西被保护。
+    #
+    # 所以首次部署直接接 100% 流量。**后续部署会自动走上面的候选分支**，
+    # 因为那时 describe 就能查到服务了。
+    warn "服务 ${SERVICE} 尚不存在 —— 这是首次部署，直接接 100% 流量。
+     （--no-traffic 在创建新服务时不被支持，且首次部署没有旧修订版需要保护。
+       下次部署会自动变回不接流量的候选修订版。）"
+    ok "流量：新服务 100%"
   fi
 
   run "${args[@]}"
@@ -334,7 +392,7 @@ BP_TRUST_PROXY_HEADERS=true"
   if [ -n "$url" ]; then
     log "  服务 URL      : $url"
     if [ "$DO_PROMOTE" -eq 1 ]; then
-      log "  验证          : curl -sS ${url}/healthz   # 确认 revision 是 ${TAG}"
+      log "  验证          : curl -sS ${url}/-/healthz   # 确认 revision 是 ${TAG}"
       log "  就绪（查库）  : curl -sS ${url}/readyz"
     else
       # 候选修订版的可访问地址是 https://<tag>---<服务主机名>
@@ -344,7 +402,7 @@ BP_TRUST_PROXY_HEADERS=true"
   fi
   log ""
   log "  ⚠️ 现在跑一次 ./infra/scripts/verify-isolation.sh —— 这是「不影响已部署服务」这条承诺的可执行形式。"
-  log "  ⚠️ /healthz **不查数据库**（控制面故障不得升级为数据面故障）；要确认库连得上看 /readyz。"
+  log "  ⚠️ /-/healthz **不查数据库**（控制面故障不得升级为数据面故障）；要确认库连得上看 /readyz。"
 }
 
 # ───────────────────────── 主流程 ─────────────────────────
@@ -354,6 +412,7 @@ main() {
   for arg in "$@"; do
     case "$arg" in
       --tag=*)     TAG="${arg#*=}" ;;
+      --local)     USE_CLOUD_BUILD=0 ;;
       --no-build)  DO_BUILD=0 ;;
       --promote)   DO_PROMOTE=1 ;;
       --allow-dirty) ALLOW_DIRTY=1 ;;

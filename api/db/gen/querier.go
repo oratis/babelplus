@@ -11,6 +11,33 @@ import (
 )
 
 type Querier interface {
+	// ============================================================
+	// POST /api/v1/server/UniProxy/push — 流量入账（P1 的请求内同步实现）
+	// ============================================================
+	// 🔴 本查询与 stats.sql 的 BulkAddUserTraffic **语义完全相同，是一份刻意的副本**。
+	//    只存在一个理由 —— BulkAddUserTraffic 不可用：它的 RETURNING 投影
+	//        (ut.u + ut.d) AS total_after
+	//        (ut.u - i.u) + (ut.d - i.d) AS total_before
+	//    被 sqlc v1.31 推断成 int4，生成的 Row 字段因此是 int32。而 u/d 是 bigint、单位是字节：
+	//    任何一个用户本周期累计超过 2 GiB（2,147,483,647 字节）时，pgx 在 **Scan 阶段**报
+	//    "… is greater than maximum value for int32"，事务回滚，**这一批流量全部丢失**。
+	//    这不是边界情况 —— 最小的套餐也是几十 GB，上线第一天就会踩到。
+	//    本副本的两个表达式显式 ::bigint，且顶层只投影两个计数（不投影那两列），双重绕开。
+	//
+	// 🔴 TODO(P2): stats.sql 的 BulkAddUserTraffic 加上 ::bigint 修好之后，**删掉本查询**，
+	//    调用方切回 BulkAddUserTraffic。两份同义 SQL 长期并存必然漂移，
+	//    而漂移的表现是「两条入账路径算出不同的流量」—— 那正是 stats.sql 开头
+	//    「Xboard 写三处，三份数字可能对不上且没有任何机制发现」批评的东西。
+	//
+	// 其余设计约束与 BulkAddUserTraffic 逐条相同，不重复论证，只列必须记住的三条：
+	//   1. input 先 GROUP BY 去重，否则同批重复 user_id 会让 UPDATE…FROM 静默丢数
+	//   2. bumped 必须是 data-modifying CTE —— 普通 CTE 未被引用时 PostgreSQL 不执行它
+	//   3. 只有「跨越阈值那一次」才 bump user_rev；累加本身不得 bump，否则 ETag 归零
+	//
+	// ⚠️ 调用方必须保证三个数组等长，并与 BulkUpsertStatUserServer 在同一事务里。
+	// ⚠️ updated_users < 数组长度 说明有 user_id 在 user_traffic 里没有行（用户已删除 /
+	//    开户流程没写 user_traffic）。调用方应当把这个差值打进日志，否则流量会静默蒸发。
+	AddNodeTrafficBatch(ctx context.Context, arg AddNodeTrafficBatchParams) (AddNodeTrafficBatchRow, error)
 	// orders_refund_le_paid CHECK 保证退款总额不会超过实收
 	AddOrderRefundedAmount(ctx context.Context, arg AddOrderRefundedAmountParams) (AddOrderRefundedAmountRow, error)
 	// ⚠️ 调用方必须随后 BumpUserRevByGroup —— 分组成员变化改变了节点可见用户集合，
@@ -139,6 +166,13 @@ type Querier interface {
 	ConsumeEmailVerification(ctx context.Context, id int64) error
 	// 巡检：同一节点同时有效的密钥 > 2（data-model §8.3 的应用层规则，用这条兜底告警）
 	CountActiveServerKeysPerServer(ctx context.Context) ([]CountActiveServerKeysPerServerRow, error)
+	// 发码限流（api-contract §10.2「精确档」）。**不需要 rate_limit 表**：
+	// email_verifications 本身就逐条记录了每次发码的 created_at，
+	// 「窗口内条数」与「上一条时刻」一次查询就能拿到，且天然跨 Cloud Run 实例一致
+	// （进程内计数会被 max-instances 放大 8 倍，而这里是发信配额，8 倍是真实损失）。
+	CountRecentEmailVerifications(ctx context.Context, arg CountRecentEmailVerificationsParams) (CountRecentEmailVerificationsRow, error)
+	// per IP 维度（forgot 的 10/h）。同上，靠既有记录而不是额外的计数表。
+	CountRecentEmailVerificationsByIP(ctx context.Context, arg CountRecentEmailVerificationsByIPParams) (int64, error)
 	CountUserCouponUses(ctx context.Context, arg CountUserCouponUsesParams) (int64, error)
 	CountUsersForAdmin(ctx context.Context, arg CountUsersForAdminParams) (int64, error)
 	CreateCannedResponse(ctx context.Context, arg CreateCannedResponseParams) (CannedResponse, error)
@@ -148,6 +182,13 @@ type Querier interface {
 	// 🔴 UNIQUE (order_id)：一单只产生一条佣金 —— 把「Cloud Tasks 至少一次投递导致
 	//    佣金重复发放」这个 ADR 0006 点名的风险，从应用逻辑降级成数据库拒绝。
 	CreateCommission(ctx context.Context, arg CreateCommissionParams) (Commission, error)
+	// ---------- 邮件发送日志 / 送达率探针 ----------
+	// ⚠️ email_log 的归属其实是「运营」（0011_ops），本该放在一个 ops.sql 里。
+	//    暂时落在这里，因为目前只有 /auth/email-code 与 /auth/password/forgot 写它，
+	//    而 api-contract §5.1 把「每次发码写一条 email_probe」定为该端点**存在的第二个理由**
+	//    （ADR 0002：邮件是唯一失联恢复通道，收不到验证码的用户就是封锁当天必然失联的用户）。
+	//    等 ops 面的查询成文时应当整体迁走。
+	CreateEmailLog(ctx context.Context, arg CreateEmailLogParams) (EmailLog, error)
 	// ============================================================
 	// 邮箱验证码 / 找回密码
 	// ============================================================
@@ -236,9 +277,24 @@ type Querier interface {
 	// value 的单位随 type 变：percentage = 基点 bps（1000 = 10%）；fixed_amount = 分。
 	// 折扣计算必须在 Go 侧用整数运算，绝不引入 float。
 	GetCouponByCode(ctx context.Context, upper interface{}) (Coupon, error)
+	// 只用于**找回密码**：那条链路的输入只有 token，没有邮箱，无法按 (email, purpose) 定位。
+	//
+	// 🔴 因此重置令牌必须是高熵随机串（32 字节 CSPRNG），**绝不能是 6 位数字验证码**：
+	//    按 code_hash 全表定位意味着一个随便猜的 6 位数会命中**任意用户**的待重置记录 ——
+	//    这个查询的形状本身就把「重置令牌用什么」这件事定死了。
+	GetEmailVerificationByCodeHash(ctx context.Context, arg GetEmailVerificationByCodeHashParams) (EmailVerification, error)
 	// 全站日报（走 stat_user_server_date_idx）
 	GetGlobalDailyTraffic(ctx context.Context, arg GetGlobalDailyTrafficParams) ([]GetGlobalDailyTrafficRow, error)
 	GetIdempotencyKey(ctx context.Context, key string) (IdempotencyKey, error)
+	// ============================================================
+	// 账户体系补充（internal/handler/auth.go 用）
+	// ============================================================
+	// 与 GetInviteCodeByCode 的区别：**不过滤任何状态**。
+	// GET /api/v1/invite/verify 必须区分「无效」与「已用尽」（api-contract §5.1：
+	// 两者的用户动作完全不同 —— 前者去要一个新码，后者去催邀请人再生成一个），
+	// 而 GetInviteCodeByCode 把 used_count >= max_uses 一并滤成了 ErrNoRows，
+	// 用它就**不可能**满足这条契约。核销路径仍然走 RedeemInviteCode 的原子 UPDATE。
+	GetInviteCodeAnyState(ctx context.Context, code string) (InviteCode, error)
 	// ============================================================
 	// 邀请码
 	// ============================================================
@@ -258,6 +314,12 @@ type Querier interface {
 	GetOrderForUpdate(ctx context.Context, id int64) (Order, error)
 	GetPlan(ctx context.Context, id int64) (Plan, error)
 	GetPlanByCode(ctx context.Context, code string) (Plan, error)
+	// 注册时 users.group_id 是 NOT NULL 外键，必须给一个值。
+	// 这个值只是**占位**：新用户 transfer_enable = 0，在 ListAvailableUsersByServer 的
+	// 「u + d < transfer_enable」判定里天然为假，所以他落在哪个分组都看不到节点。
+	// 真正的分组在 ApplyUserEntitlement（开通套餐）时按 plan.group_id 覆盖。
+	// 优先 'basic'，否则取 id 最小的一个 —— 排序确定，避免不同实例挑到不同分组。
+	GetRegistrationGroupID(ctx context.Context) (int64, error)
 	// ============================================================
 	// SLA
 	// ============================================================
@@ -280,6 +342,22 @@ type Querier interface {
 	GetServerGroupByCode(ctx context.Context, code string) (ServerGroup, error)
 	GetServerOnlineState(ctx context.Context, serverID int64) (ServerOnlineState, error)
 	GetSubscriptionToken(ctx context.Context, arg GetSubscriptionTokenParams) (SubscriptionToken, error)
+	// ============================================================
+	// 订阅下发（GET /s/{token} 与 GET /api/v1/client/subscribe）
+	// ============================================================
+	// subscription-userinfo 响应头需要的用量数字（api-contract §4.4）。
+	//
+	// 🔴 刻意**不**并进 ResolveSubscriptionToken，也不复制一份「带 user_traffic 的
+	//    resolve 变体」：404 判定（token 不存在 / 已吊销 / issued_at < sub_revoked_at）
+	//    必须只有一个事实源。复制一份出来就等于把防枚举的判定写了两遍，
+	//    两份迟早会漂移，而漂移的现象是「某条路径下已吊销的 token 还能拉到节点」——
+	//    那是最不该靠人工发现的一类缺陷。
+	//    代价是每次拉取多一次主键等值查找（< 1 ms），而订阅拉取量级是 10³/天，可以接受。
+	//
+	// ⚠️ u / d 是**本周期**用量（周期重置会清零），u_lifetime / d_lifetime 是累计值。
+	//    subscription-userinfo 的 upload/download 要用本周期的那两个 ——
+	//    客户端的流量条对应的是「这个计费周期还剩多少」。
+	GetSubscriptionUsage(ctx context.Context, userID int64) (GetSubscriptionUsageRow, error)
 	// 对外只用 public_id（'BP-7K2M9Q'），不暴露自增 id —— 防枚举工单总量与他人工单
 	GetTicketByPublicID(ctx context.Context, publicID string) (Ticket, error)
 	GetTicketCategory(ctx context.Context, id int64) (TicketCategory, error)
@@ -434,6 +512,11 @@ type Querier interface {
 	//    所以过滤条件写在 WHERE 里走范围扫描。
 	ListWatchedPaymentAddresses(ctx context.Context) ([]ListWatchedPaymentAddressesRow, error)
 	MarkCommissionTransferred(ctx context.Context, id int64) (Commission, error)
+	// 用户回填验证码的时刻。sent_at → redeemed_at 的差值就是**真实端到端送达时延**，
+	// 这是 ADR 0002 §7 要求的送达率实测数据里唯一无法从 ESP 回调拿到的一项。
+	// ⚠️ 子查询必须起别名：不起别名时 `template` 同时可解析到外层 UPDATE 的目标表，
+	//    PG 直接报 "column reference is ambiguous"。
+	MarkEmailProbeRedeemed(ctx context.Context, arg MarkEmailProbeRedeemedParams) error
 	MarkEmailVerified(ctx context.Context, id int64) error
 	// ============================================================
 	// 到期扫描（Cloud Scheduler 每分钟，命中 users_expiry_due_idx，平时 0 行）
@@ -481,6 +564,11 @@ type Querier interface {
 	RevokeAllSubscriptions(ctx context.Context, id int64) (RevokeAllSubscriptionsRow, error)
 	RevokeAllUserSessions(ctx context.Context, userID int64) (int64, error)
 	RevokeInviteCode(ctx context.Context, id int64) error
+	// 改密码后「其余会话失效」（api-contract §5.1）：当前这条留着，其余全撤。
+	// 与 RevokeAllUserSessions 分开而不是加一个可空参数：
+	// 「排除哪一条」写成参数时，传 NULL 会让 id <> NULL 恒为 NULL，一条都撤不掉 ——
+	// 而现象是「改完密码别的设备还在线」，没有任何报错。
+	RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) (int64, error)
 	// ⚠️ 轮换强制两步（data-model §8.3）：先 CreateServerKey → 确认节点已用新密钥上报
 	//    → 才 RevokeServerKey 旧的。一步完成 = 节点在下一次 60 秒轮询时失联。
 	RevokeServerKey(ctx context.Context, arg RevokeServerKeyParams) (ServerKey, error)
