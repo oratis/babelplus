@@ -123,8 +123,20 @@
 
 **0.C · 实测采集（六项，排序与理由见 §10）**
 
-- [ ] 🔴 `nettier-ab-*` — Premium vs Standard（含 IPv6 能否事后开启）
-- [ ] 🔴 `egress-cost-*` — 官方价目表逐档核对（可立即做）+ 实际账单对账（需 P1 有真实流量）
+- [ ] 🔴 `nettier-ab-*` — Premium vs Standard（含 IPv6 能否事后开启）。
+      **2026-08-20 更新：线上一直是 Premium**（`gcloud` 实查两台节点与两个静态 IP，
+      见 [as-built-gcp §10.4](../02-architecture/as-built-gcp.md)），
+      [ADR 0008](../05-adr/0008-network-tier-standard.md)「改用 Standard」**从未实施** ——
+      所以这一项不再是选型调研，而是「一个已经在花钱的现状要不要改」。
+      切 Standard 是**唯一一个不改产品形态就能压低单位出口成本的杠杆**，
+      但省多少未知（需先做 SKU 级拆分），且代价是回程路径质量 —— 对代理类产品是体感问题。
+      **这项 A/B 是那个决定的前置条件。**
+- [x] ~~🔴 `egress-cost-*` — 官方价目表逐档核对（可立即做）+ 实际账单对账（需 P1 有真实流量）~~
+      **两半都做完了**：目录价 2026-08-17（[evidence/gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/)）；
+      账单对账 2026-08-20 —— **不需要等 P1**，两台自用节点在 2026-06-28 → 08-20 已经打出
+      **2,927 GiB / $294.12**（Premium 混合 $0.1005/GiB，
+      [as-built-gcp §10.3](../02-architecture/as-built-gcp.md)）。
+      **仍欠 SKU 级拆分**，见 [pricing §7](../03-product/pricing-and-plans.md)。
 - [ ] `protocol-throughput-*` — REALITY vs Hysteria2 × 电信/联通/移动 × 晚高峰
 - [ ] `domain-reachability-*` — 候选托管与域名三网可达性，**连续一周**（最早启动）
 - [ ] `email-deliverability-*` — QQ/163/126/Sina 送达率基线

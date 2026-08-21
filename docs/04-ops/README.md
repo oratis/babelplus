@@ -8,7 +8,7 @@
 |---|---|---|
 | [runbook-node-health.md](runbook-node-health.md) | 执行手册 | 设计稿 v1（未经本项目实战验证） |
 | [node-provisioning.md](node-provisioning.md) | 执行手册 | 设计稿 v1（2026-08-16） |
-| [deploy.md](deploy.md) | 执行手册 | 设计稿 v1（2026-08-16） |
+| [deploy.md](deploy.md) | 执行手册 | **执行中**（2026-08-20 —— `bp-api` / `bp-db` 已上线；§5 示例命令与线上不一致，以 `infra/deploy/` 为准） |
 | [monitoring.md](monitoring.md) | 执行手册 | 设计稿 v1（2026-08-16） |
 | [local-development.md](local-development.md) | 执行手册 | **As-Built**（2026-08-16 实测通过） |
 

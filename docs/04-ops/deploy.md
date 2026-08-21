@@ -1,11 +1,18 @@
 # 部署手册 · 每次部署都以隔离快照开始、以修订版回滚收尾
 
-> 日期：2026-08-16 · 性质：**执行手册** · 状态：**待实施**（2026-08-16 —— 本文全部命令**未在 `oratis-491316` 上真实执行过**）
+> 日期：2026-08-16（2026-08-20 按线上实况修状态） · 性质：**执行手册** ·
+> 状态：**执行中**（2026-08-20 —— `bp-api`、`bp-db`、`bp-api-sa` 与 4 个 `bp-` secret
+> **已经存在于 `oratis-491316` 并在计费**，见
+> [as-built-gcp §10](../02-architecture/as-built-gcp.md)；
+> 但线上参数与本文 §5 的示例命令**不一致**（见 §5 命令下方的红框），
+> 且 `bp-migrate` Job、Scheduler、Tasks、Pub/Sub 与 `bp-web` 侧仍未实施）
 > 事实基线：现有资产与隔离承诺见 [as-built-gcp.md](../02-architecture/as-built-gcp.md)（2026-08-16 `gcloud` 实测输出）；
 > 部署形态见 [system-design.md](../02-architecture/system-design.md) §4；
 > 数据库参数见 [ADR 0005](../05-adr/0005-database-selection.md) §6/§10；语言与镜像见 [ADR 0006](../05-adr/0006-api-stack.md) §4/§13；
 > 托管与证书见 [ADR 0003](../05-adr/0003-web-hosting-and-reachability.md) §5 与 [ADR 0004](../05-adr/0004-transport-hardening.md) §3.4
-> 证据口径：GCP 官方文档 = 中（本文未逐页逐字复核，凡关键处标 **待核实**）；本项目实测 = 无（**一次都没跑过**）
+> 证据口径：GCP 官方文档 = 中（本文未逐页逐字复核，凡关键处标 **待核实**）；
+> 本项目实测 = **部分**（`bp-api` / `bp-db` 已上线，参数以
+> [`infra/deploy/`](../../infra/deploy/) 的脚本与 as-built §10 为准，不以本文的示例命令为准）
 > 读者：值班运维。**要发布 `bp-api` 或 `bp-web` 时从 §2 开始，出事时跳到 §12。**
 > 关联：[runbook-node-health.md](runbook-node-health.md)（节点侧排障，本文不重复）、[monitoring.md](monitoring.md)（部署完必须补齐告警）
 
@@ -345,6 +352,23 @@ gcloud run deploy bp-api \
   --set-secrets=DB_PASSWORD=bp-db-password:latest,JWT_SIGNING_KEY=bp-jwt-signing-key:latest,SUB_TOKEN_PEPPER=bp-sub-token-pepper:latest,NODE_TOKEN_PEPPER=bp-node-token-pepper:latest,MAIL_API_KEY=bp-mail-api-key:latest \
   --no-traffic --tag=candidate
 ```
+
+> 🔴 **上面这段命令与线上实况不一致（2026-08-20 核实）——
+> 要发布请以 [`infra/deploy/deploy-api.sh`](../../infra/deploy/deploy-api.sh) 为准。**
+>
+> - 线上 `bp-api` 用的是 `BP_*` 前缀的环境变量
+>   （`BP_ENV` / `BP_GCP_PROJECT_ID` / `BP_DB_MAX_CONNS` / `BP_LOG_LEVEL` /
+>   `BP_TRUST_PROXY_HEADERS` / `BP_ALLOWED_ORIGINS`），
+>   连接串**整串**走 secret `bp-database-url` → `BP_DATABASE_URL`；
+>   `DB_HOST` / `DB_NAME` / `DB_USER` / `APP_ENV` / `GIT_SHA` 与 secret `bp-db-password`
+>   **线上都不存在**。环境变量名的唯一事实源是
+>   [`api/internal/config/config.go`](../../api/internal/config/config.go)。
+> - 线上也没有挂 `bp-mail-api-key` —— `setup-infra.sh` 明确不建它（ESP 未选型，见 §15）。
+> - `--service-account`、`--add-cloudsql-instances`、`--max-instances=8`、`--cpu-boost`
+>   四项线上与本节**一致**，5.1 的推理仍然成立。
+>
+> 偏差登记见 [infra/deploy/README.md §4](../../infra/deploy/README.md) 第 4 行，
+> 线上实际参数见 [as-built-gcp §10.1](../02-architecture/as-built-gcp.md)。
 
 ### 5.1 逐参数交代（这一节是本文的核心，不要跳读）
 
@@ -883,10 +907,13 @@ gcloud run services update-traffic bp-api --project=$P --region=us-central1 --to
 
 > ⚠️ 这一选择的代价，必须留在记录里而不是被措辞掩盖：
 >
-> 1. **本文 40 余条命令一条都没有在 `oratis-491316` 上执行过。**
->    它是按官方文档与既有裁决推演出来的，不是 as-built。
+> 1. **本文是按官方文档与既有裁决推演出来的，不是 as-built。**
 >    首次执行必然会遇到参数名、字段路径、权限的偏差（文中已逐处标 **待核实** / **需实测**）。
->    **首次执行必须逐条记录偏差并回写本文，把状态从「待实施」改成「As-Built」。**
+>    **首次执行必须逐条记录偏差并回写本文。**
+>    2026-08-20 已证实这条代价是真的：`bp-api` / `bp-db` 已经上线，
+>    而线上的环境变量与 secret 名**与 §5 的示例命令对不上**（§5 红框、as-built §10.1）——
+>    偏差是脚本作者当时就发现并记在 [infra/deploy/README.md §4](../../infra/deploy/README.md) 的，
+>    但**没有回写本文**，于是本文当了三天的错误事实源。
 > 2. **软隔离靠人的纪律，不靠机制。** as-built §8 已经接受了「共享项目 = 共享爆炸半径」。
 >    本文的 `assert-untouched.sh` 是**事后发现**不是**事前阻止** ——
 >    一条 `gcloud compute firewall-rules delete` 打错名字，脚本能告诉你出事了，但拦不住你。
@@ -913,8 +940,11 @@ gcloud run services update-traffic bp-api --project=$P --region=us-central1 --to
 - [ ] **IaC（Terraform / Pulumi）未做。** 不在本次范围的理由是 as-built §9 尚未清点完
       Cloudflare 侧资产（Tunnel / DNS zone / Workers）—— 导入一份**不完整**的 state
       比没有 state 更危险（`terraform destroy` 会按 state 走）。CF 侧清点完成后应立即补。
-- [ ] **计费账号与月度支出未查**（as-built §9，`gcloud billing` 需要额外权限）。
-      直接后果：[monitoring.md](monitoring.md) §9 的 Cloud Billing budget 告警**现在建不了**。
+- [x] ~~**计费账号与月度支出未查**（as-built §9，`gcloud billing` 需要额外权限）。~~
+      **部分解决**：2026-08-20 已改走 BigQuery 账单导出 `loopback-500616.billing_export`
+      并完成一次对账（as-built §10.3）。
+      但 [monitoring.md](monitoring.md) §9 的 Cloud Billing budget 告警**仍然建不了** ——
+      建 budget 要的是计费账号级权限，与「能读导出表」不是一回事，**是否具备未查**。
 - [ ] 🔴 **`*.run.app` 与 Cloud Run 自定义域名的证书签发者未实测**（§11.1）。
       它决定 API 的入口形态，应当在写第一行代码之前就跑那条 `openssl` 命令 —— 成本是 10 秒。
 - [ ] **域名一个都还没注册。** 本文所有 `*.babel.plus` 是占位符，域名策略（几个、注册在哪、

@@ -25,9 +25,22 @@
 ## 当前待采集（全部为 P0 阻塞项）
 
 - [x] ~~`egress-cost-*` — GCP 出口单价~~ **✅ 已完成** → [gcp-egress-pricing-20260817](gcp-egress-pricing-20260817/)
-      （单价已定；**实际账单核对**仍待有真实用量后做）
+      （单价已定。**实际账单核对已于 2026-08-20 补做**：`vpn-us` + `vpn-jp` 在
+      2026-06-28 → 08-20 实际发生 **2,927 GiB / $294.12 = $0.1005/GiB** ——
+      这是 **Premium 层**下跨两区域、混了 Internet Data Transfer 与 Carrier Peering
+      两类 SKU 的加权单价，**不对应目录里任何单独一档**。
+      结论写在 [pricing §2](../03-product/pricing-and-plans.md) 与
+      [as-built-gcp §10.3](../02-architecture/as-built-gcp.md)。
+      ⚠️ 两笔欠账：**SKU 级拆分未做**；BigQuery 导出的**原始数据没有落进本目录**，
+      按本文的约定应当补一个 `egress-billing-20260820/`。）
 - [ ] `protocol-throughput-*` — REALITY vs Hysteria2，电信/联通/移动 × 晚高峰
 - [ ] `region-ab-*` — asia-east1 vs asia-northeast1
-- [ ] `nettier-ab-*` — Standard vs Premium 网络层级
+- [ ] 🔴 `nettier-ab-*` — Standard vs Premium 网络层级。
+      **2026-08-20 起这一项的性质变了**：实查确认线上一直跑在 **Premium**
+      （[as-built-gcp §10.4](../02-architecture/as-built-gcp.md)），
+      [ADR 0008](../05-adr/0008-network-tier-standard.md) 从未实施 ——
+      所以这不再是「选型调研」，而是**一个已经在花钱的现状要不要改**的取舍：
+      成本可能降（幅度未知，需先做 SKU 级拆分），代价是 Standard 的回程路径质量
+      对代理类产品直接影响体感。**这项实测是那个决定的前置条件。**
 - [ ] `email-deliverability-*` — QQ/163/126/Sina 送达率
 - [ ] `domain-reachability-*` — 候选托管平台与域名的三网可达性（连续一周，覆盖晚高峰）
