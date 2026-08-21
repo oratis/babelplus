@@ -117,6 +117,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | **00-overview** | [product-brief.md](00-overview/product-brief.md) — 产品定位与范围 | 设计稿 v1 |
 | | [roadmap.md](00-overview/roadmap.md) — 路线图与排期 | 设计稿 v1 |
 | | [glossary.md](00-overview/glossary.md) — 术语表 | 执行中 |
+| | [launch-readiness-review-20260821.md](00-overview/launch-readiness-review-20260821.md) — 上线审查（时点快照） | **As-Built**（2026-08-21，不回改） |
 | **01-research** | [competitor-conyss.md](01-research/competitor-conyss.md) — 竞品一手走查 | 已完成 |
 | | [reference-repos.md](01-research/reference-repos.md) — Proxy_Skill + Diogenes | 已完成 |
 | | [protocol-and-infra.md](01-research/protocol-and-infra.md) — 协议与基础设施 | 已完成 |

@@ -7,3 +7,4 @@
 | [product-brief.md](product-brief.md) | 对外需求书 | 设计稿 v1（2026-08-16） |
 | [roadmap.md](roadmap.md) | 排期计划 | 设计稿 v1（2026-08-16） |
 | [glossary.md](glossary.md) | 机制说明 | 执行中（2026-08-16） |
+| [launch-readiness-review-20260821.md](launch-readiness-review-20260821.md) | 证据型核查 | As-Built（2026-08-21 时点快照，不回改） |
