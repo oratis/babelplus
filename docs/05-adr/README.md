@@ -14,7 +14,7 @@
 
 | # | 裁决 | 状态 |
 |---|---|---|
-| [0001](0001-cloudflare-tos-risk.md) | Cloudflare 只承载控制面，不承载中转数据面 | **提案，未批准** — 等待用户决策 |
+| [0001](0001-cloudflare-tos-risk.md) | Cloudflare 只承载控制面，不承载中转数据面 | **已批准**，待实施（2026-08-17） |
 | [0002](0002-notification-channels.md) | 邮件是唯一的失联恢复通道，Telegram 只能做锦上添花 | 设计稿 v1，待实施 |
 | [0003](0003-web-hosting-and-reachability.md) | 控制面托管按实测可达性选型，必须用自有域名 + 镜像 | 设计稿 v1，待实施 |
 | [0004](0004-transport-hardening.md) | 传输层按「特征混同」而非「性能最优」调参 | 设计稿 v1，待实施 |

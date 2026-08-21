@@ -1,0 +1,20 @@
+# Cloud Build 上传构建上下文时用的忽略清单。
+#
+# 🔴 **这个文件必须存在，即使内容几乎为空。**
+#
+# 原因：`gcloud builds submit` 在**找不到 .gcloudignore 时会回退使用 .gitignore**。
+# 而本目录的 .gitignore 里有 `migrations/` —— 那是刻意的，migrations 是
+# build-and-run.sh 从 api/db/migrations 同步过来的产物，不该进 git。
+#
+# 两者叠加的后果（2026-08-17 实测踩到）：构建上下文里没有 migrations/，
+# Dockerfile 走到 `COPY migrations/ /migrations/` 直接失败：
+#   COPY failed: file not found in build context or excluded by .dockerignore
+#
+# 症状很有迷惑性 —— 前 12 步全部成功（连 postgres 客户端都装好了），
+# 只在最后一步炸，看起来像 Dockerfile 写错了，实际是上传时就没带上。
+#
+# 有了本文件，.gitignore 就不再参与 Cloud Build 的上传决策。
+
+# 真正不需要上传的：
+.DS_Store
+*.log

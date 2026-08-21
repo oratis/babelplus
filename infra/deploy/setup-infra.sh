@@ -222,7 +222,17 @@ step_apis() {
 }
 
 step_registry() {
-  step "2/8 Artifact Registry"
+  # 前置依赖：本步要给 bp-deploy-sa 授仓库级 writer，所以它必须已经存在。
+  # 单独跑 --step=registry 而没先跑 --step=iam 时，这里给出可操作的报错，
+  # 而不是让 gcloud 抛一句 INVALID_ARGUMENT 就完了。
+  if [ "$DRY_RUN" -eq 0 ] && ! gcloud iam service-accounts describe \
+      "${SA_DEPLOY}@${PROJECT_ID}.iam.gserviceaccount.com" \
+      --project="$PROJECT_ID" >/dev/null 2>&1; then
+    die "服务账号 ${SA_DEPLOY} 不存在。registry 步骤依赖它 —— 先跑：
+     ./infra/deploy/setup-infra.sh --step=iam"
+  fi
+
+  step "3/8 Artifact Registry"
   guard_bp_prefix "$AR_REPO"
   if gcloud artifacts repositories describe "$AR_REPO" \
        --project="$PROJECT_ID" --location="$REGION" >/dev/null 2>&1; then
@@ -255,7 +265,7 @@ step_registry() {
 }
 
 step_iam() {
-  step "3/8 服务账号与 IAM"
+  step "2/8 服务账号与 IAM"
   guard_bp_prefix "$SA_API" "$SA_DEPLOY" "$SA_TASKS"
 
   local sa
@@ -671,7 +681,11 @@ main() {
 
   case "$STEP" in
     all)
-      step_apis; step_registry; step_iam; step_secrets; step_sql; step_pubsub; step_tasks
+      # ⚠️ iam 必须排在 registry 之前：registry 那步要给 bp-deploy-sa 授仓库级 writer，
+      #    而这个服务账号是 iam 那步创建的。2026-08-17 实测踩到 ——
+      #    原顺序下 --step=all 会在第 2 步以
+      #    `INVALID_ARGUMENT: Service account bp-deploy-sa@… does not exist` 中断。
+      step_apis; step_iam; step_registry; step_secrets; step_sql; step_pubsub; step_tasks
       step "完成（不含 postdeploy）"
       log "  下一步：./infra/deploy/deploy-api.sh --promote"
       log "  然后  ：./infra/deploy/setup-infra.sh --step=postdeploy"

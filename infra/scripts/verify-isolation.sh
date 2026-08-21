@@ -59,9 +59,13 @@ EXPECT_FIREWALL=(
 
 # as-built §4 的三个现有 Cloud Run 服务。名字|URL。
 EXPECT_RUN=(
-  "anthropic-relay|https://anthropic-relay-2360090741.us-central1.run.app"
-  "lisa-cloud|https://lisa-cloud-2360090741.us-central1.run.app"
-  "lisa-web|https://lisa-web-2360090741.us-central1.run.app"
+  # ⚠️ 2026-08-17 实测修正：Cloud Run 的默认 URL 形式已从
+  #    `<svc>-<项目号>.<region>.run.app` 改为 `<svc>-<哈希>-<区域缩写>.a.run.app`。
+  #    as-built §4 最初记的是前者（从截断的列表里抄的），与线上不符，
+  #    导致本检查开工第一天就三条全红。下面是实测值。
+  "anthropic-relay|https://anthropic-relay-cko3zfff5a-uc.a.run.app"
+  "lisa-cloud|https://lisa-cloud-cko3zfff5a-uc.a.run.app"
+  "lisa-web|https://lisa-web-cko3zfff5a-uc.a.run.app"
 )
 
 # as-built §5 的现有 secret 与服务账号。
@@ -168,13 +172,31 @@ fetch() {
     printf '[]' > "${OUT_DIR}/${name}.json"
     return 0
   fi
-  if ! "$@" --format=json > "${OUT_DIR}/${name}.json" 2>"${OUT_DIR}/${name}.err"; then
+  if ! "$@" --format=json > "${OUT_DIR}/${name}.raw" 2>"${OUT_DIR}/${name}.err"; then
     fail "取不到 ${name}（gcloud 调用失败，见 ${OUT_DIR}/${name}.err）。
      取不到 = 判定不了 = **当作失败**。隔离检查不允许「查不到就算通过」。"
     printf '[]' > "${OUT_DIR}/${name}.json"
     return 1
   fi
-  rm -f "${OUT_DIR}/${name}.err"
+
+  # ⚠️ gcloud 会把噪音写进 **stdout** 且仍然 exit 0，于是 --format=json 的输出不是合法 JSON。
+  # 2026-08-17 实测：`gcloud artifacts repositories list` 在 Python 3.9 的环境下，
+  # stdout 第一行是 `An error occurred: module 'importlib.metadata' has no attribute
+  # 'packages_distributions'`，紧跟才是 `[`。退出码 0，所以上面那个 if 检测不到。
+  #
+  # 这会让隔离检查**静默误报**（JSON 解析不出来 → 判定为「资源不存在」），
+  # 而一个天天报红的检查等于没有检查。所以在这里统一剥掉 JSON 之前的所有内容。
+  # 只认第一个 `[` 或 `{` 起头 —— gcloud 的 --format=json 输出必定以其中之一开始。
+  awk 'p{print;next} /^[[{]/{p=1;print}' "${OUT_DIR}/${name}.raw" > "${OUT_DIR}/${name}.json"
+
+  if ! jq -e 'type' "${OUT_DIR}/${name}.json" >/dev/null 2>&1; then
+    fail "取到的 ${name} 不是合法 JSON（原始输出见 ${OUT_DIR}/${name}.raw）。
+     同样按「取不到 = 判定不了 = 失败」处理。"
+    printf '[]' > "${OUT_DIR}/${name}.json"
+    return 1
+  fi
+
+  rm -f "${OUT_DIR}/${name}.err" "${OUT_DIR}/${name}.raw"
   return 0
 }
 
@@ -285,9 +307,12 @@ check_artifacts() {
   fi
   if [ "$DRY_RUN" -eq 0 ]; then
     local count
+    # 同 fetch()：gcloud 可能把噪音写进 stdout 且仍 exit 0，所以这里也要剥掉 JSON 前缀。
     count="$(gcloud artifacts docker images list \
       "${REGION}-docker.pkg.dev/${PROJECT_ID}/${EXPECT_AR_REPO}" \
-      --project="$PROJECT_ID" --format=json 2>/dev/null | jq 'length' 2>/dev/null || printf '')"
+      --project="$PROJECT_ID" --format=json 2>/dev/null \
+      | awk 'p{print;next} /^[[{]/{p=1;print}' \
+      | jq 'length' 2>/dev/null || printf '')"
     if [ -n "$count" ]; then
       printf '%s\n' "$count" > "${OUT_DIR}/ar-image-count.txt"
       log "  · $EXPECT_AR_REPO 当前镜像数 = $count（判定见「镜像数不减少」一节）"

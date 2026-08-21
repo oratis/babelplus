@@ -1,7 +1,9 @@
 # 本地开发环境（无需在本机装 Go）
 
-> 日期：2026-08-16（2026-08-17 补 web 侧并全量复跑；2026-08-20 按线上实况修 §4 的 GCP 一行） · 性质：**执行手册**
-> 状态：**As-Built**（2026-08-17 端到端复验通过）
+> 日期：2026-08-16（2026-08-17 补 web 侧并全量复跑；2026-08-17 补 P1 内核落地后的联调与冒烟基线；
+> 2026-08-20 按线上实况修 §4 的 GCP 一行）
+> 性质：**执行手册**
+> 状态：**As-Built**（2026-08-17 端到端复验通过，39 条冒烟断言全绿）
 > 事实基线：本文每条命令都在这台开发机上实际跑通过，不是照着文档抄的
 > 读者：接手 `api/` 或 `web/` 的开发者。第一次拉仓库时从 §1 开始。
 > 关联：[deploy.md](deploy.md)、[ADR 0006](../05-adr/0006-api-stack.md)、
@@ -153,36 +155,132 @@ cd web && pnpm run gen:api  # openapi-typescript → shared/api/schema.d.ts
 
 ### 3.4 端到端冒烟
 
+**冒烟需要种子数据。** 空库跑不出有意义的结果：注册要求 `server_groups` 里至少有一行
+（`users.group_id` 是 NOT NULL 外键）与一个有效邀请码，节点面要求一台 server 加一把密钥。
+migration 里**没有**任何种子数据，这是刻意的（种子数据属于运营，不属于 schema），
+所以下面第 2 步不能跳。
+
+**第 1 步：起库灌表**（见 §3.2）
+
 ```bash
-docker network create bp-smoke
-docker run --rm -d --name bp-dev-pg --network bp-smoke \
-  -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=babelplus postgres:17
-# 等就绪后灌 migration（见 §3.2），然后：
-cd api && make docker-build
-docker run --rm -d --name bp-api-smoke --network bp-smoke -p 18080:8080 \
-  -e BP_ENV=dev \
-  -e BP_DATABASE_URL='postgres://postgres:devpass@bp-dev-pg:5432/babelplus?sslmode=disable' \
-  -e BP_SUBSCRIPTION_TOKEN_PEPPER=dev-only-pepper-sub-00000000 \
-  -e BP_NODE_KEY_PEPPER=dev-only-pepper-node-0000000 \
-  -e BP_SESSION_SIGNING_KEY=dev-only-session-key-000000 \
-  -e BP_GCP_PROJECT_ID=oratis-491316 \
-  bp-api:dev
+cd api && make pg-up && sleep 5 && make migrate-up
 ```
 
-实测应得到的结果（**这是回归基线，改动后应保持一致**）：
+**第 2 步：灌种子数据**
+
+节点密钥的哈希算法是 `sha256(BP_NODE_KEY_PEPPER + 明文密钥)`，
+订阅 token 同理但用 `BP_SUBSCRIPTION_TOKEN_PEPPER`。
+**pepper 拼在前面**（`middleware.HashSessionToken` / `AuthenticateNode` 都是这个顺序），
+顺序反了的现象是「密钥看着完全正确但一直 401」。
+
+```bash
+NODE_PEPPER='dev-only-pepper-node-0000000'
+NODE_TOKEN='bpk_smoke_0123456789abcdefghij'      # 形态要求：24–128 位 [A-Za-z0-9_-]
+HASH=$(printf '%s' "${NODE_PEPPER}${NODE_TOKEN}" | shasum -a 256 | cut -d' ' -f1)
+
+docker exec -i bp-dev-pg psql -v ON_ERROR_STOP=1 -U postgres -d babelplus <<SQL
+INSERT INTO server_groups (code, name) VALUES ('basic', '基础组');
+INSERT INTO servers (code, name, protocol, host, port, server_port, region, protocol_settings)
+VALUES ('bp-node-smoke', '冒烟节点', 'vless_reality', '203.0.113.10', 443, 443, 'asia-east2',
+  '{"listen_ip":"0.0.0.0","server_name":"www.microsoft.com","reality_private_key":"PRIVKEY_CANARY",
+    "reality_short_id":"a1b2c3d4","reality_dest":"www.microsoft.com:443","reality_public_key":"PUBKEY_SMOKE"}'::jsonb);
+INSERT INTO server_group_map (server_id, group_id)
+  SELECT s.id, g.id FROM servers s, server_groups g WHERE s.code='bp-node-smoke' AND g.code='basic';
+INSERT INTO node_rev (server_id) SELECT id FROM servers WHERE code='bp-node-smoke';
+INSERT INTO server_keys (server_id, key_prefix, key_hash, scopes)
+  SELECT id, 'bpk_smoke', decode('${HASH}','hex'),
+    ARRAY['node:config:read','node:users:read','node:traffic:write',
+          'node:alive:write','node:alive:read','node:status:write']
+  FROM servers WHERE code='bp-node-smoke';
+INSERT INTO invite_codes (code, max_uses, note) VALUES ('SMOKE2026', 5, '冒烟测试用');
+SQL
+```
+
+**第 3 步：起 API**
+
+用 `go run` 而不是 `make docker-build`：改一行代码就重建一次 16 MB 镜像太慢，
+而且冒烟阶段要频繁看日志。`host.docker.internal` 让容器连回宿主机上 `make pg-up` 发布的 55433 端口，
+不用另建 docker network。
+
+```bash
+R=$(cd .. && pwd)   # 仓库根
+docker run -d --name bp-smoke-api \
+  -v "$R":/w -v "$R/.gocache":/root/.cache/go-build -v "$R/.gomodcache":/go/pkg/mod \
+  -w /w/api -p 18080:8080 \
+  -e HTTP_PROXY= -e HTTPS_PROXY= -e http_proxy= -e https_proxy= -e NO_PROXY='*' \
+  -e GOPROXY='https://goproxy.cn,https://proxy.golang.org,direct' -e GOFLAGS=-mod=mod \
+  -e BP_ENV=dev \
+  -e BP_DATABASE_URL='postgres://postgres:devpass@host.docker.internal:55433/babelplus?sslmode=disable' \
+  -e BP_SUBSCRIPTION_TOKEN_PEPPER=dev-only-pepper-sub-00000000 \
+  -e BP_NODE_KEY_PEPPER="$NODE_PEPPER" \
+  -e BP_SESSION_SIGNING_KEY=dev-only-session-key-000000 \
+  -e BP_GCP_PROJECT_ID=oratis-491316 \
+  -e BP_ALLOWED_ORIGINS='http://localhost:5173,http://localhost:5174' \
+  golang:1.25-alpine sh -c 'go run ./cmd/server'
+docker logs -f bp-smoke-api      # 等到「监听中」
+```
+
+> **注册验证码怎么拿**：ESP 尚未接入（ADR 0002 定的 SES 还没接），
+> `BP_ENV=dev` 时验证码明文打在日志里的 `secret` 字段：
+> `docker logs bp-smoke-api | grep '仅 dev' | tail -1`。
+> staging/prod **不打** —— 打出来等于把验证码写进 Cloud Logging，而日志读取权限比数据库宽得多。
+
+#### 冒烟基线（2026-08-17 实测，39 条断言全绿）
+
+**这是回归基线，改动后应保持一致。** 期望值里的错误码全部是 `openapi.yaml`
+的 `ErrorCode` enum 成员 —— 前端按 `code` 分支，enum 外的值会全部落到兜底分支。
 
 | 请求 | 期望 |
 |---|---|
 | `GET /healthz` | `200` `ok` |
-| `GET /api/v1/plans`（未实现） | `501` `NOT_IMPLEMENTED` |
-| `GET UniProxy/config` 无密钥 | `401` `NODE_KEY_MISSING` |
-| `GET UniProxy/config` 错密钥 | `401` `NODE_KEY_INVALID` |
-| `GET UniProxy/config` 短密钥 | `401`（**不查库**直接拒） |
+| **订阅面** | |
+| `GET /s/abc`（过短） | `404`，**不查库**直接拒 |
+| `GET /s/<含非法字符>` | `404`，同上 |
+| `GET /s/<合法形态但不存在>` | `404`，与上面两条**响应体逐字节一致** |
+| `GET /s/<有效 token>`（clash UA） | `200` `text/yaml`，头部 `subscription-userinfo` 全小写 |
+| 订阅正文 | 不含 `protocol_settings` 里的 REALITY 私钥，不含 token 明文 |
+| **节点面** | |
+| `GET UniProxy/user` 无密钥 | `401` `NODE_KEY_INVALID` |
+| `GET UniProxy/user` 错密钥 | `401` `NODE_KEY_INVALID` |
+| `GET UniProxy/user` 短密钥 | `401`（**不查库**直接拒） |
+| `GET UniProxy/user` 有效密钥、无可用用户 | `200` `{"users":[]}` —— **是 `[]` 不是 `null`** |
+| `GET UniProxy/user` 带 `If-None-Match` | `304`，空响应体 |
+| `GET UniProxy/user` scope 不含 `node:users:read` | `403` `NODE_SCOPE_DENIED` |
+| `GET UniProxy/user` 节点 `enabled=false` | `403` `AUTH_PERMISSION_DENIED` |
+| `GET UniProxy/config` 有效密钥 | `200`，裸 JSON 无信封 |
+| **CORS** | |
+| `OPTIONS /api/v1/plans` + `Origin: http://localhost:5173` | `204` + 回显该 Origin + `Vary: Origin` |
+| `OPTIONS` + `Origin: https://evil-babel.plus` | `204`，**不带任何 CORS 头** |
+| `OPTIONS` + `Origin: http://localhost:5173.attacker.com` | 同上，不回显（后缀绕过不成立） |
+| 任意响应（**含无 Origin 的**） | 都带 `Vary: Origin` |
+| **用户面鉴权** | |
+| `GET /api/v1/user/me` 无凭据 | `401` `AUTH_TOKEN_INVALID` |
+| `GET /api/v1/user/me` 伪造 token | `401`，与上一条**不可区分** |
+| `GET /api/v1/admin/users`（管理面） | `501`（鉴权未实现 → 中间件 fail-closed，见 §4 脚注） |
+| `POST /internal/tasks/traffic-reset` | `501`，同上 |
+| **账户全链路** | |
+| `POST /auth/email-code` | `204`（已注册/未注册都是 204，且**都记账**） |
+| `POST /auth/register` | `201` + `SessionTokens` |
+| `POST /auth/login` | `200` + `SessionTokens` |
+| `GET /api/v1/user/me` 带登录 token | `200`，返回本人邮箱 |
+| `POST /auth/login` 口令错误 | `401` |
+| `POST /auth/login` 邮箱不存在 | `401`，与口令错误**同码同耗时** |
+| `POST /auth/logout` | `204`，之后原 token 立刻 `401` |
+| **日志脱敏** | |
+| 访问日志 | 不含订阅 token 明文（路径打码成 `/s/xxxxxxxx…`）、不含节点密钥（query 从不入日志） |
+| **启动** | |
 | 不带任何环境变量启动 | 非 0 退出，一次性列出全部 6 个缺失变量 |
+| `BP_ENV=staging` 且缺 `BP_ALLOWED_ORIGINS` | 拒绝启动（dev 有默认值 5173/5174） |
 
-> **501 与 500 的区分是刻意的**：脚手架阶段有 120+ 个端点未实现，
+> **501 与 500 的区分是刻意的**：当前有 110 个端点未实现，
 > 若它们都算 500，5xx 告警会长期为红，真正的故障反而被淹没。
 > [monitoring.md](monitoring.md) 的告警规则按「5xx 排除 501」建。
+
+> **怎么证明「不查库」**：给本地 Postgres 开 `ALTER SYSTEM SET log_statement='all'` +
+> `SELECT pg_reload_conf()`，然后打一批非法形态的 token，
+> `docker logs bp-dev-pg | grep -c subscription_tokens` 应保持不变。
+> 2026-08-17 实测：6 次非法形态请求之后计数为 0 增量。
+> 光看 404 状态码证明不了这件事 —— 查了库再返回 404 也是 404。
 
 ### 3.5 web 侧：起前端
 
@@ -218,54 +316,119 @@ pnpm run gen:api:check              # 契约没漂移
 `?state=loading`、`?state=empty`、`?state=error&error=offline`
 可以直接看到该页的加载 / 空 / 错三种形态，不需要真的把后端弄坏。
 
-### 3.6 🔴 web 与 api 现在**还不能**在本地互通
+### 3.6 web ↔ api 本地联调（跨源，与生产同构）
 
-**这不是配置问题，是两侧都还缺东西。** 2026-08-17 实测确认：
+**2026-08-17：这条路通了。** 原先卡在「`api/` 侧没有 CORS 中间件」，现已实现
+（`api/internal/middleware/cors.go`），白名单来自 `BP_ALLOWED_ORIGINS`，
+dev 缺省就是 `http://localhost:5173,http://localhost:5174`。
 
-| 走法 | 现状 | 为什么不通 |
-|---|---|---|
-| 同源（`apiBaseUrl` 留空，落到 `window.location.origin`） | ❌ | 前端请求 `http://localhost:5173/api/v1/…`，而两个 `vite.config.ts` 的 `server` 段**都没有 `proxy` 配置**，vite 直接 404 |
-| 跨源（`apiBaseUrl` 指到 `http://localhost:18080`） | ❌ | `api/` 侧**没有任何 CORS 中间件**（`grep -ri cors api/cmd api/internal` 为空），浏览器预检就被拦下 |
+**仍然不要加 vite dev proxy。** 生产形态是「API 与 Web 各用独立主域名池」
+（README §关键约束 1），**本来就是跨源的**；用同源代理绕过去只会把跨源问题藏到上线那天。
+下面这条路径与生产完全同构。
 
-两条路都堵着，所以**现在的前端页面全是静态骨架，没有一个真的调过本地 API**。
+**第 1 步：起 API**（见 §3.4 第 3 步）。确认启动日志里
+`"allowed_origins":["http://localhost:5173","http://localhost:5174"]`。
+显式传 `BP_ALLOWED_ORIGINS` 也可以，但**白名单是精确字符串相等匹配**：
+`http://localhost:5173/`（多一个尾斜杠）、`localhost:5173`（缺协议）都会被 config 层拒绝启动，
+而不是静默不匹配 —— 后者的现象与「压根没配」一模一样。
 
-**不要随手加一个 vite dev proxy 把它糊过去。** 生产形态是
-「API 与 Web 各用独立主域名池」（README §关键约束 1），**本来就是跨源的**；
-dev 阶段用同源代理绕过去，只会把「API 缺 CORS」这件事藏到上线那天才爆。
-正确顺序是先裁决允许哪些 Origin（域名池是动态的，这不是一行 `AllowAll` 能了事的），
-在 `api/` 侧实现 CORS 中间件，前端再用 `runtime-config.js` 把 `apiBaseUrl`
-指到本地 API —— 那条路径和生产完全同构。已登记在 §6。
+**第 2 步：把 `apiBaseUrl` 指到本地 API**
 
-> 在此之前，本地改前端就只看 UI；要验证契约层，靠 `pnpm -r typecheck`
+```bash
+# 用户面板；后台同理改 web/admin/public/runtime-config.js
+sed -i '' "s#apiBaseUrl: ''#apiBaseUrl: 'http://localhost:18080'#" web/user/public/runtime-config.js
+cd web && pnpm dev:user      # → http://localhost:5173
+```
+
+> ⚠️ `runtime-config.js` 是**提交进仓库**的文件（部署时覆盖它就能换域名，不重新构建）。
+> 本地改完**别提交**：`git checkout web/user/public/runtime-config.js` 还原。
+> CI 的 `contract-drift` 作业不看它，唯一的防线是你自己的 `git status`。
+
+**第 3 步：验证**
+
+浏览器 devtools 的 Network 里应当看到：`/api/v1/user/me` 先一条 `OPTIONS`（204），
+再一条真实请求（未登录时 401 `AUTH_TOKEN_INVALID`）。
+**看到 401 就是通了** —— 那是应用层的正确回答；被 CORS 拦下的表现是
+`TypeError: Failed to fetch`，请求在 Network 里显示为 `(failed)` 且没有响应头。
+
+2026-08-17 实测（真实浏览器，不是 curl）：
+
+| Origin | `GET /healthz`（简单请求） | `GET /user/me` 带 `Authorization`（触发预检） | `POST /auth/login`（预检 + JSON） |
+|---|---|---|---|
+| `http://localhost:5173`（白名单内） | `200 ok` | `401 AUTH_TOKEN_INVALID` | `401` |
+| `http://localhost:5175`（白名单外） | `TypeError: Failed to fetch` | 同左（预检就被拦） | 同左 |
+
+白名单外的那一行是**反向验证**：不做这一步的话，「CORS 生效了」与
+「CORS 中间件写成了 `AllowAll`」在正向测试里长得一模一样。
+
+> 契约层的静态验证仍然靠 `pnpm -r typecheck`
 > （`shared/api/queries.ts` 里那 7 个真正接线的只读查询，作用就是让生成的类型
-> 每次 typecheck 都被真的走一遍）。
+> 每次 typecheck 都被真的走一遍）。**web 侧一行运行时测试都还没有**，见 §6。
 
 ---
 
 ## 4 · 当前实现状态
 
+截至 2026-08-17（P1 内核落地后复验）。
+
 | 部分 | 状态 |
 |---|---|
-| 数据库 schema（43 表 / 118 索引 / 4 视图） | ✅ 可正向可回滚，实测通过 |
-| sqlc 查询层（6 个领域，1511 行查询） | ✅ 生成通过 |
-| OpenAPI 契约（128 operation） | ✅ 生成 Go 接口通过 |
-| 配置 fail-closed | ✅ 实测通过 |
-| 节点鉴权（每节点密钥 + 哈希存储 + scope） | ✅ 实测通过 |
-| ETag 弱比较 | ✅ 单测覆盖 13 个用例 |
-| UniProxy `/config` `/user` 的 ETag 协商 | ✅ 已实现（响应体组装仍是 TODO） |
-| 其余 122 个 operation | ⬜ 返回 501 |
-| 用户面 / 管理面鉴权中间件 | ⬜ **未实现**（因端点全 501，当前无鉴权缺口） |
+| 数据库 schema（43 表 / 118 索引 / 4 视图） | ✅ 可正向可回滚，`make migrate-verify` 实测：建表 43、回滚后残留 0 |
+| sqlc 查询层（6 个领域） | ✅ 生成通过；`sqlc generate` 与提交版本一致 |
+| OpenAPI 契约（128 operation） | ✅ `make gen-api` + `gen-stubs` + `gofmt` 后零漂移 |
+| 配置 fail-closed | ✅ 实测通过（含 `BP_ALLOWED_ORIGINS` 的格式校验） |
+| **已实现的 operation：18 / 128** | ✅ 见下表 |
+| **仍返回 501 的 operation：110 / 128** | ⬜ |
+| 节点鉴权（每节点密钥 + sha256 存储 + scope 白名单） | ✅ 实测通过（401/403 分流、短密钥不查库） |
+| **用户会话鉴权** | ✅ 已实现**且已挂载**（`cmd/server/authmap.go`） |
+| 管理面 / 内部任务鉴权 | ⬜ **未实现**；中间件对这 70 个 operation 一律 `501` **fail-closed** |
+| ETag 弱比较 | ✅ 单测覆盖；`/user` `/config` 的 304 协商实测通过 |
+| UniProxy 五端点（config / user / push / alive / alivelist） | ✅ 已实现（`/status` 仍是 501） |
+| 账户体系十端点（注册 / 登录 / 改密 / 找回 …） | ✅ 已实现；argon2id + 不可枚举登录实测通过 |
+| 订阅下发（`/s/{token}` 与 `/client/subscribe`） | ✅ 三格式渲染 + 审计写入实测通过 |
+| CORS | ✅ 已实现并挂载；真实浏览器正反向验证通过（§3.6） |
+| 日志脱敏（订阅 token 不进访问日志） | ✅ 已实现（`middleware.RedactPath`），有回归测试 |
+| 幂等骨架 | ✅ 三态 `BeginIdempotent` 已实现；⚠️ **清理定时任务尚未挂**（§6） |
+| Go 全套（build / vet / test / gofmt / race） | ✅ 全绿：155 个顶层用例 + 98 个子用例，0 失败 |
 | web workspace（shared / user / admin） | ✅ 构建、类型检查、外链检查全通过 |
 | web 路由骨架（用户 20 条 + 后台 21 条） | ✅ 每页有布局与三态占位，业务逻辑全是 `TODO(P1)` |
 | web TS 客户端（从契约生成，128 operation） | ✅ 生成物已提交，幂等已实测 |
-| web ↔ api 本地互通 | ⬜ **不通**（无 dev proxy 且 API 无 CORS，见 §3.6） |
+| web ↔ api 本地互通 | ✅ **通了**（跨源 + CORS，与生产同构，见 §3.6） |
 | web 登录态与路由守卫 | ⬜ **未实现**，所有页面可直达（`web/README.md` §8 已标红） |
+| web 页面真的调过本地 API | ⬜ **还没有** —— §3.6 验证的是浏览器层的 CORS，不是页面业务接线 |
 | 后台危险操作确认组件 `DangerAction` | ⬜ **未实现**，16 条 D 项目前只有清单展示 |
+| 登录 / 邀请码校验的限流（`rate_limit` 表） | ⬜ **未实现**，migration 里没有这张表（§6） |
+| 邮件真正发送（SES） | ⬜ **未接**，`email_log.status` 恒为 `queued` |
 | CI（9 个作业）与 deploy（6 个作业） | ✅ 已建；本机可复跑的作业均已等价验证 |
 | GCP 上的 `bp-` 资源 | ✅ **`bp-api` / `bp-db` / `bp-api-sa` / 4 个 `bp-` secret 已建并在计费**（2026-08-20 复核，见 [as-built-gcp §10](../02-architecture/as-built-gcp.md)）；`bp-web`、`bp-migrate`、Scheduler / Tasks / Pub/Sub 与 `infra/node/` 侧仍无 |
 
-**实现新端点前必须先补对应的鉴权中间件** —— 见
-`cmd/server/main.go` 的 `nodeScopeMiddleware` 注释。
+**已实现的 18 个 operation**：`GetHealthz`；节点面 `GetUniProxyConfig` `GetUniProxyUsers`
+`GetUniProxyAliveList` `PushUniProxyTraffic` `PushUniProxyAlive`；订阅面 `GetShortSubscription`
+`GetClientSubscription`；账户面 `RegisterAccount` `SendEmailCode` `Login` `RefreshToken` `Logout`
+`ForgotPassword` `ResetPassword` `VerifyInviteCode` `GetCurrentUser` `ChangePassword`。
+
+#### 🔴 鉴权装配：新增端点必读
+
+事实源是 **`api/cmd/server/authmap.go`** 的五张表，128 个 operation 各归其一：
+
+| 表 | 条数 | 中间件行为 |
+|---|---|---|
+| `handler.PublicOperations` | 11 | 放行（凭据是订阅 token / 验证码 / 网关签名，由 handler 自己校验） |
+| `nodeOperationScopes` | 6 | `AuthenticateNode` + scope 白名单 |
+| `userSessionOperations` | 41 | `AuthenticateUser` |
+| `adminOperations` | 61 | ⬜ 鉴权未实现 → **一律 501**（fail-closed） |
+| `internalTaskOperations` | 9 | 同上 |
+
+**为什么 admin/internal 是 501 而不是放行**：放行的写法下，任何人实现一个 admin handler
+的那一刻就上线了一个无鉴权的管理端点，而代码 diff 里看不出任何异常。
+现在的行为与它们当前的 handler **逐字节一致**（都是 501），代价为零。
+实现管理面时把那个分支换成真正的 adminSession 中间件，**不要只改 handler**。
+
+`TestOperationAuthCoverage` 用反射列出 `StrictServerInterface` 的全部方法，
+强制「五张表互不相交且并集等于全集」。**它挡住的是一类运行时完全静默的错误** ——
+上一版把 `PushUniProxyStatus` 写成了不存在的 `GetUniProxyStatus`，
+于是那个 operation 落到「未分类」分支被原样放行、不做任何鉴权。
+当时无害（handler 是 501），但实现 `/status` 的那一刻它就是一个无鉴权的写端点。
 
 ---
 
@@ -301,20 +464,43 @@ dev 阶段用同源代理绕过去，只会把「API 缺 CORS」这件事藏到�
       重跑了一遍，`api/` 侧生成物与提交版本**逐字节一致**。
 - [x] ~~web 侧的本地开发流程未写（`web/` 尚未搭建）。~~
       ✅ 2026-08-17 解决：见 §1、§3.3、§3.5、§3.6。
+- [x] ~~🔴 **web 与 api 在本地互不可达**（§3.6）。缺的是 `api/` 侧的 CORS 中间件，
+      而它卡在一个未决问题上：**允许哪些 Origin？**~~
+      ✅ 2026-08-17 解决。裁决是**运行时配置 + 精确字符串相等匹配**：
+      白名单来自 `BP_ALLOWED_ORIGINS`，代码里**没有任何模式匹配的路径**，
+      所以 `evil-babel.plus` / `localhost:5173.attacker.com` 这两类经典绕过在结构上不成立
+      （已在真实浏览器里正反向验证，见 §3.6）。域名池动态增删靠改环境变量 + 重新部署，
+      与 `runtime-config.js` 的思路一致。永不输出 `*`；`Vary: Origin` 无条件加。
 
 仍然没有解决：
 
 - [ ] 没有 `docker compose` 一键起全栈 —— 目前要手敲 network + 两个容器。
       加上 web 之后这件事更值得做了：现在要开三个终端（pg、api、vite）。
-- [ ] 没有集成测试（跑真实 Postgres 的 handler 测试）。当前只有 httpx 的单测。
+      §3.4 的三步 + §3.6 的两步是目前唯一的路。
+- [ ] **没有集成测试**（跑真实 Postgres 的 handler 测试）。当前全部是纯单测 +
+      一次性的手工冒烟：§3.4 那 39 条断言是**人跑的，没有进 CI**，
+      种子数据也是手敲 SQL。这意味着「订阅 404 不查库」「空列表是 `[]` 不是 `null`」
+      这类只在真库上才成立的性质，下一次改动时没有任何东西会提醒你它坏了。
       **web 侧则是一行测试都没有**，包括 `shared/api/client.ts` 里
       「POST 不做故障转移」那条会被后来者好心改错的规则。
 - [ ] `make migrate-*` 直接 `psql` 灌文件，**没有用 golang-migrate**，
       因此没有版本表、不能增量迁移、不防重复执行。生产部署必须换成真正的迁移工具。
-- [ ] 🔴 **web 与 api 在本地互不可达**（§3.6）。缺的是 `api/` 侧的 CORS 中间件，
-      而它卡在一个未决问题上：**允许哪些 Origin？** 面板域名池是会动态增删的
-      （ADR 0003 §5「一键新增镜像域名」），所以白名单不能写死在代码里，
-      要么读运行时配置、要么由部署时注入。这是一次真正的裁决，不是补一行中间件。
+- [ ] **migration 里没有任何种子数据**，而注册链路硬依赖 `server_groups` 至少一行
+      （`users.group_id` 是 NOT NULL 外键）。空库上注册会 500 而不是给出可操作的错误。
+      §3.4 第 2 步是人工补位，不是长久之计 —— 需要一份 seed migration 或部署步骤。
+- [ ] 🔴 **`idempotency_keys` 的清理定时任务没有挂。** `CleanupExpiredIdempotencyKeys`
+      当前没有任何调用点。不挂的后果不是「表变大」而是**下单与流量入账开始失败**：
+      `ClaimIdempotencyKey` 的 `ON CONFLICT` 认主键（不看过期），
+      而 `GetIdempotencyKey` 带 `expires_at > now()` 过滤，
+      于是过期未清理的行会永久卡住同名键。每次非空 `/push` 都写一行（10 节点 ≈ 1.4 万行/天）。
+      按 system-design §4 应该走 Cloud Scheduler，而**进程内不能加 ticker**
+      （Cloud Run 缩到 0，加 ticker 等于必须常开 min-instances，成本模型立刻不成立）。
+- [ ] 🔴 **登录与邀请码校验没有限流**，因为 api-contract §10.2 的「精确档」需要一张
+      `rate_limit` 表，而 migration 里没有它。现状：`/auth/login` 唯一的兜底是
+      argon2 的并发信号量 —— 它挡的是**资源耗尽**，挡不住慢速凭据填充；
+      `/invite/verify` 则是一个免登录的邀请码探测端点（该端点必须如实区分
+      「无效」与「已用尽」是契约明写的要求）。发码类限流不受影响，
+      已用 `email_verifications` 的历史行做精确计数，天然跨实例一致。
 - [ ] `?state=loading|empty|error` 这个三态开关**会进生产构建**（`web/README.md` §7 代价 3）。
       它不泄漏数据，但接线时必须删掉 `resolveShellState` 对查询参数的读取。
 - [ ] **`infra/` 下的脚本，只有 `deploy/` 侧有线上结果可对照。**

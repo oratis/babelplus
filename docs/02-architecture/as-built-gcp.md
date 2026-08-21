@@ -104,9 +104,14 @@ babel.plus 新建的所有资源必须满足：
 
 | 服务 | URL | 最后部署 |
 |---|---|---|
-| `anthropic-relay` | `https://anthropic-relay-2360090741.us-central1.run.app` | 2026-07-02 |
-| `lisa-cloud` | `https://lisa-cloud-2360090741.us-central1.run.app` | 2026-07-25 |
-| `lisa-web` | `https://lisa-web-2360090741.us-central1.run.app` | 2026-07-14 |
+| `anthropic-relay` | `https://anthropic-relay-cko3zfff5a-uc.a.run.app` | 2026-07-02 |
+| `lisa-cloud` | `https://lisa-cloud-cko3zfff5a-uc.a.run.app` | 2026-07-25 |
+| `lisa-web` | `https://lisa-web-cko3zfff5a-uc.a.run.app` | 2026-07-14 |
+
+> 2026-08-17 修正：本表最初记的是 `<svc>-<项目号>.<region>.run.app` 形式，
+> 那是从截断的列表输出里抄的，**与线上不符**。Cloud Run 的默认 URL 已改为
+> `<svc>-<哈希>-<区域缩写>.a.run.app`。这个错误让 `verify-isolation.sh` 开工第一天
+> 就三条全红 —— 一个天天报红的检查等于没有检查，所以脚本与本文都已改正为实测值。
 
 Artifact Registry：`cloud-run-source-deploy`（DOCKER，`us-central1`，约 1375 MB）
 —— 这是 Cloud Run 源码部署自动创建的仓库。babel.plus 建议**新建独立仓库 `bp-images`**，

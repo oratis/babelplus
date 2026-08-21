@@ -136,7 +136,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 执行中（`bp-api` / `bp-db` 已上线，§5 示例命令与线上不一致） |
 | | [monitoring.md](04-ops/monitoring.md) — 监控与告警 | 设计稿 v1 |
 | | [local-development.md](04-ops/local-development.md) — 本地开发（无需装 Go） | **As-Built** |
-| **05-adr** | [0001](05-adr/0001-cloudflare-tos-risk.md) — CF 只承载控制面 | **提案，未批准** |
+| **05-adr** | [0001](05-adr/0001-cloudflare-tos-risk.md) — CF 只承载控制面 | **已批准**（2026-08-17） |
 | | [0002](05-adr/0002-notification-channels.md) — 邮件是唯一失联恢复通道 | 设计稿 v1 |
 | | [0003](05-adr/0003-web-hosting-and-reachability.md) — 托管按实测可达性选型 | 设计稿 v1 |
 | | [0004](05-adr/0004-transport-hardening.md) — 传输层按特征混同调参 | 设计稿 v1 |
@@ -154,7 +154,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 
 | # | 阻塞项 | 卡住了什么 | 归属 |
 |---|---|---|---|
-| 1 | **[ADR 0001](05-adr/0001-cloudflare-tos-risk.md) 未获批准** | Cloudflare 数据面用不用，决定整个拓扑与成本模型 | **需用户决策** |
+| 1 | ~~ADR 0001 未获批准~~ **✅ 2026-08-17 已批准** | 拓扑与成本模型已定：CF 只做控制面，数据面走 GCP 直连 | ✅ |
 | 2 | **零实测数据** | 协议选型、区域选型、网络层级、定价、托管选型全部悬空 | 需搭测试环境 |
 | 3 | ~~数据库选型未裁决~~ | **已解决** — [ADR 0005](05-adr/0005-database-selection.md) | ✅ |
 | 4 | 支付通道未落实 | 收款闭环 | 需申请与尽调 |
