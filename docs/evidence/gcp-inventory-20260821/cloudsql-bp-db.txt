@@ -1,0 +1,33 @@
+$ gcloud sql instances describe bp-db --project oratis-491316
+databaseVersion: POSTGRES_17
+ipAddresses:
+- ipAddress: 34.172.195.186
+  type: PRIMARY
+- ipAddress: 34.171.22.35
+  type: OUTGOING
+region: us-central1
+settings:
+  availabilityType: ZONAL
+  backupConfiguration:
+    backupRetentionSettings:
+      retainedBackups: 14
+      retentionUnit: COUNT
+    backupTier: STANDARD
+    enabled: true
+    kind: sql#backupConfiguration
+    pointInTimeRecoveryEnabled: true
+    replicationLogArchivingEnabled: true
+    startTime: 10:00
+    transactionLogRetentionDays: 7
+    transactionalLogStorageState: CLOUD_STORAGE
+  dataDiskSizeGb: '10'
+  dataDiskType: PD_SSD
+  deletionProtectionEnabled: false
+  ipConfiguration:
+    ipv4Enabled: true
+    requireSsl: false
+    sslMode: ALLOW_UNENCRYPTED_AND_ENCRYPTED
+  storageAutoResize: true
+  storageAutoResizeLimit: '0'
+  tier: db-f1-micro
+state: RUNNABLE

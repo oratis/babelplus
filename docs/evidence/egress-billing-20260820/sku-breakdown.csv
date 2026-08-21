@@ -1,0 +1,24 @@
+sku,source_region,gib,gross_usd,credits_usd,net_usd,usd_per_gib
+Network Internet Data Transfer Out from Americas to Americas,us-west1,842.11,100.81,-100.64,0.17,0.1197
+Network Data Transfer Out via Carrier Peering Network - Americas Based,us-west1,959.95,76.8,-76.65,0.15,0.08
+Network Data Transfer Out via Carrier Peering Network - APAC Based,asia-northeast1,894.77,76.06,-76.01,0.04,0.085
+Network Internet Data Transfer Out from Tokyo to Apac(Excluding Korea and Indonesia),asia-northeast1,621.11,74.53,-74.39,0.14,0.12
+Network Internet Data Transfer Out from Japan to Americas,asia-northeast1,18.05,2.17,-2.17,0.0,0.12
+Network Inter Region Data Transfer Out from Japan to Americas,asia-northeast1,25.18,2.01,-2.01,0.01,0.08
+Network Inter Region Data Transfer Out from Americas to Americas,us-west1,21.05,0.4,-0.4,0.0,0.019
+Network Internet Data Transfer Out from Americas to Apac(Excluding Korea and Indonesia),us-west1,1.87,0.11,-0.11,0.0,0.0561
+Network Internet Data Transfer Out from Americas to Americas,us-central1,0.13,0.02,-0.02,0.0,0.1199
+Network Internet Data Transfer Out from Americas to EMEA,us-west1,0.33,0.02,-0.02,0.0,0.0609
+Network Internet Data Transfer Out from Japan to EMEA,asia-northeast1,0.09,0.01,-0.01,0.0,0.1182
+Network Inter Region Data Transfer Out from Americas to Las Vegas,us-west1,0.01,0.0,0.0,0.0,0.0179
+Network Internet Data Transfer Out from Americas to Americas,us-east1,0.01,0.0,-0.0,0.0,0.1199
+Network Inter Region Data Transfer Out from Americas to Americas,us-central1,0.03,0.0,0.0,0.0,0.0
+Network Inter Region Data Transfer Out from Americas to Japan,us-central1,0.1,0.0,0.0,0.0,0.0
+Network Internet Data Transfer Out from Netherlands to EMEA,europe-west4,0.02,0.0,-0.0,0.0,0.1199
+Network Internet Data Transfer Out from Americas to South America,us-west1,0.02,0.0,0.0,0.0,0.0
+Network Intra Zone Data Transfer Out,asia-northeast1,0.09,0.0,0.0,0.0,0.0
+Network Intra Zone Data Transfer Out,us-west1,14.16,0.0,0.0,0.0,0.0
+Network Data Transfer Out via Carrier Peering Network - Americas Based,us-central1,0.01,0.0,0.0,0.0,0.079
+Network Inter Region Data Transfer Out from Americas to Hong Kong,us-west1,0.21,0.0,0.0,0.0,0.0
+Network Inter Region Data Transfer Out from Americas to Americas,us-east1,0.01,0.0,0.0,0.0,0.0199
+Network Inter Zone Data Transfer Out,us-central1,0.01,0.0,0.0,0.0,0.009

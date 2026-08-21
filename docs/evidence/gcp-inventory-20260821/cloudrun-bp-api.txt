@@ -1,0 +1,69 @@
+$ gcloud run services describe bp-api --region us-central1 --project oratis-491316
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '8'
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: 558.0.0
+        run.googleapis.com/cloudsql-instances: oratis-491316:us-central1:bp-db
+        run.googleapis.com/startup-cpu-boost: 'true'
+    spec:
+      containers:
+      - env:
+        - name: BP_ENV
+          value: prod
+        - name: BP_GCP_PROJECT_ID
+          value: oratis-491316
+        - name: BP_DB_MAX_CONNS
+          value: '2'
+        - name: BP_LOG_LEVEL
+          value: info
+        - name: BP_TRUST_PROXY_HEADERS
+          value: 'true'
+        - name: BP_ALLOWED_ORIGINS
+          value: https://web.babel.plus,https://admin.babel.plus
+        - name: BP_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: bp-database-url
+        - name: BP_SUBSCRIPTION_TOKEN_PEPPER
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: bp-sub-token-pepper
+        - name: BP_NODE_KEY_PEPPER
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: bp-node-token-pepper
+        - name: BP_SESSION_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: bp-jwt-signing-key
+        image: us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api:2fbf49d
+      serviceAccountName: bp-api-sa@oratis-491316.iam.gserviceaccount.com
+status:
+  traffic:
+  - latestRevision: true
+    percent: 100
+    revisionName: bp-api-2fbf49d
+
+$ gcloud artifacts docker images list .../bp-images --include-tags   （只列有 tag 的）
+Listing items under project oratis-491316, location us-central1, repository bp-images.
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s		2026-08-17T13:17:50
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s		2026-08-17T13:12:18
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s	8c77fb3	2026-08-17T13:17:51
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s		2026-08-17T13:15:08
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s		2026-08-17T13:12:18
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s	d6f194a	2026-08-17T13:15:10
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s		2026-08-17T13:17:49
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s	8b9689e	2026-08-17T13:12:19
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s		2026-08-17T13:15:09
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-api	s	2fbf49d	2026-08-20T22:51:01
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-migrate	s		2026-08-17T12:14:35
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-migrate	s		2026-08-17T12:14:36
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-migrate	s		2026-08-17T12:14:34
+us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-migrate	s	07983ff7a76-dirty,latest	2026-08-17T12:23:21

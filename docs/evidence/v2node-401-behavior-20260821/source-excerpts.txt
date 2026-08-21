@@ -1,0 +1,208 @@
+v2node @ 2daa9dd4a114aa39294350475defa2b748d595ed （2026-07-14）
+采集方式：git clone wyx2685/v2node && git checkout 2daa9dd4 && 通读源码。未运行容器。
+==============================================================================
+
+----- api/v2board/user.go：GetUserList -----
+  35  // GetUserList will pull user from v2board
+  36  func (c *Client) GetUserList(ctx context.Context) ([]UserInfo, error) {
+  37  	const path = "/api/v1/server/UniProxy/user"
+  38  	r, err := c.client.R().
+  39  		SetContext(ctx).
+  40  		SetHeader("If-None-Match", c.userEtag).
+  41  		SetHeader("X-Response-Format", "msgpack").
+  42  		SetDoNotParseResponse(true).
+  43  		Get(path)
+  44  	if err != nil {
+  45  		return nil, err
+  46  	}
+  47  	if r == nil || r.RawResponse == nil {
+  48  		return nil, fmt.Errorf("received nil response or raw response")
+  49  	}
+  50  	defer r.RawResponse.Body.Close()
+  51  
+  52  	if r.StatusCode() == 304 {
+  53  		return nil, nil
+  54  	}
+  55  	userlist := &UserListBody{}
+  56  	if strings.Contains(r.Header().Get("Content-Type"), "application/x-msgpack") {
+  57  		decoder := msgpack.NewDecoder(r.RawResponse.Body)
+  58  		if err := decoder.Decode(userlist); err != nil {
+  59  			return nil, fmt.Errorf("decode user list error: %w", err)
+  60  		}
+  61  	} else {
+  62  		dec := jsontext.NewDecoder(r.RawResponse.Body)
+  63  		for {
+  64  			tok, err := dec.ReadToken()
+  65  			if err != nil {
+  66  				return nil, fmt.Errorf("decode user list error: %w", err)
+  67  			}
+  68  			if tok.Kind() == '"' && tok.String() == "users" {
+  69  				break
+  70  			}
+  71  		}
+  72  		tok, err := dec.ReadToken()
+  73  		if err != nil {
+  74  			return nil, fmt.Errorf("decode user list error: %w", err)
+  75  		}
+  76  		if tok.Kind() != '[' {
+  77  			return nil, fmt.Errorf(`decode user list error: expected "users" array`)
+  78  		}
+  79  		for dec.PeekKind() != ']' {
+  80  			val, err := dec.ReadValue()
+  81  			if err != nil {
+  82  				return nil, fmt.Errorf("decode user list error: read user object: %w", err)
+  83  			}
+  84  			var u UserInfo
+  85  			if err := json.Unmarshal(val, &u); err != nil {
+  86  				return nil, fmt.Errorf("decode user list error: unmarshal user error: %w", err)
+  87  			}
+  88  			userlist.Users = append(userlist.Users, u)
+  89  		}
+  90  	}
+  91  	c.userEtag = r.Header().Get("ETag")
+  92  	return userlist.Users, nil
+  93  }
+
+----- api/v2board/user.go：GetUserAlive -----
+  95  // GetUserAlive will fetch the alive_ip count for users
+  96  func (c *Client) GetUserAlive(ctx context.Context) (map[int]int, error) {
+  97  	c.AliveMap = &AliveMap{}
+  98  	const path = "/api/v1/server/UniProxy/alivelist"
+  99  	r, err := c.client.R().
+ 100  		SetContext(ctx).
+ 101  		ForceContentType("application/json").
+ 102  		Get(path)
+ 103  	if err != nil {
+ 104  		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+ 105  			return nil, err
+ 106  		}
+ 107  		c.AliveMap.Alive = make(map[int]int)
+ 108  		return c.AliveMap.Alive, nil
+ 109  	}
+ 110  	if r == nil || r.RawResponse == nil || r.StatusCode() >= 399 {
+ 111  		c.AliveMap.Alive = make(map[int]int)
+ 112  		return c.AliveMap.Alive, nil
+ 113  	}
+ 114  	defer r.RawResponse.Body.Close()
+ 115  	if err := json.Unmarshal(r.Body(), c.AliveMap); err != nil {
+ 116  		fmt.Printf("unmarshal user alive list error: %s", err)
+ 117  		c.AliveMap.Alive = make(map[int]int)
+ 118  	}
+ 119  
+
+----- node/task.go：nodeInfoMonitor 拉用户表那一段 -----
+  79  	// get user info
+  80  	newU, err := c.apiClient.GetUserList(ctx)
+  81  	if err != nil {
+  82  		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+  83  			return err
+  84  		}
+  85  		log.WithFields(log.Fields{
+  86  			"tag": c.tag,
+  87  			"err": err,
+  88  		}).Error("Get user list failed")
+  89  		return nil
+  90  	}
+  91  	// get user alive
+  92  	newA, err := c.apiClient.GetUserAlive(ctx)
+  93  	if err != nil {
+  94  		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+  95  			return err
+  96  		}
+  97  		log.WithFields(log.Fields{
+  98  			"tag": c.tag,
+  99  			"err": err,
+ 100  		}).Error("Get alive list failed")
+ 101  		return nil
+ 102  	}
+ 103  
+ 104  	// update alive list
+ 105  	if newA != nil {
+ 106  		c.limiter.AliveList = newA
+ 107  	}
+ 108  	// node no changed, check users
+ 109  	if len(newU) == 0 {
+ 110  		log.WithField("tag", c.tag).Debug("User list no change")
+ 111  		return nil
+ 112  	}
+ 113  	deleted, added, modified := compareUserList(c.userList, newU)
+
+----- node/controller.go：Start() -----
+  41  func (c *Controller) Start(x *core.V2Core) error {
+  42  	// Init Core
+  43  	c.server = x
+  44  	var err error
+  45  	// First fetch Node Info
+  46  	node := c.info
+  47  	if node == nil {
+  48  		c.info, err = c.apiClient.GetNodeInfo(context.Background())
+  49  		if err != nil {
+  50  			return fmt.Errorf("get node info error: %s", err)
+  51  		}
+  52  		node = c.info
+  53  	}
+  54  	// Update user
+  55  	c.userList, err = c.apiClient.GetUserList(context.Background())
+  56  	if err != nil {
+  57  		return fmt.Errorf("get user list error: %s", err)
+  58  	}
+  59  	if len(c.userList) == 0 {
+  60  		return errors.New("add users error: not have any user")
+  61  	}
+  62  	c.aliveMap, err = c.apiClient.GetUserAlive(context.Background())
+
+----- api/v2board/panel.go：resty 客户端装配（无 OnAfterResponse 状态码钩子）-----
+  29  func New(c *conf.NodeConfig) (*Client, error) {
+  30  	client := resty.New()
+  31  	retryCount := conf.DefaultNodeRetryCount
+  32  	if c.RetryCount != nil {
+  33  		retryCount = *c.RetryCount
+  34  	}
+  35  	client.SetRetryCount(retryCount)
+  36  	client.SetHeader("User-Agent", fmt.Sprintf("v2node go-resty/%s (https://github.com/go-resty/resty)", resty.Version))
+  37  	if c.Timeout > 0 {
+  38  		client.SetTimeout(time.Duration(c.Timeout) * time.Second)
+  39  	} else {
+  40  		client.SetTimeout(time.Duration(conf.DefaultNodeTimeout) * time.Second)
+  41  	}
+  42  	client.OnError(func(req *resty.Request, err error) {
+  43  		var v *resty.ResponseError
+  44  		if errors.As(err, &v) {
+  45  			// v.Response contains the last response from the server
+  46  			// v.Err contains the original error
+  47  			logrus.Error(v.Err)
+  48  		}
+  49  	})
+  50  	client.SetBaseURL(c.APIHost)
+  51  	// set params
+  52  	client.SetQueryParams(map[string]string{
+
+----- conf/conf.go：重试与超时默认值 -----
+10:const DefaultNodeRetryCount = 1
+11:const DefaultNodeTimeout = 15
+59:			p.NodeConfigs[i].RetryCount = intPtr(DefaultNodeRetryCount)
+
+----- go-resty 	github.com/go-resty/resty/v2 v2.16.5 的 retry.go：默认只对传输层错误重试 -----
+ 114  	for attempt := 0; attempt <= opts.maxRetries; attempt++ {
+ 115  		resp, err = operation()
+ 116  		ctx := context.Background()
+ 117  		if resp != nil && resp.Request.ctx != nil {
+ 118  			ctx = resp.Request.ctx
+ 119  		}
+ 120  		if ctx.Err() != nil {
+ 121  			return err
+ 122  		}
+ 123  
+ 124  		err1 := unwrapNoRetryErr(err)           // raw error, it used for return users callback.
+ 125  		needsRetry := err != nil && err == err1 // retry on a few operation errors by default
+ 126  
+ 127  		for _, condition := range opts.retryConditions {
+ 128  			needsRetry = condition(resp, err1)
+ 129  			if needsRetry {
+ 130  				break
+ 131  			}
+ 132  		}
+ 133  
+ 134  		if !needsRetry {
+ 135  			return err
+ 136  		}

@@ -1,0 +1,13 @@
+$ echo | openssl s_client -servername bp-api-cko3zfff5a-uc.a.run.app -connect bp-api-cko3zfff5a-uc.a.run.app:443 -showcerts 2>/dev/null | grep -E '^\s*[0-9]+ s:|^\s*i:'
+ 0 s:CN=*.a.run.app
+   i:C=US, O=Google Trust Services, CN=WR2
+ 1 s:C=US, O=Google Trust Services, CN=WR2
+   i:C=US, O=Google Trust Services LLC, CN=GTS Root R1
+ 2 s:C=US, O=Google Trust Services LLC, CN=GTS Root R1
+   i:C=BE, O=GlobalSign nv-sa, OU=Root CA, CN=GlobalSign Root CA
+
+$ ... | openssl x509 -noout -issuer -subject -dates
+issuer=C=US, O=Google Trust Services, CN=WR2
+subject=CN=*.a.run.app
+notBefore=Jul 20 18:05:37 2026 GMT
+notAfter=Oct 12 18:05:36 2026 GMT
