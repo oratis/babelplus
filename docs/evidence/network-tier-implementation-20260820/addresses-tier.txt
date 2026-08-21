@@ -1,0 +1,3 @@
+NAME          REGION           NETWORK_TIER  ADDRESS         STATUS
+vpn-us-ip-v4  us-west1         PREMIUM       8.231.52.43     IN_USE
+vpn-jp-ip     asia-northeast1  PREMIUM       34.104.192.233  IN_USE

@@ -57,6 +57,19 @@ IP_CANDIDATES="${BP_IP_CANDIDATES:-5}"
 NODE_TAG="bp-node"
 SA_NAME="bp-node-sa"
 
+# 网络层级。**硬编码 STANDARD 是 ADR 0008 §5.5 的明文要求**，不是可调参数：
+#   「Premium 是 GCP 的默认值 —— 不显式指定就会用 Premium。这意味着任何忘记加参数的
+#     建机操作都会静默产生 2.09 倍的账单。必须在 create-node.sh 里硬编码
+#     --network-tier=STANDARD 并加断言。」
+#
+# ✅ 2026-08-20 实测核实：`gcloud compute addresses create --network-tier=STANDARD`
+#    在 asia-east2 成功（探针 35.215.139.226，networkTier=STANDARD，已删除）。
+#    同日 `gcloud compute addresses create --help` 确认 network-tier 的默认值就是 PREMIUM。
+#
+# ⚠️ 故意不做成 BP_NETWORK_TIER 环境变量：可覆盖就等于「忘了设」会回到 2.09 倍，
+#    而这正是 ADR 要防的那件事。真要改回 Premium 应当改 ADR，然后改这一行。
+NETWORK_TIER="STANDARD"
+
 DRY_RUN=0
 ASSUME_YES=0
 AUTO_PICK=0
@@ -202,6 +215,27 @@ while [ $# -gt 0 ]; do
 done
 
 assert_target_safe "$NODE"
+
+# --ipv6 与 STANDARD 层级**不可能同时成立**，必须在建任何资源之前就拦掉。
+#
+# ✅ 2026-08-20 用 `gcloud compute instances create --help` 核实：
+#      --ipv6-network-tier=IPV6_NETWORK_TIER
+#        ... must be (only one value is supported):
+#         PREMIUM
+#    即外部 IPv6 **只有 Premium 一个取值**，这是 API 的硬约束，不是我们的策略。
+#
+# 所以 ADR 0008 §1 的「接受失去 IPv6」不是一句可以绕过的措辞 —— 选了 Standard
+# 就没有 IPv6。这里 die 而不是「自动降级成无 IPv6 继续跑」：后者会让下单 --ipv6
+# 的人以为拿到了双栈节点，而 ADR 0008 §6 第一条恰恰把「IPv6-only 用户比例未知」
+# 列为最大风险敞口 —— 在这件事上静默是最坏的选项。
+if [ "$ENABLE_IPV6" = 1 ] && [ "$NETWORK_TIER" != "PREMIUM" ]; then
+    die "--ipv6 与网络层级 $NETWORK_TIER 冲突：GCP 的外部 IPv6 只支持 PREMIUM。
+      而 ADR 0008 裁定节点用 Standard 并**明确接受失去 IPv6**（§1、§5 代价第 1 条）。
+      要建 IPv6 节点就等于推翻 ADR 0008 —— 那需要先写一份新 ADR 说明理由，
+      再改本脚本的 NETWORK_TIER，而不是在命令行上绕过。
+      背景：Standard 比 Premium 便宜 2.09 倍，且 GFW 的 SNI 封锁在 IPv6 上一模一样
+      （evidence/ipv6-censorship-20260817）。"
+fi
 
 # --only 的取值必须真实存在。打错一个字就「什么都没跑却退出码 0」是最坏的失败形式。
 ALL_STAGES="firewall sa address instance verify"
@@ -507,7 +541,7 @@ stage_address() {
             ok "$_sa_n 已存在，复用"
         else
             run gcloud compute addresses create "$_sa_n" --project="$PROJECT" \
-                --region="$REGION" --network-tier=PREMIUM
+                --region="$REGION" --network-tier="$NETWORK_TIER"
         fi
         _sa_i=$((_sa_i + 1))
     done
@@ -629,7 +663,7 @@ stage_instance() {
         --image-family=debian-12 --image-project=debian-cloud \
         --boot-disk-size="$BOOT_DISK_SIZE" --boot-disk-type=pd-balanced \
         --boot-disk-device-name="$NODE" \
-        --network=default --network-tier=PREMIUM \
+        --network=default --network-tier="$NETWORK_TIER" \
         --tags="$NODE_TAG" \
         --service-account="${SA_NAME}@${PROJECT}.iam.gserviceaccount.com" \
         --scopes=https://www.googleapis.com/auth/cloud-platform \
@@ -673,6 +707,23 @@ stage_verify() {
         warn "tags = '${_sv_tags:-<空>}' —— 🔴 不含 $NODE_TAG！22 端口正在裸奔。"
         warn "  立即修：gcloud compute instances add-tags $NODE --project=$PROJECT \\"
         warn "            --zone=$ZONE --tags=$NODE_TAG"
+    fi
+
+    log "  ②′ 网络层级必须是 $NETWORK_TIER（ADR 0008 §5.5 要求的断言）"
+    # 为什么硬编码之外还要断言：硬编码只防「忘了写参数」，防不住
+    #   —— 复用了一个早先建的 PREMIUM 保留地址（--address 传进来的那种）；
+    #   —— 有人手工改过实例的 access-config；
+    #   —— 将来 gcloud 改了默认值或参数名，静默回到 Premium。
+    # 这三种情况的共同症状都是「脚本全绿、账单 2.09 倍」，只有实际读回来才看得见。
+    _sv_tier="$(gcloud compute instances describe "$NODE" --project="$PROJECT" --zone="$ZONE" \
+        --format="value(networkInterfaces[0].accessConfigs[0].networkTier)" 2>/dev/null || true)"
+    if [ "$_sv_tier" = "$NETWORK_TIER" ]; then
+        ok "networkTier = $_sv_tier"
+    else
+        warn "networkTier = '${_sv_tier:-<空>}'，期望 $NETWORK_TIER —— 🔴 出网流量正在按 Premium 计费。"
+        warn "  Premium 到中国 \$0.23/GiB 且无免费额度；Standard \$0.11/GiB 且每区每月前 200 GiB 免费。"
+        warn "  差价 2.09 倍（evidence/gcp-egress-pricing-20260817）。"
+        warn "  处置：层级不能原地改，必须换一个 STANDARD 保留地址再切 access-config —— 跑 rotate-ip.sh。"
     fi
 
     log "  ② 生效中的防火墙（以 GCP 侧为准，不要只信本地测试）"

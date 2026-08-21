@@ -143,7 +143,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0005](05-adr/0005-database-selection.md) — Cloud SQL Postgres 17 | 设计稿 v1 |
 | | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | 设计稿 v1 |
 | | [0007](05-adr/0007-node-migration.md) — 节点混合迁移 | 设计稿 v1 |
-| | [0008](05-adr/0008-network-tier-standard.md) — 网络层级改 Standard（**推翻 0004 §3.7**） | 设计稿 v1 |
+| | [0008](05-adr/0008-network-tier-standard.md) — 网络层级改 Standard（**推翻 0004 §3.7**） | **已实施（仅新节点）** |
 | **evidence** | *（空）* — 全部 P0 阻塞实测项见 [evidence/README.md](evidence/README.md) | 待采集 |
 
 ---
@@ -155,7 +155,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | # | 阻塞项 | 卡住了什么 | 归属 |
 |---|---|---|---|
 | 1 | ~~ADR 0001 未获批准~~ **✅ 2026-08-17 已批准** | 拓扑与成本模型已定：CF 只做控制面，数据面走 GCP 直连 | ✅ |
-| 2 | **零实测数据** | 协议选型、区域选型、网络层级、定价、托管选型全部悬空 | 需搭测试环境 |
+| 2 | **零实测数据** | 协议选型、区域选型、托管选型仍全部悬空。**网络层级已裁决并落地**（[0008](05-adr/0008-network-tier-standard.md)，成本侧有 Billing API 权威价目），但 **Standard 的性能数据是零** —— 连 Premium 侧的基准都只是社区二手数据 | 需搭测试环境 |
 | 3 | ~~数据库选型未裁决~~ | **已解决** — [ADR 0005](05-adr/0005-database-selection.md) | ✅ |
 | 4 | 支付通道未落实 | 收款闭环 | 需申请与尽调 |
 | 5 | 邮件送达率未验证 | [ADR 0002](05-adr/0002-notification-channels.md) 的整个前提 | 需实测 |
