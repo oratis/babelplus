@@ -23,6 +23,7 @@
 | [egress-billing-20260820](egress-billing-20260820/) | **出口账单的 SKU 级拆分**（pricing §7 点名的定价前置）。到中国大陆的 SKU 用量为 0，中国方向实走 Carrier Peering $0.080–0.085/GiB；全部 gross 被账单账户级推广抵扣吸收，本项目现金支出约 $6 |
 | [v2node-401-behavior-20260821](v2node-401-behavior-20260821/) | **B7** 关闭：401/403 **不会**清空用户列表（三重保护），但会让**重启**失败且不自愈；`alivelist` 对 ≥399 静默返空 map。仍是读源码解决 |
 | [gcp-inventory-20260821](gcp-inventory-20260821/) | **B9**（run.app 证书签发者是 GTS）、**B12**（Cloud SQL 四细节里的三项 + 三条新发现）、**B32**（预算建得了，缺的是口径）；生产冒烟 6 条；监控现状：log-based metrics 曾经一条都没有 |
+| [client-config-validation-20260822](client-config-validation-20260822/) | 用容器里的**真实客户端**（mihomo v1.19.30 `-t` / sing-box v1.13.19 `check`）校验订阅产出。🔴 头号发现：`GEOIP,CN` 拿不到数据库时**整份配置被拒绝加载**，据此把它从下发规则里去掉（B46）。另确证 `sing-box check` 对缺 `inbounds` 的配置**通过**（B45 只能真机验），并测出 SS-2022 客户端密码必须是恰好 16 字节的 base64。⚠️ 目录随 PR #13 一起进 master |
 
 > **五次下来同一条经验，越来越硬：大量标着「需实测」的条目其实是「没读源码 / 没查 API / 没跑一条 gcloud」。**
 > 在租机器测之前，先穷尽「读开源代码」「查厂商 API」「查自己账上的实况」这三条零成本路径。
