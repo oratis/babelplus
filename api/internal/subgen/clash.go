@@ -46,8 +46,55 @@ func renderClash(doc Document) ([]byte, error) {
 	w.line(1, "- name: %s", yamlString(GroupBoost))
 	w.line(2, "type: select")
 	w.line(2, "proxies: %s", yamlStringList(boost))
+	w.blank()
+
+	writeClashRules(&w)
 
 	return w.bytes(), nil
+}
+
+// writeClashRules 输出分流规则表。
+//
+// 🔴 **这一段曾经整个不存在，而上面写着 `mode: rule`。**
+// mihomo 在 rule 模式下逐条匹配 `rules`，一条都匹配不上时回落到 `DIRECT` ——
+// 规则表为空 = 每一条连接都匹配不上 = **全部直连**。
+// 用户导入后会看到节点全在、延迟测得出来、订阅流量条正常，
+// 但被墙的站点一个都打不开，且他必然把这个报成「节点坏了」。
+//
+// 顺序是有讲究的，从上到下：
+//
+//  1. 私有网段直连。放最前面且带 `no-resolve`：这些是本机与局域网地址，
+//     走代理没有意义，而 `no-resolve` 避免为了判断一条 IP 规则先去做 DNS 解析。
+//  2. `GEOIP,CN,DIRECT` —— 国内流量直连。tutorials-spec §排障表里
+//     「国内网站变慢/打不开 → GEOIP,CN 的位置问题」这一条假定了它的存在。
+//  3. `MATCH` 兜底到默认组。
+//
+// **`GEOIP,CN` 依赖 mihomo 的 GeoIP 数据库。** 数据库缺失时该条规则匹配不上，
+// 于是落到 `MATCH` —— 也就是**降级为全局代理**，而不是降级为全局直连。
+// 这个失败方向是安全的（用户仍然能上网，只是国内流量绕了一圈），
+// 所以这里不为它加额外兜底。
+//
+// ⚠️ 与本文件顶部那三处同理，这张表**必须用真实 Clash Verge Rev 加载验证一次**
+// （ADR 0006 §12 的人工步骤）：规则语法写错时 mihomo 的表现是拒绝加载整个配置，
+// 而不是跳过那一行。
+func writeClashRules(w *yamlWriter) {
+	w.line(0, "rules:")
+	for _, r := range []string{
+		"IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
+		"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+		"IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+		"IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+		"IP-CIDR,169.254.0.0/16,DIRECT,no-resolve",
+		"IP-CIDR6,::1/128,DIRECT,no-resolve",
+		"IP-CIDR6,fc00::/7,DIRECT,no-resolve",
+		"IP-CIDR6,fe80::/10,DIRECT,no-resolve",
+		"GEOIP,CN,DIRECT",
+	} {
+		w.line(1, "- %s", r)
+	}
+	// MATCH 的目标是默认组的名字，必须与 proxy-groups 里那个 name 逐字一致。
+	// 用同一个常量拼出来，避免哪天改组名时这里被漏掉。
+	w.line(1, "- MATCH,%s", GroupDefault)
 }
 
 func writeClashProxy(w *yamlWriter, p Proxy) {

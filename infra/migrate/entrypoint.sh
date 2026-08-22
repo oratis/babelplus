@@ -33,13 +33,36 @@ log "迁移命令: $CMD ${ARG}"
 CURRENT="$(migrate -path /migrations -database "$BP_DATABASE_URL" version 2>&1 || true)"
 log "迁移前版本: ${CURRENT:-<无>}"
 
+# 🔴 dirty 闸门**必须放行 force 与 version**，否则它挡掉的正是自己指定的那条恢复路径。
+#
+# 这里曾经是无条件 die（不看 $CMD）。后果：schema 一旦 dirty，
+# 上面 die 消息里让运维跑的 `BP_MIGRATE_CMD=force BP_MIGRATE_ARG=<版本号>`
+# 会被同一道闸门再挡一次，连 `version` 都查不了 ——
+# 生产库卡在 dirty，唯一的出路是绕过 entrypoint（覆盖 Job 的 --command）
+# 或直连 Cloud SQL 手改 schema_migrations，而那恰恰是「不能盲目 force」
+# 这条纪律最不希望发生的操作方式。
+#
+# 「不能盲目 force」推出的是「dirty 下不许继续 up/down」，
+# **推不出**「连显式带版本号的 force 也一起挡掉」——
+# 显式 force + 下面 force 分支强制的 BP_MIGRATE_ARG 本身就是人工判断的结果。
 case "$CURRENT" in
   *dirty*)
-    die "数据库处于 dirty 状态（$CURRENT）。
+    case "$CMD" in
+      force)
+        log "⚠️ 数据库处于 dirty 状态（$CURRENT），本次是显式 force，放行。"
+        ;;
+      version)
+        log "⚠️ 数据库处于 dirty 状态（$CURRENT）。只查版本，放行。"
+        ;;
+      *)
+        die "数据库处于 dirty 状态（$CURRENT），拒绝执行 $CMD。
      这表示上一次迁移执行到一半失败了。**不要盲目 force。**
      处置：登库核对 schema 实际应用到哪一步，确认后再
        BP_MIGRATE_CMD=force BP_MIGRATE_ARG=<正确版本号> 跑一次，
-     然后重新 up。详见 docs/04-ops/deploy.md §6.3。"
+     然后重新 up。force 与 version 这两条在 dirty 状态下是放行的，
+     不需要绕过本脚本。详见 docs/04-ops/deploy.md §6.3。"
+        ;;
+    esac
     ;;
 esac
 

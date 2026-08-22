@@ -98,6 +98,11 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 	r.Use(mw.Recover(logger))
 	r.Use(mw.AccessLog(logger))
 
+	// 请求体上限。挂在 AccessLog **之后**，这样超限被拒的请求仍然会留下访问日志
+	// （否则「客户端说传不上去」这类报障在服务端一点痕迹都没有）；
+	// 挂在业务链**之前**，因为生成代码在中间件之外就先解请求体 —— 见 mw.LimitBody 的注释。
+	r.Use(mw.LimitBody)
+
 	// CORS 挂在 AccessLog **之后**，两个理由：
 	//  1. 预检（OPTIONS）会被 CORS 短路掉，挂在前面就永远不会出现在访问日志里 ——
 	//     而「预检失败」正是跨域故障的典型现象，日志里看不见它等于失去唯一线索。

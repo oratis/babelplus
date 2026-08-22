@@ -820,7 +820,34 @@ proxy-groups:
   - name: "加速"
     type: select
     proxies: ["HK-1 · HY2 加速", "HK-1 · REALITY"]
+
+rules:
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,默认
 ```
+
+> 🔴 **`rules` 这一段本文档原来漏了，实现也跟着漏了（2026-08-21 补）。**
+> 配置里写着 `mode: rule`，而 mihomo 在规则全不匹配时回落到 `DIRECT` ——
+> **规则表为空 = 每一条连接都走直连**。用户导入后会看到节点全在、延迟测得出来、
+> 订阅流量条正常，但被墙的站点一个都打不开，且他必然把这个报成「节点坏了」。
+> 这是「契约漏了 → 实现照抄契约 → 一起漏」的典型，不能靠「实现照着契约写」免责。
+>
+> 三条约束：
+> 1. **`MATCH` 必须是最后一条**，且目标必须与 `proxy-groups` 里默认组的名字**逐字一致**
+>    （指向不存在的组会让 mihomo 拒绝加载整份配置）。
+> 2. 私有网段规则带 `no-resolve`，避免为了判断一条 IP 规则先做一次 DNS 解析。
+> 3. `GEOIP,CN` 依赖 mihomo 的 GeoIP 数据库。**数据库缺失时该条匹配不上，
+>    于是落到 `MATCH` —— 降级为全局代理而不是全局直连。** 这个失败方向是安全的，
+>    所以不为它加额外兜底。tutorials-spec 排障表里「国内网站变慢/打不开 →
+>    GEOIP,CN 的位置问题」这一条假定了它的存在。
 
 两条与既定裁决的直接对应：
 

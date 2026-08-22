@@ -380,9 +380,19 @@ func (s *Server) PushUniProxyTraffic(ctx context.Context, req gen.PushUniProxyTr
 	}
 
 	if int(result.UpdatedUsers) != len(batch.UserIDs) {
-		// 上报里的 user_id 在 user_traffic 里没有行 —— 用户已被硬删，或开户流程漏建行。
-		// 这部分流量**静默蒸发**，不打日志就永远发现不了。
-		s.logger.WarnContext(ctx, "流量上报中有 user_id 无对应 user_traffic 行",
+		// 上报里的 user_id 在 user_traffic 里没有行。这条日志是那部分流量
+		// **静默蒸发**的唯一信号，不打就永远发现不了。
+		//
+		// 成因不是「用户被硬删」—— user_traffic 对 users 是 ON DELETE CASCADE，
+		// 硬删会连带删掉 user_traffic 行，而本项目的用户删除是 deleted_at 软删。
+		// 真实成因只有两类：
+		//   1. 开户流程漏建 user_traffic 行（我们的 bug）；
+		//   2. **节点报上来一个我们这边根本不存在的 user_id**（节点侧 bug、
+		//      节点指错了环境、节点主机被拿下、或 DR 回滚后节点持有更新的用户列表）。
+		// 第 2 类以前会让 BulkUpsertStatUserServer 撞外键并回滚整批 ——
+		// 现在两条语句都 JOIN user_traffic，未知 id 一致地被丢弃，
+		// 于是这条日志成了它唯一的出口。**持续出现要当成节点侧异常查，不是噪声。**
+		s.logger.WarnContext(ctx, "流量上报中有 user_id 无对应 user_traffic 行，该部分已丢弃",
 			"server_code", auth.ServerCode,
 			"reported", len(batch.UserIDs), "updated", result.UpdatedUsers)
 	}

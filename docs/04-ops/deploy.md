@@ -485,6 +485,39 @@ gcloud run jobs execute bp-migrate --project=$P --region=us-central1 --wait
 3. **expand / contract 两段式。** 一次发布只能做「加列 / 加表 / 加可空字段」，
    删列与改类型放到下一次发布。理由见 §12.3：**代码能回滚，schema 不能。**
 
+> ⚠️ 上面这段 `gcloud run jobs deploy` 示例与仓库里实际的 `infra/migrate/` 实现**不一致**
+> （env 名、secret 名、`--command`），偏差早已登记在
+> [`infra/deploy/README.md §4`](../../infra/deploy/README.md)，**以脚本为准**。
+> 实际入口是 `infra/migrate/entrypoint.sh`，用 `infra/migrate/build-and-run.sh` 驱动。
+
+### 6.4 dirty 状态的处置（这条以前只在 entrypoint 的报错里，正文没有）
+
+`migrate` 执行到一半失败会在 `schema_migrations` 留下 `dirty = true`，
+之后一切 `up` / `down` 都会被 `infra/migrate/entrypoint.sh` 的闸门拒绝。**这是对的**，
+但闸门**放行 `version` 与 `force` 两条**，所以恢复不需要绕过脚本：
+
+```bash
+# 1. 先看现在停在哪一版（dirty 下这条是放行的）
+BP_MIGRATE_CMD=version ./infra/migrate/build-and-run.sh --step=run
+
+# 2. 登库核对 schema 到底应用到了哪一步 —— 这一步不能省，也不能靠猜。
+#    看那一版迁移文件里的每条 DDL 是否都已生效（表/列/索引/约束逐个查）。
+#    「不能盲目 force」指的就是跳过这一步。
+
+# 3. force 到核对出来的那个版本号（只改 schema_migrations，不执行任何 SQL）
+BP_MIGRATE_CMD=force BP_MIGRATE_ARG=<核对出的版本号> ./infra/migrate/build-and-run.sh --step=run
+
+# 4. 重新 up
+./infra/migrate/build-and-run.sh --step=run
+```
+
+**两个方向的 force 都可能是对的**，取决于第 2 步查到什么：
+DDL 全都生效了就 force 到**这一版**（然后 up 会从下一版继续）；
+一条都没生效就 force 到**上一版**（然后 up 会重跑这一版）。
+生效了一部分是最麻烦的情况 —— 手工补齐或手工回退到一个干净的版本边界，再 force。
+
+> `--max-retries=0` 在这里是必需的：自动重试一个 dirty 的迁移只会让第 2 步更难查。
+
 ---
 
 ## 7 · 密钥管理
