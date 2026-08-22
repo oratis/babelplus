@@ -1,6 +1,7 @@
 package subgen
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -75,5 +76,39 @@ func TestRenderClashRulesPresentForNoticeOnlyDocument(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "- MATCH,"+GroupDefault) {
 		t.Errorf("伪节点文档缺 rules 段:\n%s", out)
+	}
+}
+
+// sing-box 的默认出站以前靠「route.final 留空时取第一个 outbound」这条隐式默认。
+// 显式写出来之后，这条测试让它变成断言：有人往 outbounds 前面插东西时会红。
+func TestRenderSingboxHasExplicitRouteFinal(t *testing.T) {
+	out, err := Render(FormatSingbox, Document{Proxies: sampleProxies()})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var cfg struct {
+		Route struct {
+			Final string `json:"final"`
+		} `json:"route"`
+		Outbounds []struct {
+			Tag string `json:"tag"`
+		} `json:"outbounds"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatalf("产出不是合法 JSON: %v", err)
+	}
+	if cfg.Route.Final != GroupDefault {
+		t.Errorf("route.final = %q，期望 %q", cfg.Route.Final, GroupDefault)
+	}
+	// final 指向的 tag 必须真的存在，否则 sing-box 拒绝加载。
+	found := false
+	for _, ob := range cfg.Outbounds {
+		if ob.Tag == cfg.Route.Final {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("route.final 指向的 outbound tag %q 不存在", cfg.Route.Final)
 	}
 }

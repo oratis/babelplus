@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -659,17 +660,43 @@ func writeFetchLog(ctx context.Context, d subDeps, r *http.Request, tok dbgen.Re
 	}
 }
 
-// truncateUA 截断 User-Agent。
+// truncateUA 截断 User-Agent，并保证结果是合法 UTF-8。
 //
 // user_agent 列没有长度约束，而 UA 是**完全由调用方控制**的字符串 ——
 // 不截断等于给了一条往库里塞任意大小数据的路径（每次拉取一行、无鉴权、可被脚本刷）。
 // 512 字节远超真实客户端的 UA 长度。
+//
+// 🔴 **不能用 ua[:512] 直接切。** Go 的字符串切片按**字节**切，不对齐 rune 边界，
+// 切在一个多字节 UTF-8 序列中间就会留下孤立的首字节。那串东西经 pgx 原样送到
+// Postgres，服务端的编码校验报 22021 `invalid byte sequence for encoding "UTF8"`，
+// InsertSubscriptionFetchLog 整条失败 —— 而失败路径只打一条 ERROR、订阅照常 200 下发，
+// 于是**这次拉取在 subscription_fetch_log 里完全没有留痕**。
+//
+// 这不是理论问题：UA 由调用方控制，构造一个 511 字节 ASCII + 一个 `é` 的 UA 就能触发。
+// 而这张表是识别账号共享的唯一数据来源（见本文件顶部与 system-design §5.2）——
+// 也就是说共享订阅链接的人只要固定带这种 UA，就能让共享检测永远看不到他。
+// 「按字节截断」把一条审计写入的成败开关交到了被审计者手上。
+//
+// 两步都必须做：
+//  1. ToValidUTF8 —— HTTP 头的 value 允许 obs-text（≥0x80 的裸字节），
+//     调用方可以直接送一段本来就非法的 UTF-8，与截断无关。
+//  2. 按 rune 边界截断 —— 保证截断本身不制造非法序列。
+//
+// 上限仍按**字节**计（列是 text，防的是存储体积），不是按字符数。
 func truncateUA(ua string) string {
 	const maxUALen = 512
-	if len(ua) > maxUALen {
-		return ua[:maxUALen]
+
+	// U+FFFD 替换字符本身是 3 字节合法 UTF-8，替换后长度可能变长，所以先替换再截断。
+	ua = strings.ToValidUTF8(ua, "\uFFFD")
+	if len(ua) <= maxUALen {
+		return ua
 	}
-	return ua
+	// 退到不超过 maxUALen 的最后一个 rune 边界。
+	cut := maxUALen
+	for cut > 0 && !utf8.RuneStart(ua[cut]) {
+		cut--
+	}
+	return ua[:cut]
 }
 
 // clientAddr 解析来源 IP。

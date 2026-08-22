@@ -201,7 +201,7 @@ func authMiddleware(nodeCfg mw.NodeAuthConfig, userCfg mw.UserAuthConfig) gen.St
 			return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 				auth, authErr := mw.AuthenticateNode(ctx, nodeCfg, r, scope)
 				if authErr != nil {
-					mw.WriteAuthError(w, authErr)
+					mw.WriteAuthError(w, r, authErr)
 					// 返回 nil,nil：响应已经写完，生成代码不应再写一次。
 					return nil, nil
 				}
@@ -212,7 +212,7 @@ func authMiddleware(nodeCfg mw.NodeAuthConfig, userCfg mw.UserAuthConfig) gen.St
 			return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 				auth, authErr := mw.AuthenticateUser(ctx, userCfg, r)
 				if authErr != nil {
-					mw.WriteAuthError(w, authErr)
+					mw.WriteAuthError(w, r, authErr)
 					return nil, nil
 				}
 				return f(mw.WithUser(ctx, auth), w, r, request)

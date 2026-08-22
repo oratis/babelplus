@@ -157,8 +157,12 @@ func NodeAuthFrom(ctx context.Context) (*NodeAuth, bool) {
 }
 
 // WriteAuthError 把 AuthError 写成响应。
-func WriteAuthError(w http.ResponseWriter, e *AuthError) {
-	writeErrEnvelope(w, e.Status, e.Code, e.Message)
+//
+// 需要 *http.Request 是因为**错误形状取决于是不是节点面** —— 节点面裸 JSON、
+// 用户面套信封。本函数被节点鉴权与用户鉴权两条路径共用，不能写死一种形状。
+// 判定与选形状的完整理由见 middleware.WriteError。
+func WriteAuthError(w http.ResponseWriter, r *http.Request, e *AuthError) {
+	WriteError(w, r, e.Status, e.Code, e.Message)
 }
 
 type tokenSource int

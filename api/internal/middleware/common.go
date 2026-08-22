@@ -114,7 +114,8 @@ func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 						"request_id", RequestIDFrom(r.Context()),
 						"stack", string(debug.Stack()),
 					)
-					writeErrEnvelope(w, http.StatusInternalServerError, "INTERNAL_ERROR", "内部错误")
+					// 走 WriteError 而不是直接写信封：节点面的 500 同样必须是裸 JSON。
+					WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "内部错误")
 				}
 			}()
 			next.ServeHTTP(w, r)
@@ -278,4 +279,52 @@ func writeErrEnvelope(w http.ResponseWriter, status int, code, msg string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(b)
+}
+
+// nodeErrBody 是节点面的错误形状：**裸 JSON，不套信封**。
+// 与 openapi 的 NodeError schema 一一对应。
+type nodeErrBody struct {
+	Message string `json:"message"`
+	Code    string `json:"code"`
+}
+
+func writeErrBare(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(nodeErrBody{Message: msg, Code: code})
+}
+
+// IsNodeAPIPath 判断一个路径是否属于节点面。
+//
+// 节点面与用户面的**错误形状不同**，而中间件层写错误响应时拿不到 operationID，
+// 只能按路径判断。前缀常量与 CORS 用的是同一个（见 cors.go 的 nodeAPIPathPrefix）——
+// 两处必须一致，否则会出现「CORS 认为是节点面、错误响应认为不是」的分裂。
+func IsNodeAPIPath(path string) bool {
+	return strings.HasPrefix(path, nodeAPIPathPrefix)
+}
+
+// WriteError 按请求路径选错误形状写出。
+//
+// 🔴 **节点面的错误也必须是裸 JSON。** api-contract §2.2 的例外表把整个
+// `/api/v1/server/UniProxy/*` 端点族列为「裸 JSON，不套信封」，**没有「错误响应除外」这一条**；
+// openapi 的 NodeUnauthorized / NodeForbidden / NodeRateLimited / NodeInternalError
+// 四个 response 也全部 `$ref: NodeError`。
+//
+// 这里曾经无条件写信封，于是同一个端点上出现两种互不兼容的错误形状：
+// handler 自己返的 403 NODE_ID_MISMATCH 是裸 NodeError，
+// 中间件返的 403 NODE_SCOPE_DENIED 是 `{"error":{...}}`。
+// 任何按契约生成结构体解析节点面错误的实现（v2node 的 fork、将来的自研节点）
+// 在后者上会拿到 code/message 全空的零值。
+//
+// 现实影响有限 —— v2node 只看 HTTP 状态码，连响应体都不解析（见 node.go 的注释）——
+// 但「契约怎么写就怎么发」本身就是节点面的立身之本，不能靠「反正没人看」维持。
+// CI 抓不到这条：这段响应由中间件直接写 http.ResponseWriter，
+// 绕过了 oapi-codegen 生成的 response 类型，契约测试断言不到。
+func WriteError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	if r != nil && IsNodeAPIPath(r.URL.Path) {
+		writeErrBare(w, status, code, msg)
+		return
+	}
+	writeErrEnvelope(w, status, code, msg)
 }

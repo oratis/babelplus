@@ -18,8 +18,22 @@ import (
 // > TODO(P2)：改成 CI 里跑 `sing-box check` 的容器步骤 —— 同样的收益，不进 go.mod。
 
 type sbConfig struct {
-	Log       sbLog `json:"log"`
-	Outbounds []any `json:"outbounds"`
+	Log       sbLog   `json:"log"`
+	Outbounds []any   `json:"outbounds"`
+	Route     sbRoute `json:"route"`
+}
+
+// sbRoute 目前只有一个 final。
+//
+// sing-box 在 route.final 留空时**默认用第一个 outbound** —— 这里第一个正好是
+// 选择器「默认」，所以行为一直是对的。但那是一条隐式依赖：
+// 哪天有人在 outbounds 前面插一个别的条目（比如加一个 direct 出站做分流），
+// 默认出站就会静默变成那个新条目，而配置里没有任何一处写着「默认应该走哪里」。
+// 显式写出来，让这条依赖变成断言。
+//
+// 🔴 **本结构体故意没有 rules 与 inbounds，见 renderSingbox 末尾的长注释。**
+type sbRoute struct {
+	Final string `json:"final"`
 }
 
 type sbLog struct {
@@ -168,7 +182,33 @@ func renderSingbox(doc Document) ([]byte, error) {
 		}
 	}
 
-	cfg := sbConfig{Log: sbLog{Level: "warn"}, Outbounds: outbounds}
+	// route.final 显式指向选择器，理由见 sbRoute 的注释。
+	cfg := sbConfig{
+		Log:       sbLog{Level: "warn"},
+		Outbounds: outbounds,
+		Route:     sbRoute{Final: GroupDefault},
+	}
+
+	// 🔴 **两处已知欠缺，登记在 roadmap B45，不在本轮修：**
+	//
+	//  1. **没有 inbounds。** sing-box 的官方图形客户端（SFI / SFA / SFM / SFT，
+	//     对应 uaRules 里那几行 UA）把 profile 当作**完整配置**加载，隧道由配置里的
+	//     tun inbound 声明。没有 inbound 时进程能起、节点列表正常显示，
+	//     但没有任何入口捕获流量 —— 现象是「开关打开却一点流量不走」。
+	//     Karing / Hiddify 不受影响：它们把订阅当节点清单解析，自己生成完整配置。
+	//     **不在本轮补的理由**：tun 的 interface_name / stack / auto_route / mtu / DNS
+	//     每一项写错都会让整份 profile 加载失败（比现在更糟），
+	//     而 `sing-box check` 对缺 inbounds 的配置是**通过**的，本地校验不了。
+	//     这一条要么真机验证，要么改成让客户端自带模板 —— 属于产品裁决。
+	//
+	//  2. **没有 route.rules。** Clash 侧已经补上了「私有网段 + GEOIP,CN 直连」
+	//     （见 clash.go 的 writeClashRules），sing-box 侧还没有，
+	//     所以同一个用户在两种客户端上的分流行为**不一致**。
+	//     补它需要先加一个 direct 出站，并在 sing-box 的 rule_set（1.8+ 走远程规则集）
+	//     与老式 geoip 字段之间做版本取舍 —— 同样需要真机验证。
+	//
+	// 在这两条落地之前，sing-box 用户拿到的是「全部流量走代理」，
+	// 与 Clash 的「国内直连」不同。**这是已知差异，不是 bug 的遗漏。**
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
