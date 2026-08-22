@@ -58,10 +58,31 @@ func TestRenderClashHasRulesAndMatchFallback(t *testing.T) {
 	for _, want := range []string{
 		"IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
 		"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
-		"GEOIP,CN,DIRECT",
 	} {
 		if !strings.Contains(got, "- "+want) {
 			t.Errorf("缺少规则 %q", want)
+		}
+	}
+}
+
+// 🔴 规则表里**不许**出现任何需要下载数据文件才能求值的规则类型。
+//
+// 实测（mihomo v1.19.30，全新配置目录 + 断网）：带 GEOIP,CN 时
+// `configuration file test failed` —— 拿不到 GeoIP 数据库不是「这条规则不匹配」，
+// 而是**整份配置被拒绝加载**。而需要下载它的人正是「人在大陆、刚装客户端、
+// 还没有可用代理」的那一刻。见 docs/evidence/client-config-validation-20260822/。
+//
+// 这条测试挡的是「有人觉得国内直连很重要，顺手把 GEOIP,CN 加回来」。
+// 要加回来必须先回答 roadmap B46（首推客户端是否自带 geoip.metadb），
+// 并把本测试连同理由一起改掉 —— 不要只删断言。
+func TestRenderClashRulesNeedNoDownloadedGeodata(t *testing.T) {
+	out, err := Render(FormatClash, Document{Proxies: sampleProxies()})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, forbidden := range []string{"GEOIP,", "GEOSITE,", "RULE-SET,", "ASN,"} {
+		if strings.Contains(string(out), "- "+forbidden) {
+			t.Errorf("规则表里出现了依赖下载数据的规则类型 %q —— 首次加载会让整份配置失效", forbidden)
 		}
 	}
 }
