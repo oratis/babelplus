@@ -1,0 +1,65 @@
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+
+proxies:
+  - name: "HK-1 · REALITY"
+    type: vless
+    server: "203.0.113.10"
+    port: 443
+    uuid: "8f3a2c1d-4b5e-4c7a-9d21-6e0f3a7b1c92"
+    network: tcp
+    tls: true
+    udp: true
+    flow: "xtls-rprx-vision"
+    servername: "www.cloudflare.com"
+    client-fingerprint: "chrome"
+    reality-opts:
+      public-key: "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0"
+      short-id: "6ba85179e30d4fc2"
+    smux:
+      enabled: true
+      protocol: h2mux
+      max-connections: 4
+      min-streams: 4
+  - name: "HK-1 · HY2 加速"
+    type: hysteria2
+    server: "203.0.113.10"
+    port: 443
+    password: "Jc7pass"
+    obfs: "salamander"
+    obfs-password: "Jc7obfs"
+    sni: "hk1.example.invalid"
+    udp: true
+  - name: "TW-1 · SS"
+    type: ss
+    server: "203.0.113.20"
+    port: 8388
+    cipher: "2022-blake3-aes-128-gcm"
+    password: "AlF140saycvBnizo+Sd+5A=="
+    udp: true
+
+proxy-groups:
+  - name: "默认"
+    type: fallback
+    proxies: ["HK-1 · REALITY", "HK-1 · HY2 加速", "TW-1 · SS"]
+    url: http://www.gstatic.com/generate_204
+    interval: 300
+  - name: "加速"
+    type: select
+    proxies: ["HK-1 · HY2 加速", "HK-1 · REALITY", "TW-1 · SS"]
+
+rules:
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT
+  - MATCH,默认

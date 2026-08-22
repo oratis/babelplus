@@ -61,22 +61,37 @@ func renderClash(doc Document) ([]byte, error) {
 // 用户导入后会看到节点全在、延迟测得出来、订阅流量条正常，
 // 但被墙的站点一个都打不开，且他必然把这个报成「节点坏了」。
 //
-// 顺序是有讲究的，从上到下：
+// 现在的表只有两类，都**不依赖任何需要下载的数据**：
 //
-//  1. 私有网段直连。放最前面且带 `no-resolve`：这些是本机与局域网地址，
-//     走代理没有意义，而 `no-resolve` 避免为了判断一条 IP 规则先去做 DNS 解析。
-//  2. `GEOIP,CN,DIRECT` —— 国内流量直连。tutorials-spec §排障表里
-//     「国内网站变慢/打不开 → GEOIP,CN 的位置问题」这一条假定了它的存在。
-//  3. `MATCH` 兜底到默认组。
+//  1. 私有网段直连。带 `no-resolve`：这些是本机与局域网地址，走代理没有意义，
+//     而 `no-resolve` 避免为了判断一条 IP 规则先去做 DNS 解析。
+//  2. `MATCH` 兜底到默认组。
 //
-// **`GEOIP,CN` 依赖 mihomo 的 GeoIP 数据库。** 数据库缺失时该条规则匹配不上，
-// 于是落到 `MATCH` —— 也就是**降级为全局代理**，而不是降级为全局直连。
-// 这个失败方向是安全的（用户仍然能上网，只是国内流量绕了一圈），
-// 所以这里不为它加额外兜底。
+// 🔴 **刻意没有 `GEOIP,CN,DIRECT`，尽管产品上想要它。** 这一条是实测改的，不是保守：
 //
-// ⚠️ 与本文件顶部那三处同理，这张表**必须用真实 Clash Verge Rev 加载验证一次**
-// （ADR 0006 §12 的人工步骤）：规则语法写错时 mihomo 的表现是拒绝加载整个配置，
-// 而不是跳过那一行。
+//	mihomo v1.19.30 · 全新配置目录 · 断网
+//	  带 GEOIP,CN → can't download MMDB …… configuration file test **failed**
+//	  不带        → Initial configuration complete, 7ms, test **is successful**
+//
+// 也就是说 `GEOIP,CN` 拿不到 GeoIP 数据库时**不是「这条规则不匹配」，
+// 而是整份配置被拒绝加载**。而那个数据库是 8.6 MB、来源
+// `github.com/MetaCubeX/meta-rules-dat/releases` —— 需要它的人恰恰是
+// 「人在大陆、刚装完客户端、还没有任何可用代理」的那一刻。
+// 缓存过一次之后离线没问题（实测 B2），所以风险**特指首次加载**。
+//
+// 两种失败方向的代价不对称：
+//
+//	· 没有 GEOIP → 国内流量也走节点，慢一些、出口账单贵一些（**产品能用**）
+//	· 有 GEOIP 但下不到 → **整份订阅加载不了，产品完全不能用**
+//
+// 首次加载必须选前者。
+//
+// 想拿回国内直连（tutorials-spec 的排障表假定了它的存在，出口成本也在等它），
+// 前置条件是先回答「首推客户端是否自带 geoip.metadb」——
+// 桌面版 Clash Verge Rev 很可能自带，但**本仓没有任何一手数据**。
+// 登记为 roadmap B46。
+//
+// 实测原始输出：docs/evidence/client-config-validation-20260822/
 func writeClashRules(w *yamlWriter) {
 	w.line(0, "rules:")
 	for _, r := range []string{
@@ -88,7 +103,6 @@ func writeClashRules(w *yamlWriter) {
 		"IP-CIDR6,::1/128,DIRECT,no-resolve",
 		"IP-CIDR6,fc00::/7,DIRECT,no-resolve",
 		"IP-CIDR6,fe80::/10,DIRECT,no-resolve",
-		"GEOIP,CN,DIRECT",
 	} {
 		w.line(1, "- %s", r)
 	}
