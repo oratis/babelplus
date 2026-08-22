@@ -946,8 +946,9 @@ rules:
 >    **完整配置**加载，隧道由配置里的 `tun` inbound 声明。缺 inbound 时进程能起、
 >    节点列表正常显示，但没有入口捕获流量 —— 现象是「开关打开却一点流量不走」。
 >    Karing / Hiddify 不受影响（它们把订阅当节点清单，自己生成完整配置）。
->    ⚠️ 注意 `sing-box check` 对缺 `inbounds` 的配置是**通过**的，
->    所以上面那条「加分做法」即使做了也抓不到这一条。**只能真机验证。**
+>    ⚠️ **已实测确认**：`sing-box check`（v1.13.19）对缺 `inbounds` 的配置**通过**，
+>    所以上面那条「加分做法」即使做了也抓不到这一条 —— 做了也没用。**只能真机验证。**
+>    见 [evidence/client-config-validation-20260822 §4](../evidence/client-config-validation-20260822/)。
 > 2. **没有 `route.rules`。** Clash 侧已经有「私有网段 + `GEOIP,CN` 直连」，
 >    sing-box 侧还没有 —— **同一个用户在两种客户端上的分流行为不一致**。
 >    补它要先加 `direct` 出站，并在 `rule_set`（1.8+ 远程规则集）与老式 `geoip` 字段之间
