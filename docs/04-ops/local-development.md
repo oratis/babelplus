@@ -402,7 +402,7 @@ cd web && pnpm dev:user      # → http://localhost:5173
 | CORS | ✅ 已实现并挂载；真实浏览器正反向验证通过（§3.6） |
 | 日志脱敏（订阅 token 不进访问日志） | ✅ 已实现（`middleware.RedactPath`），有回归测试 |
 | 幂等骨架 | ✅ 三态 `BeginIdempotent` 已实现；⚠️ **清理定时任务尚未挂**（§6） |
-| Go 全套（build / vet / test / gofmt / race） | ✅ 全绿：191 个顶层用例 + 133 个子用例，0 失败（2026-08-23 复测） |
+| Go 全套（build / vet / test / gofmt / race） | ✅ 全绿：195 个顶层用例 + 133 个子用例，0 失败（2026-08-23 复测） |
 | web workspace（shared / user / admin） | ✅ 构建、类型检查、外链检查全通过 |
 | web 路由骨架（用户 20 条 + 后台 21 条） | ✅ 每页有布局与三态占位，业务逻辑全是 `TODO(P1)` |
 | web TS 客户端（从契约生成，128 operation） | ✅ 生成物已提交，幂等已实测 |

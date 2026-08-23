@@ -188,6 +188,11 @@ mkmetric bp_api_429  "bp-api 429（被拒/限流）" "$BASE AND httpRequest.stat
 > - 日志文案**就是指标名** `bp_node_alive`，所以过滤器匹配 `jsonPayload.message` 即可，
 >   不会因为谁改了一句中文措辞而静默失配；
 > - `node_id` 的值写成**字符串**（log-based metric 的 label 本身就是字符串类型）。
+> - 🔴 **`jsonPayload.message` 这个字段名本身也是一条依赖。** slog 默认把消息写成 `msg`，
+>   是 `cmd/server/main.go` 的 `newLoggerTo` 用 `ReplaceAttr` 把它改成 `message`
+>   （`level` 改成 `severity` 同理）。删掉那几行不会有任何编译或运行时报错，
+>   但**本页每一条 log-based metric 会同时停止匹配** —— 包括已经建好的 `bp_subscribe_404`。
+>   已由 `cmd/server/logger_test.go` 钉住（2026-08-23 补，实测删掉重命名后该用例会失败）。
 >
 > 心跳记在「鉴权 + `node_id` 校验通过之后、业务逻辑之前」，也就是说它回答的是
 > 「这个节点还能连上我们且凭据有效吗」，**不是**「这次请求成功了吗」。

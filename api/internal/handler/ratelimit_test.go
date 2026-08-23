@@ -3,6 +3,9 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -167,4 +170,120 @@ func TestRateBucketsAreDistinct(t *testing.T) {
 		}
 		seen[b] = true
 	}
+}
+
+// ============================================================
+// 接线（漂移防护）
+// ============================================================
+
+// TestEveryRateLimitedEndpointCallsCheckRateRules 扫 auth.go 的语法树，
+// 确认四个免登录端点都还在调 checkRateRules。
+//
+// 为什么需要一个源码级的测试：**Server.db 是具体类型 *store.Store，塞不了假实现**，
+// 所以这四个 handler 在单测里根本跑不起来 —— 也就是说，把 `checkRateRules`
+// 那几行整段删掉，`make check` 依然全绿。
+//
+// 而删掉它的现象是「没有现象」：登录照常成功，日志一片正常，
+// 直到某天有人把某个账号爆破出来。node.go 的 bp_node_alive 已经为同一类风险
+// （漏调不会有任何编译/运行时报错）建了一条 AST 扫描，这里是它的对偶。
+//
+// 用例数写死成 4 是**故意**的：将来给 RegisterAccount（当前无限流，
+// 是一个每次 3 条 DB 查询的免登录端点）或别的端点接上限流时，
+// 本用例会失败并提醒你把它一起登记进来。
+func TestEveryRateLimitedEndpointCallsCheckRateRules(t *testing.T) {
+	// 这四个是「免登录 + 会消耗稀缺资源」的端点：
+	// 前两个消耗 argon2 CPU 与账号安全，中间一个消耗 SES 配额，最后一个消耗数据库查询。
+	want := map[string]bool{
+		"Login":            false,
+		"SendEmailCode":    false,
+		"ForgotPassword":   false,
+		"VerifyInviteCode": false,
+	}
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "auth.go", nil, 0)
+	if err != nil {
+		t.Fatalf("解析 auth.go 失败: %v", err)
+	}
+
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Body == nil {
+			continue
+		}
+		if _, tracked := want[fn.Name.Name]; !tracked {
+			continue
+		}
+		want[fn.Name.Name] = callsIdent(fn.Body, "checkRateRules")
+	}
+
+	for name, hit := range want {
+		if !hit {
+			t.Errorf("%s 没有调用 checkRateRules —— 该免登录端点当前完全没有限流，"+
+				"而这件事不会有任何编译或运行时报错", name)
+		}
+	}
+}
+
+// TestLoginRateLimitsBeforeArgon2 钉住 Login 里两个调用的**先后顺序**。
+//
+// 顺序反了的话每一次被限流的登录仍然会先付一次 argon2id 的 CPU（64 MiB × 一次哈希），
+// 而 argon2Slots 那道信号量挡的是并发数不是总量 —— 于是限流对
+// 「慢速凭据填充」这个它唯一要挡的攻击形态完全失效，
+// 现象只是「CPU 账单变高、登录变慢」，没有任何报错。
+func TestLoginRateLimitsBeforeArgon2(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "auth.go", nil, 0)
+	if err != nil {
+		t.Fatalf("解析 auth.go 失败: %v", err)
+	}
+
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Body == nil || fn.Name.Name != "Login" {
+			continue
+		}
+		limitAt := firstCallPos(fn.Body, "checkRateRules")
+		hashAt := firstCallPos(fn.Body, "verifyPassword")
+		if limitAt == token.NoPos {
+			t.Fatal("Login 里找不到 checkRateRules")
+		}
+		if hashAt == token.NoPos {
+			t.Fatal("Login 里找不到 verifyPassword —— 用例的锚点变了，请修正本用例")
+		}
+		if limitAt >= hashAt {
+			t.Fatalf("限流必须在 verifyPassword（argon2id）之前：checkRateRules 在 %s，verifyPassword 在 %s",
+				fset.Position(limitAt), fset.Position(hashAt))
+		}
+		return
+	}
+	t.Fatal("auth.go 里找不到 Login")
+}
+
+// callsIdent 判断函数体里有没有调用名为 name 的函数（含 s.name(…) 形式）。
+func callsIdent(body *ast.BlockStmt, name string) bool {
+	return firstCallPos(body, name) != token.NoPos
+}
+
+// firstCallPos 返回函数体里第一次调用 name 的位置，没有则返回 token.NoPos。
+func firstCallPos(body *ast.BlockStmt, name string) token.Pos {
+	found := token.NoPos
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		var hit bool
+		switch fun := call.Fun.(type) {
+		case *ast.SelectorExpr:
+			hit = fun.Sel.Name == name
+		case *ast.Ident:
+			hit = fun.Name == name
+		}
+		if hit && (found == token.NoPos || call.Pos() < found) {
+			found = call.Pos()
+		}
+		return true
+	})
+	return found
 }
