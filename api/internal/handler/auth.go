@@ -1137,6 +1137,27 @@ func (s *Server) SendEmailCode(ctx context.Context, req gen.SendEmailCodeRequest
 	meta := s.requestMetadata(ctx)
 	email := normalizeEmail(string(req.Body.Email))
 
+	// ---- 限流第一层：门口的 per IP（rate_limit 表）----
+	//
+	// **在任何校验之前**，与 Login 同一条理由：格式非法的请求同样是敲门声，
+	// 让它免费重试等于给限流器留后门。
+	//
+	// 它补的是第二层补不到的两个洞：
+	//   · per email 的 3/h 与 60 秒间隔只约束**同一个邮箱**，一个 IP 轮着换邮箱发码
+	//     可以无限次消耗同一份 SES 配额，而退信率 ≥ 5% 就进审查；
+	//   · 第二层数的是 email_verifications 的行，而本端点有若干条不写行就返回的路径
+	//     （422、email_change 的 501、以及第二层自己拒掉的那些）——
+	//     走这些路的请求对第二层完全隐形。
+	if retry, limited := s.checkRateRules(ctx, rateRule{
+		bucket:  bucketEmailCodeIPHour,
+		subject: rateSubjectIP(meta),
+		limit:   emailCodePerIPPerHour,
+		window:  time.Hour,
+	}); limited {
+		return gen.SendEmailCode429JSONResponse{ErrRateLimitedJSONResponse: s.rateLimited(ctx,
+			"获取验证码过于频繁，请稍后再试", retry)}, nil
+	}
+
 	if !validEmail(email) {
 		return gen.SendEmailCode422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx,
 			"邮箱格式不正确", detail("email", "email_invalid"))}, nil
@@ -1151,22 +1172,6 @@ func (s *Server) SendEmailCode(ctx context.Context, req gen.SendEmailCodeRequest
 		// 而本端点在契约里是 security: []（免登录）。要支持它得先裁定
 		// 「本端点是否接受可选鉴权」，那是契约层面的决定，不在本轮范围。
 		return nil, ErrNotImplemented
-	}
-
-	// ---- 限流第一层：门口的 per IP（rate_limit 表）----
-	//
-	// 它补的是下面那层补不到的洞：per email 的 3/h 与 60 秒间隔只约束**同一个邮箱**，
-	// 一个 IP 轮着换邮箱发码可以无限次消耗 SES 配额，而退信率 ≥ 5% 就进审查。
-	// 另外这一层计的是**每一次请求**，包括后面因为各种原因没写成 email_verifications
-	// 行的那些 —— 那些请求对下面那层是隐形的。
-	if retry, limited := s.checkRateRules(ctx, rateRule{
-		bucket:  bucketEmailCodeIPHour,
-		subject: rateSubjectIP(meta),
-		limit:   emailCodePerIPPerHour,
-		window:  time.Hour,
-	}); limited {
-		return gen.SendEmailCode429JSONResponse{ErrRateLimitedJSONResponse: s.rateLimited(ctx,
-			"获取验证码过于频繁，请稍后再试", retry)}, nil
 	}
 
 	// ---- 限流第二层：per email（精确档，走 email_verifications 的历史行）----
@@ -1522,21 +1527,12 @@ func (s *Server) ForgotPassword(ctx context.Context, req gen.ForgotPasswordReque
 	meta := s.requestMetadata(ctx)
 	email := normalizeEmail(string(req.Body.Email))
 
-	if !validEmail(email) {
-		return gen.ForgotPassword422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx,
-			"邮箱格式不正确", detail("email", "email_invalid"))}, nil
-	}
-
-	accepted := gen.ForgotPassword204Response{
-		Headers: gen.ForgotPassword204ResponseHeaders{XRequestId: middleware.RequestIDFrom(ctx)},
-	}
-
-	// per IP 10/h 的第一层：门口计数（rate_limit 表）。
+	// per IP 10/h 的第一层：门口计数（rate_limit 表），**在任何校验之前**。
 	//
-	// 它与下面那层不是重复。下面那层数的是 email_verifications 的行，
+	// 它与第二层不是重复。第二层数的是 email_verifications 的行，
 	// 而本端点有**三条**不写行的返回路径：邮箱格式非法（422）、
 	// per email 超限（静默 204）、以及 issueVerification 之前的任何失败。
-	// 走这三条路的请求对下面那层完全隐形 —— 也就是说，反复拿同一个邮箱轰炸
+	// 走这三条路的请求对第二层完全隐形 —— 也就是说，反复拿同一个邮箱轰炸
 	// （最典型的攻击形态）在触发 per email 上限之后就再也不计入 per IP 了。
 	// 门口这一层数的是每一次请求，没有这个盲区。
 	if retry, limited := s.checkRateRules(ctx, rateRule{
@@ -1547,6 +1543,15 @@ func (s *Server) ForgotPassword(ctx context.Context, req gen.ForgotPasswordReque
 	}); limited {
 		return gen.ForgotPassword429JSONResponse{ErrRateLimitedJSONResponse: s.rateLimited(ctx,
 			"操作过于频繁，请稍后再试", retry)}, nil
+	}
+
+	if !validEmail(email) {
+		return gen.ForgotPassword422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx,
+			"邮箱格式不正确", detail("email", "email_invalid"))}, nil
+	}
+
+	accepted := gen.ForgotPassword204Response{
+		Headers: gen.ForgotPassword204ResponseHeaders{XRequestId: middleware.RequestIDFrom(ctx)},
 	}
 
 	// per IP 10/h 的第二层：只数**真的产生了验证码**的请求。
