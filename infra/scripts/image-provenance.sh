@@ -46,6 +46,9 @@ DRY_RUN=0
 ALLOW_PULL=0
 FOUND_SHA=""
 FOUND_FROM=""
+# 修订版 label 与镜像 label 打架时置 1。这是一次**事故**，不能以 0 退出 ——
+# 否则挂在定时作业里的调用会把「两处来源记录互相矛盾」当成一次成功。
+LABEL_CONFLICT=0
 
 # ───────────────────────── 通用工具（与 infra/ 下其它脚本刻意保持重复）─────────────────────────
 
@@ -209,6 +212,7 @@ read_image_labels() {
      以镜像 label 为准（它与二进制同生共死），并把这次不一致当成事故查。"
         FOUND_SHA="$sha"
         FOUND_FROM="镜像 label ${LABEL_SHA}（与修订版 label 冲突）"
+        LABEL_CONFLICT=1
       fi
       return 0
     fi
@@ -330,10 +334,16 @@ main() {
   fi
   log "  完整 sha : $FOUND_SHA"
   log "  来源     : $FOUND_FROM"
-  if verify_against_git; then
+  if verify_against_git && [ "$LABEL_CONFLICT" -eq 0 ]; then
     log ""
     log "  ✅ 线上跑的源码可定位，且仍被分支引用。"
     exit 0
+  fi
+  if [ "$LABEL_CONFLICT" -eq 1 ]; then
+    log ""
+    log "  🔴 sha 答得出来，但**两处来源记录互相矛盾** —— 以 1 退出。"
+    log "     矛盾本身要当事故查：修订版 label 与镜像 label 只可能由同一次部署写出，"
+    log "     不一致说明有人手工改过其中一个，或者部署与构建不是同一次。"
   fi
   exit 1
 }
