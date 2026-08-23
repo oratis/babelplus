@@ -935,12 +935,34 @@ rules:
       "obfs": { "type": "salamander", "password": "Jc7…" },
       "tls": { "enabled": true, "server_name": "hk1.example.invalid" }
     }
-  ]
+  ],
+  "route": { "final": "默认" }
 }
 ```
 
 > 加分做法（ADR 0006 §5.1 已记）：Go 侧直接 `import` sing-box 的配置结构体反序列化我们的输出，
 > 让「生成了 sing-box 不认的 JSON」在**编译期之后的第一个测试**就暴露，而不是在用户的手机上。
+
+> **`route.final`（2026-08-21 补）**：sing-box 在 `route.final` 留空时默认用**第一个 outbound**，
+> 这里第一个正好是选择器「默认」，所以行为一直是对的 —— 但那是一条隐式依赖。
+> 显式写出来，让「默认走哪里」变成配置里能读到的事实，也让「有人往 outbounds 前面插一个条目」
+> 这类改动在测试里就红。
+>
+> 🔴 **sing-box 侧仍有两处欠缺，与 Clash 侧不对等（登记为 roadmap B45）：**
+>
+> 1. **没有 `inbounds`。** 官方图形客户端（SFI / SFA / SFM / SFT）把 profile 当作
+>    **完整配置**加载，隧道由配置里的 `tun` inbound 声明。缺 inbound 时进程能起、
+>    节点列表正常显示，但没有入口捕获流量 —— 现象是「开关打开却一点流量不走」。
+>    Karing / Hiddify 不受影响（它们把订阅当节点清单，自己生成完整配置）。
+>    ⚠️ **已实测确认**：`sing-box check`（v1.13.19）对缺 `inbounds` 的配置**通过**，
+>    所以上面那条「加分做法」即使做了也抓不到这一条 —— 做了也没用。**只能真机验证。**
+>    见 [evidence/client-config-validation-20260822 §4](../evidence/client-config-validation-20260822/)。
+> 2. **没有 `route.rules`。** Clash 侧已经有「私有网段 + `GEOIP,CN` 直连」，
+>    sing-box 侧还没有 —— **同一个用户在两种客户端上的分流行为不一致**。
+>    补它要先加 `direct` 出站，并在 `rule_set`（1.8+ 远程规则集）与老式 `geoip` 字段之间
+>    做版本取舍，同样需要真机验证。
+>
+> 在这两条落地前，sing-box 用户拿到的是「全部流量走代理」。**这是已知差异，不是遗漏。**
 
 #### base64 分享链接
 

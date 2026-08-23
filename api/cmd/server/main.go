@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -165,7 +164,28 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 		},
 	)
 
-	gen.HandlerFromMux(strict, r)
+	// 🔴 **必须走 HandlerWithOptions 并显式给 ErrorHandlerFunc，不能用 HandlerFromMux。**
+	//
+	// 生成代码有**两条**独立的请求解析失败路径，它们各走各的处理函数：
+	//   · JSON body 解码失败 → strict 层的 RequestErrorHandlerFunc（上面已配）
+	//   · 路径 / 查询 / 头参数绑定失败 → ServerInterfaceWrapper.ErrorHandlerFunc
+	//
+	// HandlerFromMux 不传后者，于是它落到生成代码的默认实现
+	// `http.Error(w, err.Error(), 400)` —— **text/plain、无信封、无 error.code、
+	// 无 Cache-Control: no-store、也没有带失败原因的日志**。
+	// 触发它不需要任何凭据：`GET /api/v1/orders?limit=abc` 就够
+	// （limit 声明为 integer），`GET /s/` 缺必填 token 同理。
+	//
+	// 后果对照 api-contract §2.2：前端按 error.code 做分支（见 responseErrorHandler
+	// 的注释），而这条路径连 code 都没有、Content-Type 也不是 JSON，
+	// 前端只能落到「未知错误」兜底；openapi 里这些 operation 也没有声明这种 400 的形状。
+	//
+	// 两条路径现在共用同一个 requestErrorHandler —— 这也正是它上方注释一直声称的
+	// 「参数缺失、类型不符、JSON 解析失败」，此前它其实一条参数类错误都收不到。
+	gen.HandlerWithOptions(strict, gen.ChiServerOptions{
+		BaseRouter:       r,
+		ErrorHandlerFunc: requestErrorHandler(logger),
+	})
 
 	return r
 }
@@ -182,37 +202,48 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 func responseErrorHandler(logger *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		if errors.Is(err, handler.ErrNotImplemented) {
-			writeErr(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "该端点尚未实现")
+			writeErr(w, r, http.StatusNotImplemented, "NOT_IMPLEMENTED", "该端点尚未实现")
 			return
 		}
 		logger.ErrorContext(r.Context(), "handler 返回错误",
 			"err", err, "path", mw.RedactPath(r.URL.Path), "request_id", mw.RequestIDFrom(r.Context()))
 		// 码必须是 openapi 的 ErrorCode enum 成员：前端按 code 做分支，
 		// enum 外的值会全部落到兜底分支，用户看到的是「未知错误」而不是可操作的提示。
-		writeErr(w, http.StatusInternalServerError, "INTERNAL_ERROR", "内部错误")
+		writeErr(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "内部错误")
 	}
 }
 
 // requestErrorHandler 处理请求解包失败（参数缺失、类型不符、JSON 解析失败）。
+//
+// 同时挂在两处（见 buildRouter 末尾）：strict 层的 RequestErrorHandlerFunc
+// 收 JSON body 解码失败，ChiServerOptions.ErrorHandlerFunc 收参数绑定失败。
+//
+// ⚠️ 码用 VALIDATION_MALFORMED_BODY 是**将就** —— 参数类型不符发生在 body 之外。
+// 更贴切的是一个 VALIDATION_MALFORMED_PARAM，但新增错误码必须先进 openapi 的
+// ErrorCode enum（api-contract §12 的硬规矩），那是一次契约变更，不在本次范围。
+// 已登记为 roadmap 待办。状态码 400 是对的，前端拿到的 code 也在 enum 内，
+// 所以这个将就不会让前端落到兜底分支 —— 那才是原来那条 text/plain 路径的问题。
+//
+// err.Error() 直接回给调用方是安全的：生成代码这两条路径产生的都是
+// InvalidParamFormatError / RequiredParamError / 「can't decode JSON body」这类
+// 只含参数名与解析原因的文本，不含请求内容本身。
 func requestErrorHandler(logger *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		logger.WarnContext(r.Context(), "请求解析失败",
 			"err", err, "path", mw.RedactPath(r.URL.Path), "request_id", mw.RequestIDFrom(r.Context()))
-		writeErr(w, http.StatusBadRequest, "VALIDATION_MALFORMED_BODY", err.Error())
+		writeErr(w, r, http.StatusBadRequest, "VALIDATION_MALFORMED_BODY", err.Error())
 	}
 }
 
-// writeErr 输出统一的错误信封。
+// writeErr 按请求路径选错误形状写出：用户面套信封，节点面裸 JSON。
 //
-// ⚠️ UniProxy 的 200 响应是**裸 JSON 无信封**（v2node 兼容要求），
-// 但错误响应仍用信封 —— 这个不对称是刻意的，api-contract.md 有记录。
-func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]string{"code": code, "message": msg},
-	})
+// 这里原来无条件写信封，注释说「这个不对称是刻意的，api-contract.md 有记录」——
+// **那条记录不存在。** api-contract §2.2 的例外表把整个 `/api/v1/server/UniProxy/*`
+// 端点族列为「裸 JSON，不套信封」，没有任何「错误响应除外」的条款；
+// openapi 的 NodeUnauthorized / NodeForbidden / NodeInternalError 也全部 `$ref: NodeError`。
+// 完整理由见 middleware.WriteError。
+func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	mw.WriteError(w, r, status, code, msg)
 }
 
 // newLogger 输出 JSON 结构化日志，字段名对齐 Cloud Logging。

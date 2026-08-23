@@ -469,6 +469,56 @@ step_pubsub() {
   skip "push 订阅 $PUBSUB_SUB 依赖 bp-api 存在，放在 --step=postdeploy"
 }
 
+# step_logging 建一条日志排除过滤器，挡住订阅 token 进 Cloud Logging。
+#
+# 🔴 **问题不在应用侧。** 应用自己的访问日志早就走 middleware.RedactPath 打过码了
+#    （`/s/abcdefgh…`）。漏的是 **Cloud Run 的平台请求日志** ——
+#    每个请求 Cloud Run 都会往 `run.googleapis.com/requests` 写一条，
+#    其中 `httpRequest.requestUrl` 是**完整 URL**：
+#      · `GET /s/{token}`            → 完整订阅 token 在路径里
+#      · `GET /api/v1/client/subscribe?token=…` → 完整 token 在 query 里
+#      · 节点面 `?token=…`           → 节点密钥明文（v2node 只发 query token）
+#    这一条应用侧改不了，只能在日志侧排除。
+#
+#    后果正是 RedactPath 注释里点名要防的那件事：Cloud Logging 的 _Default bucket 里
+#    躺着一份**可直接使用**的订阅 token / 节点密钥明文清单，而数据库里存的是 sha256。
+#    `roles/logging.viewer` 的授予面（值班、排障、日志导出、sink 到 BigQuery）
+#    远宽于数据库权限 —— 等于加密存储被平台日志整体绕过。
+#
+# ⚠️ **代价（必须知道再执行）：** Cloud Logging 只能整条排除，不能改写字段。
+#    所以这条过滤器会让这些请求在**平台请求日志**里彻底消失 —— 延迟、
+#    responseSize、GFE 侧状态码都不再有。
+#    可接受的理由：应用自己的 AccessLog 仍然记录同样这些请求（路径已打码，
+#    含 status / duration_ms / bytes / request_id），排障信息不丢，丢的是平台侧的那份副本。
+#    ⚠️ 但 `bp_api_5xx` / `bp_api_429` 两条日志指标走的**正是平台请求日志**
+#    （monitoring.md §3.2 给的过滤器是 `httpRequest.status>=500`）——
+#    订阅与节点面路径上的 5xx/429 因此不会被这两条指标计入。
+#    要么接受（这两条路径的错误率另有 bp_subscribe_404 / bp_uniproxy_auth_fail 覆盖），
+#    要么把那两条指标改成走应用日志的 jsonPayload.status。**本脚本不替你做这个取舍。**
+step_logging() {
+  step "日志排除：不让订阅 token / 节点密钥进 Cloud Logging"
+
+  local sink=_Default
+  local excl=bp-redact-credential-urls
+  local filter
+  # 只排 Cloud Run 的平台请求日志，且只排凭据在 URL 里的那几条路径。
+  # 应用自己写的 stdout 日志（logName 是 …/stdout）不受影响。
+  filter='logName:"run.googleapis.com%2Frequests"
+AND resource.labels.service_name="'"$RUN_SERVICE"'"
+AND (httpRequest.requestUrl:"/s/" OR httpRequest.requestUrl:"token=")'
+
+  if gcloud logging sinks describe "$sink" --project="$PROJECT_ID"        --format='value(exclusions[].name)' 2>/dev/null | tr ';' '\n' | grep -qx "$excl"; then
+    skip "排除过滤器 $excl 已存在"
+    return 0
+  fi
+
+  warn "即将给 _Default 日志接收器加一条排除过滤器 —— 读一遍上面那段「代价」再继续。"
+  confirm "确认要建 $excl 吗？" "$excl"
+  run gcloud logging sinks update "$sink" --project="$PROJECT_ID" \
+      --add-exclusion="name=$excl,filter=$filter"
+  ok "排除过滤器 $excl 已创建"
+}
+
 step_tasks() {
   step "7/8 Cloud Tasks 队列"
   guard_bp_prefix "$QUEUE_TRAFFIC" "$QUEUE_MAIL"
@@ -698,6 +748,9 @@ main() {
     sql)        step_sql ;;
     pubsub)     step_pubsub ;;
     tasks)      step_tasks ;;
+    # 刻意**不进 all**：它有一个需要人读完再决定的取舍（见 step_logging 的注释），
+    # 不该在一次「把基础设施拉起来」里被顺手执行掉。
+    logging)    step_logging ;;
     postdeploy) step_postdeploy ;;
     *)          usage >&2; die "未知步骤：$STEP" ;;
   esac

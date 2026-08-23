@@ -243,7 +243,7 @@ func RequireUser(cfg UserAuthConfig) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			auth, authErr := AuthenticateUser(r.Context(), cfg, r)
 			if authErr != nil {
-				WriteAuthError(w, authErr)
+				WriteAuthError(w, r, authErr)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), auth)))
