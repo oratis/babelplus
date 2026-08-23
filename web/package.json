@@ -12,6 +12,7 @@
     "gen:api:check": "pnpm run gen:api && git diff --exit-code -- shared/api/schema.d.ts",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
     "lint:no-external": "node scripts/check-no-external-assets.mjs",
     "dev:user": "pnpm --filter @babelplus/user dev",
     "dev:admin": "pnpm --filter @babelplus/admin dev"
