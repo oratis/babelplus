@@ -53,12 +53,27 @@ export function safeReturnTo(raw: string | null | undefined, origin?: string): s
   }
   if (parsed.origin !== new URL(base).origin) return null;
 
+  const path = parsed.pathname;
+
+  // 🔴 归一化本身会**产生**新的危险前缀，所以必须对**结果**再判一次。
+  //
+  // `/..//evil.example` 是个真实绕过：它以单个 `/` 开头（过了上面那条），不含反斜杠与控制字符，
+  // 解析后 origin 仍是本站（过了兜底断言）—— 但 `/..` 被解析掉之后 pathname 变成
+  // `//evil.example`，而这是一个**协议相对 URL**。它被 `navigate()` / `history.pushState`
+  // 再解析一次时会落到 `https://evil.example/`。
+  //
+  // 上面所有检查作用的都是**原串**，而返回的是**归一化后的串**，两者不是同一个东西。
+  // 这一条就是为了把这个缺口补上：对最终真正交出去的值，重跑一遍结构判定。
+  if (path.startsWith('//') || path.includes('\\')) return null;
+
   // 黑名单判在**解析后的 pathname** 上：判在原串上的话 `/auth?x=1`、`/auth/../auth/login`
   // 这类写法会绕过去，而它们最终都落在同一个页面。
-  const path = parsed.pathname;
+  // 比较用小写：react-router 的路由匹配默认**大小写不敏感**（`caseSensitive` 默认 false），
+  // `/AUTH/login` 照样会匹配到 `/auth/login` 这条路由，只判原样就等于没判。
+  const lowerPath = path.toLowerCase();
   for (const prefix of DENIED_PREFIXES) {
     const bare = prefix.replace(/\/$/, '');
-    if (path === bare || path.startsWith(prefix)) return null;
+    if (lowerPath === bare || lowerPath.startsWith(prefix)) return null;
   }
 
   return `${path}${parsed.search}${parsed.hash}`;
