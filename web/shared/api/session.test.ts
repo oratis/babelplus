@@ -104,6 +104,58 @@ describe('createSessionManager —— 单飞', () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
+  // 这一组钉的是「在途 refresh 的结果什么时候还作数」。
+  // 摘掉 `inflight` 引用挡不住它 —— 那个 async 闭包还在飞，照样会执行到写回那一步。
+  it('登出后，在途 refresh 的结果**不许写回** —— 否则用户点了登出却还留着一枚有效 token', async () => {
+    const gate = deferred<string | null>();
+    const manager = createSessionManager({
+      store: memorySessionStore('old'),
+      refresh: () => gate.promise,
+    });
+
+    const waiter = manager.ensureFreshToken('old');
+    manager.signOut('user');
+    expect(manager.getToken()).toBeNull();
+
+    gate.resolve('new'); // 在途 refresh 这时才回来
+    expect(await waiter).toBeNull(); // 别拿它去重试
+    expect(manager.getToken()).toBeNull(); // 共用电脑上这一条就是会话泄漏
+  });
+
+  it('登出后在途 refresh 回来，也不许再发一次 onTokenChange', async () => {
+    const gate = deferred<string | null>();
+    const seen: Array<string | null> = [];
+    const manager = createSessionManager({
+      store: memorySessionStore('old'),
+      refresh: () => gate.promise,
+      onTokenChange: (token) => seen.push(token),
+    });
+
+    const waiter = manager.ensureFreshToken('old');
+    manager.signOut('user');
+    gate.resolve('new');
+    await waiter;
+
+    // 只有登出那一次 null；绝不能出现 [null, 'new'] 这种「登出又活过来」的序列。
+    expect(seen).toEqual([null]);
+  });
+
+  it('重新登录后，上一轮在途 refresh 不覆盖新会话，而是把新 token 交回去重试', async () => {
+    const gate = deferred<string | null>();
+    const manager = createSessionManager({
+      store: memorySessionStore('old'),
+      refresh: () => gate.promise,
+    });
+
+    const waiter = manager.ensureFreshToken('old');
+    manager.setToken('fresh-login'); // 用户在别处重新登录了
+    gate.resolve('rotated-from-old');
+    await waiter;
+
+    expect(manager.getToken()).toBe('fresh-login');
+    expect(await waiter).toBe('fresh-login');
+  });
+
   it('订阅者能看到 token 变化与登出', async () => {
     const seen: Array<string | null> = [];
     const manager = createSessionManager({

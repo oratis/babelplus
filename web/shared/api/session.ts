@@ -118,21 +118,40 @@ export function createSessionManager(options: SessionManagerOptions): SessionMan
   // 无条件清的话，「登出 → 重新登录 → 新的一轮已经开始」时，
   // 上一轮的收尾会把新一轮的单飞槽位抹掉，于是又能并发出两次 refresh。
   let refreshSeq = 0;
+  /**
+   * 会话世代号。**只由外部写入（登出、重新登录）递增**，refresh 自己写回时不动它。
+   *
+   * 它回答的是一个 `inflight = null` 回答不了的问题：**这一轮 refresh 的结果还作数吗。**
+   * 摘掉 `inflight` 引用只是让后来者不再复用这个 promise，
+   * 那个 async 闭包**照样在飞，照样会执行到 `setToken(next)`**。
+   * 于是「点登出 → 在途 refresh 回来 → token 被写回 storage」，用户以为登出了其实没有 ——
+   * 在共用电脑上这就是一次真实的会话泄漏（`AppLayout` 的登出按钮注释里担心的正是这件事）。
+   */
+  let sessionEpoch = 0;
 
   function emit(token: string | null): void {
     options.onTokenChange?.(token);
     for (const listener of listeners) listener(token);
   }
 
-  function setToken(token: string | null): void {
+  /** 内部写入。**不动世代号** —— refresh 成功写回自己的结果时走这条。 */
+  function writeToken(token: string | null): void {
     const normalized = token === null || token === '' ? null : token;
     if (options.store.read() === normalized) return;
     options.store.write(normalized);
     emit(normalized);
   }
 
+  /** 外部写入（典型是重新登录）。**作废在途的那一轮 refresh**，它拿的是上一个身份的 token。 */
+  function setToken(token: string | null): void {
+    sessionEpoch += 1;
+    writeToken(token);
+  }
+
   function signOut(reason: SignOutReason = 'user'): void {
-    // 先把在途 refresh 的引用摘掉：它还在飞，但结果已经不该再写回 token。
+    // 世代号 +1：在途 refresh 回来时会发现自己已经过期，于是丢掉结果而不是写回 token。
+    // 只摘 `inflight` 引用是不够的 —— 那个闭包还在飞（见 `sessionEpoch` 的注释）。
+    sessionEpoch += 1;
     inflight = null;
     const had = options.store.read() !== null;
     options.store.write(null);
@@ -161,14 +180,21 @@ export function createSessionManager(options: SessionManagerOptions): SessionMan
       if (inflight) return inflight;
 
       const seq = (refreshSeq += 1);
+      const epoch = sessionEpoch;
       inflight = (async (): Promise<string | null> => {
         try {
           const next = await options.refresh(current);
+
+          // 这一轮已经被登出 / 重新登录作废了：**结果一律丢掉，绝不写回 storage**。
+          // 交回当前存着的那枚（登出后是 null = 别重试了；重新登录后是新 token = 用它重试），
+          // 与上面「别人已经刷过了」那条分支给出的是同一种答案。
+          if (sessionEpoch !== epoch) return options.store.read();
+
           if (next === null || next === '') {
             signOut('refresh-rejected');
             return null;
           }
-          setToken(next);
+          writeToken(next);
           return next;
         } catch {
           // 网络层失败。**不登出**：会话很可能还活着，只是这次没连上。
