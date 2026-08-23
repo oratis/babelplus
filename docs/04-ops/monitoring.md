@@ -151,7 +151,7 @@ flowchart TB
 > | `bp_task_idem_skip` | ✅ 已建（部分覆盖） | 只覆盖 `/push` 的幂等丢弃；`httpx/idempotency.go` 的 `Idempotency-Key` 路径**不打日志**，需补 |
 > | `bp_db_pool_wait` | ✅ 已建（近似） | 按 `jsonPayload.err` 文本匹配，非结构化判据 |
 > | `bp_mail_bounce` | 🔴 建不了 | ESP 未接通，没有退信日志 |
-> | `bp_cert_issuer_bad` | 🔴 建不了 | §8 的每日证书核对作业不存在 |
+> | `bp_cert_issuer_bad` | 🔶 **信号源已有（2026-08-23），指标本身仍未建** | §8 的核对作业现在有了可执行形式：`infra/scripts/check-cert-issuer.sh`。**建指标的那条命令仍要人工跑一次**，而且它要在作业挂上去**之前**跑（不追溯） |
 > | `bp_node_alive` | 🔴 建不了 | 需应用主动写一行带 `node_id` 的结构化日志。**§5 的 metric-absence 告警依赖它，节点上线前必须先有** |
 
 ```bash
@@ -175,7 +175,7 @@ mkmetric bp_api_429  "bp-api 429（被拒/限流）" "$BASE AND httpRequest.stat
 | `bp_task_idem_skip` | 幂等键命中（deploy.md §9.2） | Cloud Tasks at-least-once 的**可观测证据**。这个数长期为 0 反而可疑（说明幂等逻辑可能根本没被走到） |
 | `bp_db_pool_wait` | pgxpool 获取连接超时 / `sorry, too many clients already` | ADR 0005 §6.3 的升配触发器之一 |
 | `bp_mail_bounce` | ESP 退信回调 | AWS SES 退信率 ≥5% 进入审查、≥10% 可能暂停发信（page-inventory 已记）。邮件是**唯一**失联恢复通道（ADR 0002），停信 = 恢复面失效 |
-| `bp_cert_issuer_bad` | §8 的每日证书核对写的日志 | ADR 0004 §3.4 |
+| `bp_cert_issuer_bad` | §8 的每日证书核对写的日志（`infra/scripts/check-cert-issuer.sh`） | ADR 0004 §3.4 |
 | `bp_node_alive` | 节点 `/alive` 上报成功，**带 `node_id` 标签** | §5 第 1 条的 metric-absence 告警依赖它 |
 
 > ⚠️ **`bp_node_alive` 必须由应用主动写一行结构化日志**，不能靠解析 access log ——
@@ -437,9 +437,42 @@ docker run -d --restart=always -p 3001:3001 \
 
 ADR 0004 §6 把「证书链监控未设计」列为未解决项。本节是它的答案。
 
-**机制**：Cloud Scheduler `bp-cert-issuer-check`（每日）→ `/internal/tasks/cert-check`
-→ 对域名池全部域名做 TLS 握手 → 取 issuer 的 `O` 与 `CN` 与到期时间 → 写结构化日志
-→ log-based metric `bp_cert_issuer_bad` → 告警第 15 条（**P0**）。
+**机制**（本节写于 2026-08-16 的设想）：Cloud Scheduler `bp-cert-issuer-check`（每日）
+→ `/internal/tasks/cert-check` → 对域名池全部域名做 TLS 握手 → 取 issuer 的 `O` 与 `CN`
+与到期时间 → 写结构化日志 → log-based metric `bp_cert_issuer_bad` → 告警第 15 条（**P0**）。
+
+> **2026-08-23 落地时改了形态（roadmap B42）：核对做成了脚本
+> [`infra/scripts/check-cert-issuer.sh`](../../infra/scripts/check-cert-issuer.sh)，
+> 不是 `bp-api` 上的一个端点。** 三条理由：
+>
+> 1. `/internal/tasks/cert-check` **不在 `openapi/openapi.yaml` 里**（2026-08-23 核实），
+>    而 `bp-api` 的路由完全由契约生成 —— 加这个端点要动契约 + 四处生成物 + handler，
+>    为一件「握手取证书」的事付这么多是不划算的。
+> 2. **故障域**：`bp-api` 挂了的时候证书核对仍然要能跑。做成端点等于把它挂在被监控对象上。
+> 3. 脚本零依赖（`openssl` + `gcloud`），任何一台机器、CI、cron 都能跑。
+>
+> **仍然缺的两件**（不要以为这一条已经收尾）：
+> - log-based metric `bp_cert_issuer_bad` 本身**还没建**。命令在脚本 `--help` 末尾，
+>   过滤器是 `logName="projects/oratis-491316/logs/bp-cert-issuer-check"
+>   AND jsonPayload.event="cert_issuer_bad"`。**指标不追溯，先建指标再挂作业。**
+> - 「每日」的那个调度器（Cloud Scheduler / cron / CI 定时任务）**未裁决、无脚本**。
+>   现在它只是一条能手工跑的命令。
+>
+> 日志契约（改这三样 = 改指标过滤器，而中间那段时间的信号会静默丢失）：
+>
+> | 项 | 值 |
+> |---|---|
+> | `logName` | `projects/oratis-491316/logs/bp-cert-issuer-check` |
+> | `jsonPayload.event` | `cert_issuer_bad`（签发者不符）· `cert_expiring_soon`（< 14 天）· `cert_check_failed`（握手失败） |
+> | `jsonPayload.reason` | 有界枚举：`forbidden_issuer` · `unexpected_issuer` · `no_issuer` · `expiring_soon` · `handshake_failed` |
+>
+> ⚠️ `severity` 分两级：GTS / 已知禁用 CA 是 `ERROR`，「没见过的 CA」是 `WARNING` ——
+> 但**两者都记 `cert_issuer_bad`**。这条指标要回答的是「签发者变了没有」，
+> 一个没见过的 CA 同样是变了，漏掉它就等于只防住了我们已经想到的那一种。
+>
+> ⚠️ 剩余有效期不足走**单独的** `cert_expiring_soon`，不喂 `bp_cert_issuer_bad`：
+> 把续签窗口算成「签发者异常」会让这条 P0 告警在每次证书轮换前都响一次，
+> 而一条会规律性误报的 P0 最终会被人关掉。**这一条目前没有对应的指标，也没有告警。**
 
 | 判定 | 规则 |
 |---|---|
