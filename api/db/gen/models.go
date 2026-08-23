@@ -744,6 +744,14 @@ type Plan struct {
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
 }
 
+type RateLimit struct {
+	Bucket        string             `json:"bucket"`
+	Subject       []byte             `json:"subject"`
+	WindowStart   pgtype.Timestamptz `json:"window_start"`
+	WindowSeconds int32              `json:"window_seconds"`
+	Hits          int32              `json:"hits"`
+}
+
 type Refund struct {
 	ID          int64              `json:"id"`
 	OrderID     int64              `json:"order_id"`
