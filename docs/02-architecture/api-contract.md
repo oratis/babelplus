@@ -828,7 +828,55 @@ proxy-groups:
   - name: "加速"
     type: select
     proxies: ["HK-1 · HY2 加速", "HK-1 · REALITY"]
+
+rules:
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR6,::1/128,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+  - MATCH,默认
 ```
+
+> 🔴 **`rules` 这一段本文档原来漏了，实现也跟着漏了（2026-08-21 补）。**
+> 配置里写着 `mode: rule`，而 mihomo 在规则全不匹配时回落到 `DIRECT` ——
+> **规则表为空 = 每一条连接都走直连**。用户导入后会看到节点全在、延迟测得出来、
+> 订阅流量条正常，但被墙的站点一个都打不开，且他必然把这个报成「节点坏了」。
+> 这是「契约漏了 → 实现照抄契约 → 一起漏」的典型，不能靠「实现照着契约写」免责。
+>
+> 三条约束：
+> 1. **`MATCH` 必须是最后一条**，且目标必须与 `proxy-groups` 里默认组的名字**逐字一致**
+>    （指向不存在的组会让 mihomo 拒绝加载整份配置）。
+> 2. 私有网段规则带 `no-resolve`，避免为了判断一条 IP 规则先做一次 DNS 解析。
+> 3. 🔴 **表里刻意没有 `GEOIP,CN,DIRECT`，尽管产品上想要它。**
+>    第一版写了，理由是「数据库缺失时该条匹配不上，于是落到 `MATCH`，
+>    降级为全局代理，失败方向是安全的」—— **实测证明这句话是错的**：
+>
+>    ```
+>    mihomo v1.19.30 · 全新配置目录 · 断网
+>      带 GEOIP,CN → can't download MMDB …… configuration file test FAILED
+>      不带        → Initial configuration complete, 7ms, test is successful
+>    ```
+>
+>    拿不到 GeoIP 数据库时**整份配置被拒绝加载**，不是「这条规则不匹配」。
+>    而那个数据库是 8.6 MB、来自 `github.com/MetaCubeX/meta-rules-dat/releases` ——
+>    需要下载它的人恰恰是「人在大陆、刚装完客户端、还没有任何可用代理」的那一刻。
+>    缓存过一次之后离线没问题，所以风险**特指首次加载**。
+>
+>    两种失败方向的代价不对称：没有 GEOIP 是「国内流量也走节点，慢一些、出口贵一些，
+>    但产品能用」；有 GEOIP 却下不到是「整份订阅加载不了，产品完全不能用」。
+>    首次加载必须选前者。
+>
+>    ⚠️ tutorials-spec 排障表里「国内网站变慢/打不开 → `GEOIP,CN` 的位置问题」
+>    这一条**目前对不上实现** —— 它假定了分流规则的存在。
+>    要拿回国内直连（出口成本也在等它），前置是先回答
+>    「首推客户端是否自带 `geoip.metadb`」（桌面版 Clash Verge Rev 很可能自带，
+>    但本仓没有一手数据）。登记为 roadmap **B46**。
+>
+>    实测原始输出：[evidence/client-config-validation-20260822](../evidence/client-config-validation-20260822/)。
 
 两条与既定裁决的直接对应：
 
@@ -841,6 +889,15 @@ proxy-groups:
 > hysteria2 的 `obfs-password` 拼写，全部必须用真实 Clash Verge Rev 加载 golden file 验证。
 > ADR 0006 §12 已经把这条定为不可自动化的人工步骤：**每次改订阅格式，
 > 人工用 Clash Verge Rev / sing-box 各加载一次。**
+>
+> ✅ **2026-08-22 部分兑现（容器里跑真实客户端做配置校验）**：
+> 生成器的真实产出经 **mihomo v1.19.30 `-t`** 与 **sing-box v1.13.19 `check`** 校验，
+> 两侧、含伪节点路径**全部通过** ——
+> 见 [evidence/client-config-validation-20260822](../evidence/client-config-validation-20260822/)。
+>
+> ⚠️ **这不等于「字段名验过了」。** `-t` / `check` 只做**结构与语义校验**：
+> 认得的键才校验，认不得的键**默默忽略** —— 上面那三处「需实测」写错时它们照样通过。
+> 真正能证明字段名对的只有「连上去跑通流量」。**人工加载那一步仍然欠着。**
 
 #### sing-box JSON
 

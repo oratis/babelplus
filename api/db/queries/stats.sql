@@ -75,6 +75,23 @@ ORDER BY upd.user_id;
 -- 日聚合 UPSERT。stat_date 按 Asia/Shanghai 切天（data-model §9.3 的口径声明）。
 -- 同样先 GROUP BY 去重：同一批里重复 user_id 会让 ON CONFLICT 报
 -- 「cannot affect row a second time」。
+-- 🔴 **必须 JOIN user_traffic，不能直接 INSERT 上报里的 user_id。**
+--
+-- 本查询与 servers.sql 的 AddNodeTrafficBatch **在同一个事务里**，但两者的容错度
+-- 曾经不一样：AddNodeTrafficBatch 是 `UPDATE user_traffic ... FROM input`，
+-- user_traffic 里没有对应行就静默跳过；而这里是裸 INSERT，
+-- stat_user_server.user_id 带 `REFERENCES users(id)` 外键，遇到不存在的 user_id
+-- 会抛 23503 并**回滚整个事务** —— 也就是把这一批里其余所有正常用户的流量一起丢掉。
+--
+-- 上报体完全由节点控制（v2node bug、节点指错环境、节点主机被拿下、
+-- DR 从旧备份恢复后节点仍持有较新的用户列表），一条 `{"999999999":[1,1]}` 就够。
+-- 而 v2node **不看状态码也不重发**，所以丢的是永久丢；只要那个坏 id 还在，
+-- 之后每一批都同样全灭 → 该节点上所有用户可以无限白嫖流量。
+--
+-- JOIN user_traffic 让两条语句覆盖**完全相同**的 user_id 集合：
+-- user_traffic.user_id 本身是 users 的外键，有行就一定有用户，外键必然满足。
+-- 未知 user_id 于是与 AddNodeTrafficBatch 一样被静默丢弃，
+-- 而调用方靠 AddNodeTrafficBatch 返回的 updated_users < 数组长度发现它（handler 已打日志）。
 -- name: BulkUpsertStatUserServer :exec
 INSERT INTO stat_user_server (user_id, server_id, stat_date, u, d)
 SELECT a.user_id, @server_id::bigint, (now() AT TIME ZONE 'Asia/Shanghai')::date,
@@ -82,6 +99,7 @@ SELECT a.user_id, @server_id::bigint, (now() AT TIME ZONE 'Asia/Shanghai')::date
 FROM unnest(@user_ids::bigint[])   WITH ORDINALITY AS a(user_id, n)
 JOIN unnest(@up_bytes::bigint[])   WITH ORDINALITY AS b(u, n) ON b.n = a.n
 JOIN unnest(@down_bytes::bigint[]) WITH ORDINALITY AS c(d, n) ON c.n = a.n
+JOIN user_traffic ut ON ut.user_id = a.user_id
 GROUP BY a.user_id
 ON CONFLICT (user_id, server_id, stat_date)
 DO UPDATE SET u = stat_user_server.u + EXCLUDED.u,

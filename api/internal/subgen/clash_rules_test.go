@@ -1,0 +1,100 @@
+package subgen
+
+import (
+	"strings"
+	"testing"
+)
+
+// 这条护的是一个曾经真实存在的缺陷：配置写着 `mode: rule`，却一条 `rules` 都没有。
+// mihomo 在规则全不匹配时回落到 DIRECT，所以「没有规则」= **全部直连**，
+// 用户看到的现象是节点全在、延迟正常、被墙的站点一个都打不开。
+func TestRenderClashHasRulesAndMatchFallback(t *testing.T) {
+	out, err := Render(FormatClash, Document{Proxies: sampleProxies()})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := string(out)
+
+	if !strings.Contains(got, "\nrules:\n") {
+		t.Fatalf("配置里没有 rules 段 —— mode: rule 下等于全部直连:\n%s", got)
+	}
+
+	// MATCH 必须存在，且目标必须是默认组的**逐字**名字。
+	// 指向一个不存在的组会让 mihomo 拒绝加载整份配置。
+	wantMatch := "- MATCH," + GroupDefault
+	if !strings.Contains(got, wantMatch) {
+		t.Errorf("缺少兜底规则 %q:\n%s", wantMatch, got)
+	}
+	if !strings.Contains(got, "- name: "+yamlString(GroupDefault)) {
+		t.Errorf("MATCH 指向的组 %q 在 proxy-groups 里不存在", GroupDefault)
+	}
+
+	// MATCH 必须是最后一条：它匹配一切，排在它后面的规则永远不会被求值。
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	var ruleLines []string
+	inRules := false
+	for _, l := range lines {
+		if l == "rules:" {
+			inRules = true
+			continue
+		}
+		if inRules && strings.HasPrefix(l, "  - ") {
+			ruleLines = append(ruleLines, strings.TrimPrefix(l, "  - "))
+		}
+	}
+	if len(ruleLines) == 0 {
+		t.Fatal("rules 段是空的")
+	}
+	if last := ruleLines[len(ruleLines)-1]; last != "MATCH,"+GroupDefault {
+		t.Errorf("MATCH 不是最后一条，实际最后一条是 %q —— 它后面的规则永远不会生效", last)
+	}
+	for _, r := range ruleLines[:len(ruleLines)-1] {
+		if strings.HasPrefix(r, "MATCH,") {
+			t.Errorf("MATCH 出现在中间：%q", r)
+		}
+	}
+
+	// 私有网段直连，且带 no-resolve（否则为了判断一条 IP 规则会先去做 DNS 解析）。
+	for _, want := range []string{
+		"IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+		"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+	} {
+		if !strings.Contains(got, "- "+want) {
+			t.Errorf("缺少规则 %q", want)
+		}
+	}
+}
+
+// 🔴 规则表里**不许**出现任何需要下载数据文件才能求值的规则类型。
+//
+// 实测（mihomo v1.19.30，全新配置目录 + 断网）：带 GEOIP,CN 时
+// `configuration file test failed` —— 拿不到 GeoIP 数据库不是「这条规则不匹配」，
+// 而是**整份配置被拒绝加载**。而需要下载它的人正是「人在大陆、刚装客户端、
+// 还没有可用代理」的那一刻。见 docs/evidence/client-config-validation-20260822/。
+//
+// 这条测试挡的是「有人觉得国内直连很重要，顺手把 GEOIP,CN 加回来」。
+// 要加回来必须先回答 roadmap B46（首推客户端是否自带 geoip.metadb），
+// 并把本测试连同理由一起改掉 —— 不要只删断言。
+func TestRenderClashRulesNeedNoDownloadedGeodata(t *testing.T) {
+	out, err := Render(FormatClash, Document{Proxies: sampleProxies()})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, forbidden := range []string{"GEOIP,", "GEOSITE,", "RULE-SET,", "ASN,"} {
+		if strings.Contains(string(out), "- "+forbidden) {
+			t.Errorf("规则表里出现了依赖下载数据的规则类型 %q —— 首次加载会让整份配置失效", forbidden)
+		}
+	}
+}
+
+// 伪节点（停用/到期通知）走的是同一个渲染路径，规则段同样要在 ——
+// 否则「账号停用」这条通知反而会因为全部直连而让用户以为一切正常。
+func TestRenderClashRulesPresentForNoticeOnlyDocument(t *testing.T) {
+	out, err := Render(FormatClash, Document{Proxies: []Proxy{NoticeProxy("⚠️ 账号已停用")}})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(string(out), "- MATCH,"+GroupDefault) {
+		t.Errorf("伪节点文档缺 rules 段:\n%s", out)
+	}
+}

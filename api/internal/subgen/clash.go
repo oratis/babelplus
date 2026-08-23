@@ -46,8 +46,69 @@ func renderClash(doc Document) ([]byte, error) {
 	w.line(1, "- name: %s", yamlString(GroupBoost))
 	w.line(2, "type: select")
 	w.line(2, "proxies: %s", yamlStringList(boost))
+	w.blank()
+
+	writeClashRules(&w)
 
 	return w.bytes(), nil
+}
+
+// writeClashRules 输出分流规则表。
+//
+// 🔴 **这一段曾经整个不存在，而上面写着 `mode: rule`。**
+// mihomo 在 rule 模式下逐条匹配 `rules`，一条都匹配不上时回落到 `DIRECT` ——
+// 规则表为空 = 每一条连接都匹配不上 = **全部直连**。
+// 用户导入后会看到节点全在、延迟测得出来、订阅流量条正常，
+// 但被墙的站点一个都打不开，且他必然把这个报成「节点坏了」。
+//
+// 现在的表只有两类，都**不依赖任何需要下载的数据**：
+//
+//  1. 私有网段直连。带 `no-resolve`：这些是本机与局域网地址，走代理没有意义，
+//     而 `no-resolve` 避免为了判断一条 IP 规则先去做 DNS 解析。
+//  2. `MATCH` 兜底到默认组。
+//
+// 🔴 **刻意没有 `GEOIP,CN,DIRECT`，尽管产品上想要它。** 这一条是实测改的，不是保守：
+//
+//	mihomo v1.19.30 · 全新配置目录 · 断网
+//	  带 GEOIP,CN → can't download MMDB …… configuration file test **failed**
+//	  不带        → Initial configuration complete, 7ms, test **is successful**
+//
+// 也就是说 `GEOIP,CN` 拿不到 GeoIP 数据库时**不是「这条规则不匹配」，
+// 而是整份配置被拒绝加载**。而那个数据库是 8.6 MB、来源
+// `github.com/MetaCubeX/meta-rules-dat/releases` —— 需要它的人恰恰是
+// 「人在大陆、刚装完客户端、还没有任何可用代理」的那一刻。
+// 缓存过一次之后离线没问题（实测 B2），所以风险**特指首次加载**。
+//
+// 两种失败方向的代价不对称：
+//
+//	· 没有 GEOIP → 国内流量也走节点，慢一些、出口账单贵一些（**产品能用**）
+//	· 有 GEOIP 但下不到 → **整份订阅加载不了，产品完全不能用**
+//
+// 首次加载必须选前者。
+//
+// 想拿回国内直连（tutorials-spec 的排障表假定了它的存在，出口成本也在等它），
+// 前置条件是先回答「首推客户端是否自带 geoip.metadb」——
+// 桌面版 Clash Verge Rev 很可能自带，但**本仓没有任何一手数据**。
+// 登记为 roadmap B46。
+//
+// 实测原始输出：docs/evidence/client-config-validation-20260822/
+func writeClashRules(w *yamlWriter) {
+	w.line(0, "rules:")
+	for _, r := range []string{
+		"IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
+		"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+		"IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+		"IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+		"IP-CIDR,169.254.0.0/16,DIRECT,no-resolve",
+		"IP-CIDR6,::1/128,DIRECT,no-resolve",
+		"IP-CIDR6,fc00::/7,DIRECT,no-resolve",
+		"IP-CIDR6,fe80::/10,DIRECT,no-resolve",
+	} {
+		w.line(1, "- %s", r)
+	}
+	// MATCH 的目标是默认组的名字，必须与 proxy-groups 里那个 name 逐字一致。
+	// 用同一个常量拼出来，避免哪天改组名时这里被漏掉。
+	w.line(1, "- MATCH,%s", GroupDefault)
 }
 
 func writeClashProxy(w *yamlWriter, p Proxy) {

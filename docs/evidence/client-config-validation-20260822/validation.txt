@@ -1,0 +1,45 @@
+客户端配置校验 · 2026-08-22
+mihomo:   Mihomo Meta v1.19.30 linux arm64 with go1.26.6 Sun Aug 16 09:58:32 UTC 2026
+sing-box: sing-box version 1.13.19
+被校验的配置由 api/internal/subgen 真实生成（三节点：REALITY / Hysteria2 / SS-2022）
+==================================================================
+
+### A · mihomo：带 GEOIP,CN，全新目录 + 断网（模拟大陆首次加载）
+time="2026-08-22T03:23:42.570611805Z" level=info msg="Start initial configuration in progress"
+time="2026-08-22T03:23:42.576445347Z" level=info msg="Geodata Loader mode: memconservative"
+time="2026-08-22T03:23:42.576621305Z" level=info msg="Geosite Matcher implementation: succinct"
+time="2026-08-22T03:23:42.576943513Z" level=info msg="Can't find MMDB, start download"
+time="2026-08-22T03:23:42.577312763Z" level=error msg="can't initial GeoIP: can't download MMDB: Get \"https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb\": dns resolve failed: couldn't find ip"
+time="2026-08-22T03:23:42.577320972Z" level=error msg="rules[8] [GEOIP,CN,DIRECT] error: can't download MMDB: Get \"https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb\": dns resolve failed: couldn't find ip"
+configuration file /root/.config/mihomo/config.yaml test failed
+
+### B · mihomo：带 GEOIP,CN，全新目录 + 可联网
+time="2026-08-22T03:23:42.669611013Z" level=info msg="Start initial configuration in progress"
+time="2026-08-22T03:23:42.675238763Z" level=info msg="Geodata Loader mode: memconservative"
+time="2026-08-22T03:23:42.675255430Z" level=info msg="Geosite Matcher implementation: succinct"
+time="2026-08-22T03:23:42.675584180Z" level=info msg="Can't find MMDB, start download"
+time="2026-08-22T03:23:44.865075223Z" level=info msg="Initial configuration complete, total time: 2195ms"
+configuration file /root/.config/mihomo/config.yaml test is successful
+
+### B2 · 承接 B（MMDB 已缓存 8.6MB）后再断网
+time="2026-08-22T03:23:45.001683014Z" level=info msg="Start initial configuration in progress"
+time="2026-08-22T03:23:45.007480056Z" level=info msg="Geodata Loader mode: memconservative"
+time="2026-08-22T03:23:45.007499639Z" level=info msg="Geosite Matcher implementation: succinct"
+time="2026-08-22T03:23:45.008926723Z" level=info msg="Initial configuration complete, total time: 7ms"
+configuration file /root/.config/mihomo/config.yaml test is successful
+     total 16808
+     -rw-r--r--@ 1 oratis  staff     1667 Aug 22 11:23 config.yaml
+     -rw-r--r--  1 oratis  staff  8593535 Aug 22 11:23 geoip.metadb
+
+### C · mihomo：不带 GEOIP,CN，全新目录 + 断网
+time="2026-08-22T03:23:45.101476931Z" level=info msg="Start initial configuration in progress"
+time="2026-08-22T03:23:45.107922806Z" level=info msg="Geodata Loader mode: memconservative"
+time="2026-08-22T03:23:45.107971181Z" level=info msg="Geosite Matcher implementation: succinct"
+time="2026-08-22T03:23:45.108834556Z" level=info msg="Initial configuration complete, total time: 7ms"
+configuration file /root/.config/mihomo/config.yaml test is successful
+
+### D · sing-box check：三节点（含 route.final，无 inbounds）
+（无输出 = 通过）
+
+### E · sing-box check：伪节点（账号停用通知）
+（无输出 = 通过）

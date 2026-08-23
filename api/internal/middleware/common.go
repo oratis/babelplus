@@ -164,20 +164,70 @@ func RedactPath(path string) string {
 	return subShortLinkPrefix + token[:tokenPrefixLen] + "…"
 }
 
+// ---- 请求体上限 ----
+
+// MaxBodyBytes 是全局请求体上限。
+//
+// 定这个数的依据：现有 18 个 operation 里最大的请求体是
+// `PATCH /admin/servers/{id}`（节点配置，含 protocol_settings 的一坨 JSON），
+// 量级在 KB。1 MiB 给了三个数量级的余量，同时把 Cloud Run 单请求上限
+// （HTTP/1 32 MiB）挡在外面。**将来要传附件（工单截图）时不要抬高这个全局值，
+// 而是在那条路由上单独放宽** —— 全局抬高等于把下面这个 DoS 面重新打开。
+const MaxBodyBytes int64 = 1 << 20
+
+// LimitBody 给每个请求的 Body 套上 http.MaxBytesReader。
+//
+// 🔴 **必须挂在全局链上，而且要在生成代码之前生效。**
+// oapi-codegen 生成的 strictHandler 在调用中间件链**之前**就先解请求体：
+//
+//	var body LoginJSONRequestBody
+//	json.NewDecoder(r.Body).Decode(&body)
+//	for _, middleware := range sh.middlewares { ... }
+//
+// 也就是说 handler 层的任何检查（包括 auth.go 里 argon2 那套 argon2Slots 并发闸、
+// validPassword 的 8–128 字长度校验）**全都在解码之后**。
+// 在装上这道闸之前，一个不需要任何凭据的 `POST /api/v1/auth/login`
+// 带上几十 MB 的 password 字段就能让 512Mi 的实例 OOM ——
+// 而 auth.go 文件头那段「64 MiB × 8 并发 = 512 MiB，不限并发的话 80 个并发登录
+// 就能把实例 OOM 掉」的内存核算，算的是 argon2 那块，管不到这条路径。
+//
+// MaxBytesReader 超限时让 Read 返回错误，json 解码随之失败，
+// 生成代码回 400 —— 内存分配在超过上限的那一刻就停住了，不会先把整个报文读进来。
+func LimitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ---- 客户端 IP ----
 
 // ClientIP 提取来源 IP。
 //
 // trustProxy 必须由配置控制：来源 IP 会写进 subscription_fetch_log 用于识别账号共享，
 // 在不可信环境下信任 XFF 等于让用户自己决定日志里记什么。
+//
+// 🔴 **取的是 X-Forwarded-For 的最右一段，不是最左。** 这里曾经取最左，
+// 而那行注释「代理追加在最右侧，最左侧是原始客户端」恰恰证明了取最左是错的：
+// 既然入口只在**右侧追加**而不剥离调用方自带的值，那么调用方随手写一个
+//
+//	X-Forwarded-For: 9.9.9.9
+//
+// 就会原封不动留在最左边，Cloud Run 的前端把它观测到的真实对端追加成
+// `9.9.9.9, <真实IP>`。取最左 = 取纯粹的用户输入。
+//
+// 可信的那一段是**基础设施自己追加的最后一段** —— 与 GCLB 文档「只有最后两段可信」
+// 是同一条规则。`bp-api` 目前是 `--ingress=all` 直接暴露在 `*.run.app` 上，
+// 前面只有 Google 的前端这一跳，所以取最后一段。
+//
+// ⚠️ **将来在前面加一层代理（CF 橙云 / GCLB，见 deploy §11.1 与 roadmap B9）时必须回来改这里**：
+// 每多一跳可信代理，要跳过的尾部段数就多一段。**不要改回取最左。**
 func ClientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			// Cloud Run 追加在最右侧，最左侧是原始客户端。
-			if first, _, found := strings.Cut(xff, ","); found {
-				return strings.TrimSpace(first)
-			}
-			return strings.TrimSpace(xff)
+		if ip := rightmostForwardedFor(r.Header.Get("X-Forwarded-For")); ip != "" {
+			return ip
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -185,6 +235,26 @@ func ClientIP(r *http.Request, trustProxy bool) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// rightmostForwardedFor 返回 XFF 里最后一段非空值，取不到返回 ""。
+//
+// 只跳过尾部的空段（`"1.1.1.1, "` 这种），不跳过解析不了的值 ——
+// 一个非法的尾段说明入口行为与预期不符，那时宁可让调用方拿到一个明显错误的字符串，
+// 也不要静默回退到更靠左、更不可信的那一段。
+func rightmostForwardedFor(xff string) string {
+	for xff != "" {
+		var last string
+		if i := strings.LastIndexByte(xff, ','); i >= 0 {
+			last, xff = xff[i+1:], xff[:i]
+		} else {
+			last, xff = xff, ""
+		}
+		if last = strings.TrimSpace(last); last != "" {
+			return last
+		}
+	}
+	return ""
 }
 
 // ---- 错误响应 ----

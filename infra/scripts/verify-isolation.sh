@@ -57,6 +57,25 @@ EXPECT_FIREWALL=(
   vpn-public-ssh-deny
 )
 
+# SSH 压制链的实测形态（2026-08-21 `gcloud compute firewall-rules list` 实查）。
+#
+# 🔴 为什么单独写这一组，而不是只比对规则名的集合：
+#    上面的 EXPECT_FIREWALL 只比对**名字**，第二层基线 diff 记的也只有
+#    direction / sourceRanges / targetTags / allowed —— 三者都不看
+#    **priority / disabled / denied**。于是下面任意一种改动都能让两层判定同时绿灯通过：
+#      · gcloud compute firewall-rules update vpn-public-ssh-deny --disabled
+#      · 把 vpn-public-ssh-deny 的 priority 从 600 改到 65535（排到 default-allow-ssh 后面）
+#      · 把它 denied 的端口从 tcp:22 改成别的
+#    而这条 deny 是 vpn-us / vpn-jp 压制 default-allow-ssh(0.0.0.0/0:22) 的**唯一**手段，
+#    上面三种改动的任意一种都会让两台现役代理节点的 22 端口立刻对全网放通。
+#
+# 判定用的是**相对顺序**而不是写死数字：GCP 按 priority 升序求值，
+# 数字大小本身不重要，重要的是 iap-allow < public-deny < default-allow-ssh。
+readonly EXPECT_SSH_DENY_RULE="vpn-public-ssh-deny"
+readonly EXPECT_SSH_IAP_RULE="vpn-iap-ssh-allow"
+readonly EXPECT_SSH_DEFAULT_RULE="default-allow-ssh"
+readonly EXPECT_SSH_TAG="vpn-node"
+
 # as-built §4 的三个现有 Cloud Run 服务。名字|URL。
 EXPECT_RUN=(
   # ⚠️ 2026-08-17 实测修正：Cloud Run 的默认 URL 形式已从
@@ -257,6 +276,79 @@ check_firewall() {
      🔴 现有两台节点靠 vpn-public-ssh-deny 压制 default-allow-ssh(0.0.0.0/0:22)。
         删掉那条 deny 会让 vpn-us / vpn-jp 立刻裸奔 22 端口。"
   fi
+
+  check_ssh_posture
+}
+
+# check_ssh_posture 核对 SSH 压制链**还在生效**，而不只是「那条规则还叫这个名字」。
+#
+# 规则可以在名字不变的前提下被 disable、被改 priority、被改 denied 端口 ——
+# 三者都不会被上面的名字集合比对或第二层基线 diff 抓到（那两处都不采集这些字段）。
+# 本函数是唯一看这三个字段的地方。
+check_ssh_posture() {
+  local deny_disabled deny_prio deny_ports deny_tags iap_prio default_prio
+
+  # ⚠️ 必须先 tostring 再走 `//`：jq 的 `//` 把 **false 也当成空值**，
+  # 所以 `[false] | .[0] // "(不存在)"` 会返回 "(不存在)" —— 一条正常启用的规则
+  # 会被误判成「读不到」，进而误报暴露。这类误报比漏报更伤：它会训练人忽略这个检查。
+  deny_disabled="$(jqf firewall "[.[]? | select(.name == \"$EXPECT_SSH_DENY_RULE\") | ((.disabled // false) | tostring)] | .[0] // \"(不存在)\"")"
+  deny_prio="$(jqf firewall "[.[]? | select(.name == \"$EXPECT_SSH_DENY_RULE\") | (.priority // 65535)] | .[0] // \"\"")"
+  deny_ports="$(jqf firewall "[.[]? | select(.name == \"$EXPECT_SSH_DENY_RULE\") | ((.denied // []) | map(\"\(.IPProtocol):\((.ports // [\"all\"]) | join(\",\"))\") | sort | join(\" \"))] | .[0] // \"\"")"
+  deny_tags="$(jqf firewall "[.[]? | select(.name == \"$EXPECT_SSH_DENY_RULE\") | ((.targetTags // []) | sort | join(\",\"))] | .[0] // \"\"")"
+  iap_prio="$(jqf firewall "[.[]? | select(.name == \"$EXPECT_SSH_IAP_RULE\") | (.priority // 65535)] | .[0] // \"\"")"
+  default_prio="$(jqf firewall "[.[]? | select(.name == \"$EXPECT_SSH_DEFAULT_RULE\") | (.priority // 65535)] | .[0] // \"\"")"
+
+  # dry-run 下 fetch 写的是空数组，所有字段都取不到 —— 那不是「压制链坏了」，
+  # 只是没有数据，所以不能判 fail。
+  if [ "$DRY_RUN" -eq 1 ]; then
+    warn "[dry-run] 跳过 SSH 压制链姿态核对"
+    return 0
+  fi
+
+  if [ "$deny_disabled" != "false" ]; then
+    fail "$EXPECT_SSH_DENY_RULE 的 disabled = $deny_disabled（期望 false）
+     🔴 被 disable 的 deny 规则名字还在，集合比对与基线 diff 都看不出来，
+        但 vpn-us / vpn-jp 的 22 端口此刻对 0.0.0.0/0 敞开。"
+    return 0
+  fi
+
+  case "$deny_ports" in
+    *tcp:22*) : ;;
+    *)
+      fail "$EXPECT_SSH_DENY_RULE 不再 deny tcp:22（实际: ${deny_ports:-<空>}）
+     🔴 同上：名字没变，压制没了。"
+      return 0
+      ;;
+  esac
+
+  case ",$deny_tags," in
+    *,"$EXPECT_SSH_TAG",*) : ;;
+    *)
+      fail "$EXPECT_SSH_DENY_RULE 的 target tag 不含 $EXPECT_SSH_TAG（实际: ${deny_tags:-<无>}）
+     🔴 没有这个 tag，这条 deny 就落不到 vpn-us / vpn-jp 上。"
+      return 0
+      ;;
+  esac
+
+  if [ -z "$deny_prio" ] || [ -z "$default_prio" ] || [ -z "$iap_prio" ]; then
+    fail "SSH 相关规则的 priority 读不全（deny=${deny_prio:-?} iap=${iap_prio:-?} default=${default_prio:-?}）"
+    return 0
+  fi
+
+  # GCP 按 priority 升序求值，先命中先生效。
+  if [ "$deny_prio" -ge "$default_prio" ]; then
+    fail "$EXPECT_SSH_DENY_RULE 的 priority=$deny_prio 不再优先于 $EXPECT_SSH_DEFAULT_RULE 的 $default_prio
+     🔴 求值顺序反了：0.0.0.0/0 的 allow 会先命中，deny 永远轮不到。"
+    return 0
+  fi
+  if [ "$iap_prio" -ge "$deny_prio" ]; then
+    fail "$EXPECT_SSH_IAP_RULE 的 priority=$iap_prio 不再优先于 $EXPECT_SSH_DENY_RULE 的 $deny_prio
+     ⚠️ 这个方向的错误不会造成暴露，但会把**自己**也挡在外面：
+        IAP 隧道进不去，节点就只能靠串口控制台救。"
+    return 0
+  fi
+
+  pass "SSH 压制链在位  ${EXPECT_SSH_IAP_RULE}(${iap_prio}) < ${EXPECT_SSH_DENY_RULE}(${deny_prio}, ${deny_ports}) < ${EXPECT_SSH_DEFAULT_RULE}(${default_prio})"
 }
 
 check_run_services() {
@@ -368,7 +460,7 @@ write_isolation_txt() {
     jqf addresses '[.[]? | select(.name | startswith("bp-") | not)
       | "address \(.name) addr=\(.address // "?") status=\(.status // "?")"] | sort | .[]'
     jqf firewall '[.[]? | select(.name | startswith("bp-") | not)
-      | "firewall \(.name) dir=\(.direction // "?") src=\((.sourceRanges // []) | sort | join(",")) tags=\((.targetTags // ["-"]) | sort | join(",")) allow=\((.allowed // []) | map("\(.IPProtocol):\((.ports // ["all"]) | join(","))") | sort | join(" "))"] | sort | .[]'
+      | "firewall \(.name) prio=\(.priority // "?") disabled=\(.disabled // false) dir=\(.direction // "?") src=\((.sourceRanges // []) | sort | join(",")) tags=\((.targetTags // ["-"]) | sort | join(",")) allow=\((.allowed // []) | map("\(.IPProtocol):\((.ports // ["all"]) | join(","))") | sort | join(" ")) deny=\((.denied // []) | map("\(.IPProtocol):\((.ports // ["all"]) | join(","))") | sort | join(" "))"] | sort | .[]'
     jqf run '[.[]? | select((.metadata.name // .name // "") | startswith("bp-") | not)
       | "run \(.metadata.name // .name // "?") url=\(.status.url // "?") rev=\(.status.latestReadyRevisionName // "?")"] | sort | .[]'
     jqf secrets '[.[]? | (.name // "" | split("/") | last) | select(startswith("bp-") | not)
