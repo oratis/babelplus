@@ -684,9 +684,21 @@ Cloud SQL 的自动备份解决「数据写坏了」，解决不了「实例被�
 
 ## 12 · 这次没有解决的
 
-- [ ] **Cloud SQL 的四个配置细节未核实**，需以实际 `gcloud sql instances describe`
-      输出为准：存储下限（本文按 10 GB 计）、自动备份默认份数、PITR 事务日志默认保留天数、
-      **删除实例时自动备份是否一并删除**。第四项直接决定 §10.4 的必要性，优先级最高。
+- [x] ~~**Cloud SQL 的四个配置细节未核实**~~ —— **2026-08-21 实查解决 3/4**
+      （[evidence/gcp-inventory-20260821 §3](../evidence/gcp-inventory-20260821/)）：
+      存储 **10 GB PD_SSD**（本文按 10 GB 计，成立）、自动备份**保留 14 份**、
+      PITR 事务日志 **7 天**（`pointInTimeRecoveryEnabled: true`，日志存 Cloud Storage）。
+      **第四项「删除实例时自动备份是否一并删除」仍未证实** —— `describe` 里没有这个字段，
+      需查官方文档或做一次真实建删实验。
+- [ ] 🔴 **实查顺带发现三条本来没在问的，其中第一条比上面第四项更要紧：**
+      ① **`deletionProtection: false`** —— 实例现在可以被一条 `gcloud sql instances delete`
+      直接删掉，没有任何守卫。第四项问的是「删了之后备份还在不在」，这一条问的是「多容易被删」，
+      而后者是可以今天就关掉的（`gcloud sql instances patch bp-db --deletion-protection`）。
+      ② **`storageAutoResize: true` 且 `storageAutoResizeLimit: 0`（无上限）** ——
+      磁盘随写入自动增长且不封顶，§1 按 10 GB 算的存储成本是下限不是上限。
+      ③ 公网 IP 存在、`sslMode: ALLOW_UNENCRYPTED_AND_ENCRYPTED`、`requireSsl: false`，
+      但 `authorizedNetworks` 为空所以网络层是关的。**不是漏洞，是一条待收紧项** ——
+      一旦有人加了授权网络，明文连接就是允许的。
 - [ ] **Cloud Run 冷启动经内建 Cloud SQL 连接器建连的附加延迟未实测。**
       这个数字决定要不要在 P3 为省几百毫秒去动 `default` 网络做私有 IP。**需实测**
 - [ ] **`us-central1` ↔ `asia-east2` 的实际 RTT 未实测**（本文按 150–190 ms 估）。

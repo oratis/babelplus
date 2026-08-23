@@ -1,0 +1,32 @@
+$ gcloud billing projects describe oratis-491316
+billingAccountName: billingAccounts/0130C2-FA2146-786074
+billingEnabled: true
+name: projects/oratis-491316/billingInfo
+projectId: oratis-491316
+
+$ gcloud billing budgets list --billing-account=0130C2-FA2146-786074   # 改动前
+（见 README §4；本文件记录的是 2026-08-21 修改后的状态）
+
+$ gcloud billing budgets describe .../ff312227-805a-4ab1-b80a-212525fa791a
+amount:
+  specifiedAmount:
+    currencyCode: USD
+    units: '500'
+budgetFilter:
+  calendarPeriod: MONTH
+  creditTypesTreatment: EXCLUDE_ALL_CREDITS
+  projects:
+  - projects/2360090741
+displayName: VPN-oratis-491316 monthly budget (500, excl credits)
+notificationsRule: {}
+thresholdRules:
+- spendBasis: CURRENT_SPEND
+  thresholdPercent: 0.2
+- spendBasis: CURRENT_SPEND
+  thresholdPercent: 0.6
+- spendBasis: CURRENT_SPEND
+  thresholdPercent: 1.0
+- spendBasis: CURRENT_SPEND
+  thresholdPercent: 1.5
+- spendBasis: FORECASTED_SPEND
+  thresholdPercent: 1.0

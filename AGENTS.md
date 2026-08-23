@@ -7,7 +7,11 @@
 ## 1 · 这是什么项目
 
 内部使用的流量中转服务（中国 → Cloudflare 边缘 → Google Cloud → 全球）。
-当前处于 **P0 调研与设计阶段，仓库中只有文档，没有实现代码。**
+当前处于 **P0 收尾 / P1 内核过半**：`api/`（Go，128 个 operation 里实现 18 个）、
+`web/`（双 SPA 脚手架，业务逻辑为零）、`infra/`（建机与部署脚本）都已入库，
+`bp-api` 已在 Cloud Run 运行并计费。
+**「仓库中只有文档」这句话到 2026-08-21 为止已经不成立**，
+阶段判定见 [`docs/00-overview/launch-readiness-review-20260821.md`](docs/00-overview/launch-readiness-review-20260821.md)。
 
 先读 [`docs/00-overview/product-brief.md`](docs/00-overview/product-brief.md)（做什么、不做什么），
 再读 [`docs/README.md`](docs/README.md)（文档体系约定）。

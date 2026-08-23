@@ -137,6 +137,23 @@ flowchart TB
 
 ### 3.2 上线前必须建好的十条
 
+> 🔴 **2026-08-21 实况：这十条在 `bp-api` 首次部署（2026-08-17）时一条都没建。**
+> 当天实查 `gcloud logging metrics list` 返回空 —— **2026-08-17 → 08-21 的四天数据因「不追溯」永久缺失**。
+> 同日补建了其中 **7 条**，另 3 条卡在代码/作业不存在。实查输出与逐条过滤器见
+> [evidence/gcp-inventory-20260821 §5.3](../evidence/gcp-inventory-20260821/)，登记为 roadmap **B42**。
+>
+> | 指标 | 2026-08-21 状态 | 备注 |
+> |---|---|---|
+> | `bp_api_5xx` · `bp_api_429` | ✅ 已建 | 用的就是下面给的原文过滤器 |
+> | `bp_uniproxy_auth_fail` | ✅ 已建 | 中间件本身不打日志，改走 AccessLog 的 `path` + `status` |
+> | `bp_subscribe_404` | ✅ 已建 | 匹配 `handler/subscription.go` 的显式日志行 |
+> | `bp_admin_totp_fail` | ⚠️ **以 `bp_admin_authz_fail` 占位** | TOTP 未实现；占位过滤器是 admin 路径的 401/403。**TOTP 落地后应新建本名指标并收窄** |
+> | `bp_task_idem_skip` | ✅ 已建（部分覆盖） | 只覆盖 `/push` 的幂等丢弃；`httpx/idempotency.go` 的 `Idempotency-Key` 路径**不打日志**，需补 |
+> | `bp_db_pool_wait` | ✅ 已建（近似） | 按 `jsonPayload.err` 文本匹配，非结构化判据 |
+> | `bp_mail_bounce` | 🔴 建不了 | ESP 未接通，没有退信日志 |
+> | `bp_cert_issuer_bad` | 🔴 建不了 | §8 的每日证书核对作业不存在 |
+> | `bp_node_alive` | 🔴 建不了 | 需应用主动写一行带 `node_id` 的结构化日志。**§5 的 metric-absence 告警依赖它，节点上线前必须先有** |
+
 ```bash
 P=oratis-491316
 mkmetric() {  # mkmetric <name> <描述> <filter>
@@ -187,6 +204,11 @@ Google 官方说明：**webhook / Slack / PagerDuty / 移动应用共用同一�
   这不是冗余，这是唯一在最坏情况下还工作的那条。
 - Telegram 只在**运维自己**的通道里用（Uptime Kuma 原生支持，§7）。
   **绝不用于任何面向用户的广播** —— ADR 0002：OONI 实测 `api.telegram.org` 异常率 99.1%。
+
+> **2026-08-21 实查**：`bp-alerts` topic **已存在**；通知渠道只有一条 email
+> `ops alerts (wangharp)`（已启用），**没有 Pub/Sub 渠道**，`bp-*` 告警策略 0 条。
+> 也就是说下面这套双通道拓扑目前**只有 email 那一半是通的**，而 email 那一半正是
+> 「最坏情况下唯一还工作的」——先有它比全没有好，但另一半仍然欠着。
 
 ```bash
 P=oratis-491316

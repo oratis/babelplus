@@ -1,0 +1,20 @@
+$ gcloud logging metrics list --project oratis-491316   # 2026-08-21 建之前
+（空 —— 一条都没有）
+
+$ gcloud alpha monitoring policies list --project oratis-491316 --format='value(displayName)'
+lisa-cloud 5xx
+lisa-cloud uptime failing (/health)
+lisa-cloud billing anomaly (>10 USD/day/user)
+
+$ gcloud monitoring uptime list-configs --project oratis-491316 --format='value(displayName)'
+lisa-cloud-health
+
+$ gcloud scheduler jobs list --project oratis-491316 --location us-central1
+ID                   LOCATION     SCHEDULE (TZ)           TARGET_TYPE  STATE
+lisa-autonomy-sweep  us-central1  */30 * * * * (Etc/UTC)  HTTP         ENABLED
+
+$ gcloud pubsub topics list --project oratis-491316 --format='value(name)'
+projects/oratis-491316/topics/bp-alerts
+
+$ gcloud alpha monitoring channels list --project oratis-491316 --format='value(displayName,type,enabled)'
+ops alerts (wangharp)	email	True

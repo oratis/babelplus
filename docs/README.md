@@ -145,7 +145,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | 设计稿 v1 |
 | | [0007](05-adr/0007-node-migration.md) — 节点混合迁移 | 设计稿 v1 |
 | | [0008](05-adr/0008-network-tier-standard.md) — 网络层级改 Standard（**推翻 0004 §3.7**） | **已实施（仅新节点）** |
-| **evidence** | *（空）* — 全部 P0 阻塞实测项见 [evidence/README.md](evidence/README.md) | 待采集 |
+| **evidence** | 6 个证据目录（出口单价 · v2node 契约 · healthz 拦截 · 网络层级落地 · 2026-08-21 的账单 SKU 拆分与 gcloud 实查 · 2026-08-22 的客户端配置校验） | 见 [evidence/README.md](evidence/README.md) |
 
 ---
 

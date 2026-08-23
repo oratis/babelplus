@@ -274,6 +274,22 @@ ENTRYPOINT ["/bp-api"]
 | 监听 `$PORT` 且绑 `0.0.0.0` | Cloud Run 注入 `PORT`，绑 `127.0.0.1` 会导致容器被判定启动失败 | — |
 | 不写 `HEALTHCHECK` | Cloud Run 不使用 Dockerfile 的 HEALTHCHECK，健康检查在 §5.3 配 | — |
 
+> 🔴 **2026-08-21 新增的一条硬教训：短 sha 做 tag，在分支被 force-push 之后就不再指向任何东西。**
+>
+> 生产 `bp-api-2fbf49d` 的镜像 tag 来自 `git rev-parse --short=7 HEAD`。
+> 排查时发现 **`2fbf49d` 不被任何分支引用** —— `pr7/p1-core-and-deploy` 后来被改写过，
+> 那个 commit 成了孤儿。它还在 GitHub 的对象库里（能按完整 sha 取回），
+> 但**没有任何常规操作能从仓库回答「线上跑的是哪份源码」**。
+> 本次取回比对确认与 PR #9 的 head 只差 4 个文件、`api/` 侧全是注释，**属于运气好**。
+>
+> 两个修法，至少做一个（登记为 roadmap **B41**）：
+> - `deploy-api.sh` 改用**完整 sha** 做 tag，并把分支名 + 完整 sha 写进镜像 label
+>   （`--label` 或 Dockerfile 的 `LABEL`），这样 `docker inspect` 就能自证来源；
+> - 或者约定：**已部署过的分支禁止 force-push**。
+>
+> `-X main.revision` 也一样只带短 sha —— 它解决的是「线上是哪版」，
+> 但当短 sha 变成孤儿时这个答案是不可解析的。
+>
 > ⚠️ **需实测**：`distroless:nonroot`（uid 65532）能否读写 Cloud Run 注入的
 > `/cloudsql/<conn-name>` Unix socket。若首次部署报连接被拒，先把 `USER nonroot` 去掉验证是不是权限问题，
 > **不要**先去怀疑 Cloud SQL 配置。这一条没有一手数据。
@@ -765,6 +781,16 @@ Vercel 整体（99.1% 异常率，675/675 主机名全封）。
 > - **节点可以继续直连 `run.app`** —— 节点在 GCP 内，流量不经过 GFW，GTS 对它无害。
 >
 > 也就是说：**同一个服务会有两个入口、两种证书要求。** 这不是冗余，这是必需的。
+>
+> ✅ **2026-08-21 实测完成，「若 issuer 含 Google Trust Services」这一分支成立。**
+> 实际签发链是 `CN=*.a.run.app` ← **`O=Google Trust Services, CN=WR2`** ← `GTS Root R1` ← `GlobalSign Root CA`，
+> 有效期 2026-07-20 → 10-12。原始输出见
+> [evidence/gcp-inventory-20260821 §2](../evidence/gcp-inventory-20260821/)。
+> **所以上面两条要求现在是硬约束，不是待定分支** —— 面向中国用户的 API 入口必须过代理，
+> 而 CF 橙云 $0 与 GCLB 约 $18/月之间的选型**仍未做**（roadmap B9 的剩余部分）。
+> （注：实测用的主机名是实际的 `bp-api-cko3zfff5a-uc.a.run.app`，
+> 不是本节示例里的 `bp-api-2360090741.us-central1.run.app`；证书 SAN 同时覆盖
+> `*.a.run.app` 与逐区域的 `*.<region>.run.app`，换区域不改变结论。）
 
 ### 11.2 钉 Let's Encrypt（Cloudflare 侧）
 

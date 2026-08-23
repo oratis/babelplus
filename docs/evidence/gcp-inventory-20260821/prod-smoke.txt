@@ -1,0 +1,29 @@
+生产 bp-api 线上冒烟 · 2026-08-21 · 全部为只读 GET/OPTIONS
+
+$ curl -sS -o /dev/null -w "%{http_code}" https://bp-api-cko3zfff5a-uc.a.run.app/-/healthz
+200  (body: ok)
+$ curl ... https://bp-api-cko3zfff5a-uc.a.run.app/healthz            # 期望 404：Cloud Run 的 GFE 会拦截 /healthz
+404
+$ curl ... "https://bp-api-cko3zfff5a-uc.a.run.app/api/v1/subscription?token=deadbeefdeadbeefdeadbeef"   # 期望 404，不泄露存在性
+404
+$ curl ... "https://bp-api-cko3zfff5a-uc.a.run.app/api/v1/server/UniProxy/user?node_type=v2node&node_id=1"   # 无 token，期望 401
+401
+
+$ curl -X OPTIONS ... -H "Origin: https://web.babel.plus" -H "Access-Control-Request-Method: POST"
+HTTP/2 204 
+access-control-allow-credentials: true
+access-control-allow-headers: Authorization, Content-Type, Idempotency-Key, X-Request-Id, X-TOTP-Code, If-None-Match
+access-control-allow-methods: GET, POST, PUT, PATCH, DELETE
+access-control-allow-origin: https://web.babel.plus
+access-control-max-age: 600
+vary: Origin
+vary: Access-Control-Request-Method
+vary: Access-Control-Request-Headers
+
+$ curl -X OPTIONS ... -H "Origin: https://evil.example" -H "Access-Control-Request-Method: POST"
+HTTP/2 204 
+vary: Origin
+vary: Access-Control-Request-Method
+vary: Access-Control-Request-Headers
+
+（白名单外没有回 access-control-allow-origin，且两种情况都带 Vary: Origin —— 缓存安全）
