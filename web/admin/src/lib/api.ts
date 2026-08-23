@@ -12,27 +12,38 @@
  *
  * 后台**不做**故障转移到备用域名：后台的大陆可达性要求是「不要求」，
  * 而多一个可接受的入口就是多一个要防护的入口。
+ *
+ * 401 的分流在 `lib/iap.ts` —— IAP 拒绝与应用层拒绝的处置完全相反，见那个文件的表格。
  */
-import { createApiClient, type ApiClient } from '@babelplus/shared/api';
-import { runtimeConfig } from '@babelplus/shared';
+import {
+  createApiClient,
+  createSessionManager,
+  requestSessionRefresh,
+  webStorageSessionStore,
+  type ApiClient,
+  type ApiError,
+  type SessionManager,
+} from '@babelplus/shared/api';
+import { loginUrlWithReturnTo, runtimeConfig } from '@babelplus/shared';
+import { classifyAdminAuthFailure, reportAdminAuthFailure } from './iap.ts';
+import { navigation } from './navigation.ts';
 
 const ACCESS_TOKEN_KEY = 'bp.admin.access_token';
 
-export function readAccessToken(): string | null {
-  try {
-    return window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
+export const ADMIN_LOGIN_PATH = '/admin/login';
 
-export function writeAccessToken(token: string | null): void {
-  try {
-    if (token === null) window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-    else window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
-  } catch {
-    /* 忽略 */
-  }
+let manager: SessionManager | null = null;
+
+export function session(): SessionManager {
+  if (manager) return manager;
+  const cfg = runtimeConfig();
+  const baseUrl = cfg.apiBaseUrl || window.location.origin;
+  manager = createSessionManager({
+    store: webStorageSessionStore(ACCESS_TOKEN_KEY, () => window.sessionStorage),
+    refresh: (staleToken) =>
+      requestSessionRefresh(staleToken, { baseUrl, timeoutMs: cfg.requestTimeoutMs }),
+  });
+  return manager;
 }
 
 let client: ApiClient | null = null;
@@ -45,13 +56,30 @@ export function api(): ApiClient {
     // 有意留空：后台不做备用域名故障转移，见文件头注释。
     fallbackBaseUrls: [],
     timeoutMs: cfg.requestTimeoutMs,
-    getAccessToken: readAccessToken,
-    onUnauthorized: () => {
-      writeAccessToken(null);
-      // TODO(P1): 跳 /admin/login。注意 IAP 的 401 与应用层的 401 是两回事 ——
-      //           IAP 拦截时返回的是 Google 的登录跳转，不是我们的信封格式，
-      //           前端要能区分，否则会显示成「登录状态过期」而实际是 IAP 会话过期。
-    },
+    getAccessToken: () => session().getToken(),
+    refreshAccessToken: (staleToken) => session().ensureFreshToken(staleToken),
+    onAuthFailure: handleAuthFailure,
   });
   return client;
+}
+
+/**
+ * 鉴权失败的分流。**判别本身在 `classifyAdminAuthFailure`（纯函数，有单测）**，
+ * 这里只做副作用，这样「判错了」与「处置错了」在排查时是两个可以分开验证的问题。
+ */
+function handleAuthFailure(error: ApiError): void {
+  const failure = classifyAdminAuthFailure(error);
+  reportAdminAuthFailure(failure);
+
+  if (!failure.signOutLocally) return;
+
+  session().signOut('rejected');
+  const from = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  navigation.navigateTo(loginUrlWithReturnTo(ADMIN_LOGIN_PATH, from), { replace: true });
+}
+
+/** 仅测试用。 */
+export function resetAdminApiForTests(): void {
+  client = null;
+  manager = null;
 }
