@@ -274,13 +274,29 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: 构建并推镜像
+        env:
+          # roadmap B41：镜像 label 的六个值。key 必须与 infra/deploy/deploy-api.sh 顶部的
+          # LABEL_* 常量一致 —— 这是第三条构建路径，漂移了就等于这条路径产的镜像查不出来源。
+          FULL_SHA: ${{ github.sha }}
+          GIT_BRANCH: ${{ github.ref_name }}
         run: |
           gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
           # --platform=linux/amd64 不是可选的：runner 虽然是 amd64，但写死它能保证
           # 换成 arm runner 时不会推上去一个 Cloud Run 拉不起来的镜像（exec format error）。
+          #
+          # 🔴 label 不是装饰：短 sha 做 tag 在分支被 force-push 之后就不指向任何东西了，
+          #    这已经真实发生过一次（deploy.md §4.1 的 2026-08-21 教训、roadmap B41）。
+          #    dirty 恒为 false —— CI 是从 checkout 出来的干净树构建的。
+          #    反查：./infra/scripts/image-provenance.sh
           docker buildx build \
             --platform=linux/amd64 \
             --build-arg VERSION="${SHA}" \
+            --label "org.opencontainers.image.revision=${FULL_SHA}" \
+            --label "org.opencontainers.image.version=${SHA}" \
+            --label "org.opencontainers.image.created=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            --label "plus.babel.git.branch=${GIT_BRANCH}" \
+            --label "plus.babel.git.dirty=false" \
+            --label "plus.babel.build.by=github-actions" \
             -t "${IMAGE}" \
             --push \
             api/
@@ -307,6 +323,7 @@ jobs:
       - name: 部署候选修订版（不接流量）
         env:
           BP_ENV_VALUE: ${{ inputs.environment }}
+          FULL_SHA: ${{ github.sha }}
         run: |
           # 逐参数依据见 deploy.md §5.1。这里只重复三条最容易被「顺手改一下」的：
           #   --max-instances=8    来自 db-f1-micro 的 25 连接：8 × 2 + 6 = 22 ≤ 25 − 3
@@ -337,6 +354,7 @@ jobs:
             --cpu-boost \
             --set-env-vars="BP_ENV=${BP_ENV_VALUE},BP_GCP_PROJECT_ID=${GCP_PROJECT_ID},BP_DB_MAX_CONNS=2" \
             --set-secrets="BP_DATABASE_URL=bp-database-url:latest,BP_SUBSCRIPTION_TOKEN_PEPPER=bp-sub-token-pepper:latest,BP_NODE_KEY_PEPPER=bp-node-token-pepper:latest,BP_SESSION_SIGNING_KEY=bp-jwt-signing-key:latest" \
+            --update-labels="bp-git-sha=${FULL_SHA},bp-git-dirty=false" \
             --no-traffic \
             --tag=candidate
 
