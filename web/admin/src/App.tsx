@@ -6,12 +6,20 @@
  * **它不是安全措施** —— Xboard 用 `hash('crc32b', app.key)` 做路径混淆且无 2FA，
  * 那不是安全措施，只是拖延（page-inventory §4.1）。
  *
- * TODO(P1): 路由守卫 = IAP（代理层，前端零代码）+ 强制 TOTP（应用层，前端要做）。
- *           TOTP **不接受关闭**，所以守卫里没有「跳过」分支，一个都不要写。
+ * 鉴权失败的提示挂在 `<AuthFailureBanner />` 上，**在 `<Routes>` 外面** ——
+ * 平台层（IAP）拒绝会让所有请求一起失败，挂在某一个路由下等于要求运维先猜对该看哪一页。
+ * IAP 401 与应用层 401 的分流见 `lib/iap.ts`。
+ *
+ * TODO(P1): 应用层的路由守卫（强制 TOTP）。它要等后台的会话端点真的实现
+ *           —— 现在 `/admin/*` 的 operation 全是 501 stub（api/internal/handler/unimplemented.gen.go），
+ *           先加一个守卫只会让 17 个模块在评审时都打不开，而它挡不住任何真实攻击面。
+ *           IAP（闸 2）与独立域名（闸 1）本来就不在前端。
  */
 import { Navigate, Route, Routes } from 'react-router';
 
 import { AdminLayout } from './layouts/AdminLayout.tsx';
+import { AuthFailureBanner } from './components/AuthFailureBanner.tsx';
+import { NavigationBridge } from './components/NavigationBridge.tsx';
 
 import LoginPage from './routes/LoginPage.tsx';
 import DashboardPage from './routes/DashboardPage.tsx';
@@ -39,36 +47,40 @@ import NotFoundPage from './routes/NotFoundPage.tsx';
 
 export function App() {
   return (
-    <Routes>
-      {/* 闸 3：强制 TOTP。闸 1（独立域名）与闸 2（IAP / IP 白名单）不在前端。 */}
-      <Route path="/admin/login" element={<LoginPage />} />
+    <>
+      <NavigationBridge />
+      <AuthFailureBanner />
+      <Routes>
+        {/* 闸 3：强制 TOTP。闸 1（独立域名）与闸 2（IAP / IP 白名单）不在前端。 */}
+        <Route path="/admin/login" element={<LoginPage />} />
 
-      <Route element={<AdminLayout />}>
-        <Route path="/admin" element={<DashboardPage />} />
-        <Route path="/admin/users" element={<UsersPage />} />
-        <Route path="/admin/users/:id" element={<UserDetailPage />} />
-        <Route path="/admin/orders" element={<OrdersPage />} />
-        <Route path="/admin/orders/:trade_no" element={<OrderDetailPage />} />
-        <Route path="/admin/plans" element={<PlansPage />} />
-        <Route path="/admin/nodes" element={<NodesPage />} />
-        <Route path="/admin/nodes/:id" element={<NodeDetailPage />} />
-        <Route path="/admin/node-keys" element={<NodeKeysPage />} />
-        <Route path="/admin/stats" element={<StatsPage />} />
-        <Route path="/admin/tickets" element={<TicketsPage />} />
-        <Route path="/admin/tickets/:id" element={<TicketDetailPage />} />
-        <Route path="/admin/invites" element={<InvitesPage />} />
-        <Route path="/admin/audit" element={<AuditPage />} />
-        <Route path="/admin/admins" element={<AdminsPage />} />
-        <Route path="/admin/notices" element={<NoticesPage />} />
-        <Route path="/admin/coupons" element={<CouponsPage />} />
-        <Route path="/admin/payments" element={<PaymentsPage />} />
-        <Route path="/admin/mail" element={<MailPage />} />
-        <Route path="/admin/settings" element={<SettingsPage />} />
-        <Route path="/admin/domains" element={<DomainsPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
+        <Route element={<AdminLayout />}>
+          <Route path="/admin" element={<DashboardPage />} />
+          <Route path="/admin/users" element={<UsersPage />} />
+          <Route path="/admin/users/:id" element={<UserDetailPage />} />
+          <Route path="/admin/orders" element={<OrdersPage />} />
+          <Route path="/admin/orders/:trade_no" element={<OrderDetailPage />} />
+          <Route path="/admin/plans" element={<PlansPage />} />
+          <Route path="/admin/nodes" element={<NodesPage />} />
+          <Route path="/admin/nodes/:id" element={<NodeDetailPage />} />
+          <Route path="/admin/node-keys" element={<NodeKeysPage />} />
+          <Route path="/admin/stats" element={<StatsPage />} />
+          <Route path="/admin/tickets" element={<TicketsPage />} />
+          <Route path="/admin/tickets/:id" element={<TicketDetailPage />} />
+          <Route path="/admin/invites" element={<InvitesPage />} />
+          <Route path="/admin/audit" element={<AuditPage />} />
+          <Route path="/admin/admins" element={<AdminsPage />} />
+          <Route path="/admin/notices" element={<NoticesPage />} />
+          <Route path="/admin/coupons" element={<CouponsPage />} />
+          <Route path="/admin/payments" element={<PaymentsPage />} />
+          <Route path="/admin/mail" element={<MailPage />} />
+          <Route path="/admin/settings" element={<SettingsPage />} />
+          <Route path="/admin/domains" element={<DomainsPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
 
-      <Route path="/" element={<Navigate to="/admin" replace />} />
-    </Routes>
+        <Route path="/" element={<Navigate to="/admin" replace />} />
+      </Routes>
+    </>
   );
 }
