@@ -24,7 +24,7 @@
 | 脚本 | 做什么 | 幂等 | 危险度 |
 |---|---|---|---|
 | [`setup-infra.sh`](setup-infra.sh) | 一次性资源：API、Artifact Registry、SA 与 IAM、Secret、Cloud SQL、Scheduler、Tasks、Pub/Sub | ✅ 反复跑无副作用 | 中（建 Cloud SQL = 持续支出，有二次确认） |
-| [`deploy-api.sh`](deploy-api.sh) | 构建镜像 → 推 AR → `gcloud run deploy` | ⚠️ 同一 commit 重复部署会因修订版重名失败（**特性不是 bug**） | 中（默认 0% 流量；`--promote` 才切） |
+| [`deploy-api.sh`](deploy-api.sh) | 构建镜像 → 推 AR → `gcloud run deploy` | ⚠️ 同一 commit **重复构建**会因修订版重名失败（**特性不是 bug**）。`--promote` 到一个**已存在**的修订版则只切流量，不重建（2026-08-23 修，见 §3.2 注） | 中（默认 0% 流量；`--promote` 才切） |
 | [`deploy-web.sh`](deploy-web.sh) | 两个 SPA 的静态发布：`web/user`→`bp-web`、`web/admin`→`bp-admin`，**独立主域名** | ✅ | 低（不碰 GCP） |
 | [`rollback.sh`](rollback.sh) | Cloud Run 修订版流量切换 | ✅ | 中（写操作，有二次确认） |
 | [`../scripts/inventory.sh`](../scripts/inventory.sh) | 把 as-built §7 的清点固化成可 diff 的快照 | ✅ | **零**（纯只读） |
@@ -118,6 +118,20 @@ curl -sS https://candidate---<服务主机名>/healthz
 可能拿到两个不同版本的响应；若这次发布改了 UniProxy 响应体或 ETag 计算方式，
 灰度会造成节点反复失效缓存。所以两个脚本都**只提供 0% 与 100%**。
 
+> **2026-08-23 修的两件（都是上面这四行命令自己踩的）：**
+>
+> 1. **第 4 步以前会撞上 §1 表里那条「修订版重名失败」。** 第 2 步已经用
+>    `--revision-suffix=<sha>` 把 `bp-api-<sha>` 建出来了，第 4 步再发一次
+>    `gcloud run deploy` 会带着同一个 suffix 去建同名修订版。现在 `--promote` 先做一次
+>    只读的 `gcloud run revisions describe`：**修订版已存在就只 `update-traffic` 切流量**
+>    （与 [`rollback.sh`](rollback.sh) 和 CI 的 `--to-tags=candidate=100` 同一形态），
+>    不存在才走 `run deploy`。**待核实**：未在真实 `gcloud` 上跑过。
+> 2. **「工作树脏时拒绝」以前也拦 `--no-build`。** 第 4 步不构建任何东西，工作区脏不脏
+>    与将被部署的那个镜像的内容无关；而值班在做第 4 步时工作区**通常**是不干净的
+>    （正在改、正在查）。现在这道门只在真的要构建时才关。
+>    连带修掉的还有：脏树 + `--no-build` 时脚本会自作主张把 tag 换成 `<短sha>-dirty`，
+>    去指一个多半根本不存在的镜像 —— 即脚本自己建议的那条出路会把人送进 image not found。
+
 ### 3.3 发布前端
 
 ```bash
@@ -193,6 +207,9 @@ contract（删列/改类型）放下一次 —— 这是「旧代码能在新 sc
 > 读的那一侧 `image-provenance.sh` 还有第四份。改 key 要改四处。
 
 > ⚠️ **工作树脏时默认拒绝构建**，`--allow-dirty` 才放行。
+> **这道门只在真的要构建时才关** —— `--no-build`（两段式发布的第 4 步、回补一次失败的
+> 部署）不构建任何东西，不受它约束；那条路径上的 `bp-git-dirty` 从 tag 反推
+> （`<短sha>` = 干净构建，`<短sha>-dirty` = 脏构建，其它 tag 一律不写 label）。
 > 理由：label 只能记下 HEAD 的 sha，而真正被构建进镜像的是**工作区** ——
 > 两者不一致时 label 会变成一句**可信但错误**的话，而这比没有 label 更糟：
 > 没有 label 时人会去查，有一个错的 label 时人会直接信。

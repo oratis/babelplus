@@ -79,8 +79,11 @@ TAG=""
 # 而一句**可信但错误**的来源记录比没有记录更糟。
 GIT_SHA=""          # 完整 40 位
 GIT_BRANCH=""       # 分支名，或 (detached)
-GIT_DIRTY=""        # true / false
+GIT_DIRTY=""        # true / false —— **工作区此刻**的事实
 BUILD_TIME=""       # RFC3339 UTC
+# IMAGE_DIRTY 是**将被部署的那个镜像**的事实。构建时它等于 GIT_DIRTY；
+# --no-build 时工作区与镜像无关，只能从 tag 反推（<短sha> = 干净，<短sha>-dirty = 脏）。
+IMAGE_DIRTY=""
 STAMP_RUN_LABELS=1  # 是否把 sha 写进 Cloud Run 修订版 label（--no-build 换 tag 时会关掉）
 
 # Cloud Build 的构建配置是运行时生成的临时文件，退出时删。
@@ -254,6 +257,14 @@ EOF
 # 🔴 与旧版 resolve_tag 的两处区别，都是 B41 的直接后果：
 #   1. 即使显式给了 --tag=，也照样解析来源事实 —— tag 是名字，来源是事实，两者不是一回事。
 #   2. dirty 构建**换一个 tag**（<短sha>-dirty），而不是沿用短 sha。
+#
+# 🔴 但这两条都**只在真的要构建时**才成立（DO_BUILD=1）。--no-build 那条路径上
+#    没有任何东西被构建，工作区脏不脏与将被部署的那个镜像的内容**无关** ——
+#    在那里拦一道等于把「两段式发布的第 4 步」和「回补一次失败的部署」都堵死，
+#    而这两件事恰恰常常发生在工作区不干净的时候（正在改、正在查）。
+#    2026-08-23 实测：旧版 resolve_tag 在给了 --tag= 时直接 return，不会拦；
+#    早先的 resolve_provenance 去掉了那个 early return，于是
+#    `deploy-api.sh --no-build --tag=<sha> --promote`（README §3.2 第 4 步）在脏树上必死。
 resolve_provenance() {
   need_cmd git
   if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
@@ -276,35 +287,52 @@ resolve_provenance() {
 
   local short="${GIT_SHA:0:7}"
 
-  # 🔴 默认**拒绝**带脏工作区构建，而不是「标个 dirty 就放行」。
-  #    理由：label 只能记下 HEAD 的 sha，但真正被构建进镜像的是**工作区**。
-  #    工作区一脏，label 里那个 sha 就是一句可信但错误的话 —— 而这比没有 label 更糟：
-  #    没有 label 时人会去查，有一个错的 label 时人会直接信。
-  #    dirty=true 这个 label 的作用是**给已经明知故犯的那次留证据**，不是许可证。
-  if [ "$GIT_DIRTY" = true ] && [ "$ALLOW_DIRTY" -eq 0 ]; then
-    die "工作区有未提交改动，拒绝构建。
+  if [ "$DO_BUILD" -eq 1 ]; then
+    # 构建时「镜像的 dirty」与「工作区的 dirty」是同一件事。
+    IMAGE_DIRTY="$GIT_DIRTY"
+
+    # 🔴 默认**拒绝**带脏工作区构建，而不是「标个 dirty 就放行」。
+    #    理由：label 只能记下 HEAD 的 sha，但真正被构建进镜像的是**工作区**。
+    #    工作区一脏，label 里那个 sha 就是一句可信但错误的话 —— 而这比没有 label 更糟：
+    #    没有 label 时人会去查，有一个错的 label 时人会直接信。
+    #    dirty=true 这个 label 的作用是**给已经明知故犯的那次留证据**，不是许可证。
+    if [ "$GIT_DIRTY" = true ] && [ "$ALLOW_DIRTY" -eq 0 ]; then
+      die "工作区有未提交改动，拒绝**构建**。
      镜像 label 会写 ${LABEL_SHA}=${GIT_SHA}，而那个 commit **不等于**将被构建进去的内容。
-     修订版还会被命名成 ${SERVICE}-${short}，看起来与那个 commit 一一对应。
+     修订版还会被命名成 ${SERVICE}-${TAG:-$short}，看起来与那个 commit 一一对应。
      先提交（推荐），或显式加 --allow-dirty ——
-     那会把 tag 改成 ${short}-dirty 并在 label 里写 ${LABEL_DIRTY}=true。"
-  fi
-
-  if [ -z "$TAG" ]; then
-    TAG="$short"
-    if [ "$GIT_DIRTY" = true ]; then
-      # dirty 构建**必须换个 tag**：否则它会在 Artifact Registry 里把同一个短 sha 下
-      # 那份干净镜像顶掉（tag 会移动到新 digest），被顶掉的那份就只剩 digest 可寻 ——
-      # 又回到 B41 那种「答不出来」。
-      TAG="${short}-dirty"
-      warn "--allow-dirty：tag 取 ${TAG}，label ${LABEL_DIRTY}=true。
-     ⚠️ 这个镜像与仓库里任何一个 commit 都**不**对应，只能用于救火，不要 --promote 到生产。"
+     那会把 tag 改成 ${short}-dirty 并在 label 里写 ${LABEL_DIRTY}=true。
+     ⚠️ 只想部署一个**已经存在**的镜像（两段式发布的第 4 步、回补一次失败的部署）时
+        用 --no-build —— 那条路径不构建任何东西，不受本检查约束。"
     fi
-  fi
 
-  # --no-build 且 tag 与当前 HEAD 无关时，不往修订版上写 sha label。
-  # 写了就是撒谎：那个镜像不是从当前工作树构建的。
-  if [ "$DO_BUILD" -eq 0 ] && [ "$TAG" != "$short" ] && [ "$TAG" != "${short}-dirty" ]; then
-    STAMP_RUN_LABELS=0
+    if [ -z "$TAG" ]; then
+      TAG="$short"
+      if [ "$GIT_DIRTY" = true ]; then
+        # dirty 构建**必须换个 tag**：否则它会在 Artifact Registry 里把同一个短 sha 下
+        # 那份干净镜像顶掉（tag 会移动到新 digest），被顶掉的那份就只剩 digest 可寻 ——
+        # 又回到 B41 那种「答不出来」。
+        TAG="${short}-dirty"
+        warn "--allow-dirty：tag 取 ${TAG}，label ${LABEL_DIRTY}=true。
+     ⚠️ 这个镜像与仓库里任何一个 commit 都**不**对应，只能用于救火，不要 --promote 到生产。"
+      fi
+    fi
+  else
+    # ── --no-build：不构建，只部署一个已经在仓库里的镜像 ──
+    #
+    # 这里**不看工作区脏不脏**，理由见函数头。tag 也**不加 -dirty 后缀**：
+    # 加了就会去指一个多半根本不存在的镜像（干净构建推的是 <短sha>，不是 <短sha>-dirty），
+    # 于是脚本自己建议的那条出路会把人送进 "image not found"。
+    [ -n "$TAG" ] || TAG="$short"
+
+    # 修订版 label 要描述的是**那个镜像**，不是此刻的工作区。
+    # 镜像与 commit 的对应关系只能从 tag 反推：<短sha> = 干净构建，<短sha>-dirty = 脏构建，
+    # 其它 tag 一律推不出来 → 干脆不写（写了就是撒谎）。
+    case "$TAG" in
+      "$short")          IMAGE_DIRTY=false ;;
+      "${short}-dirty")  IMAGE_DIRTY=true  ;;
+      *)                 STAMP_RUN_LABELS=0 ;;
+    esac
   fi
 }
 
@@ -464,6 +492,22 @@ EOF
 
 # ───────────────────────── 部署 ─────────────────────────
 
+# promote_epilogue —— 切完流量之后要说的话。deploy() 的两条 promote 路径共用。
+promote_epilogue() {
+  step "部署完成"
+  local url
+  url="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" \
+          --format='value(status.url)' 2>/dev/null || true)"
+  if [ -n "$url" ]; then
+    log "  服务 URL      : $url"
+    log "  验证          : curl -sS ${url}/-/healthz   # 确认 revision 是 ${TAG}"
+    log "  就绪（查库）  : curl -sS ${url}/readyz"
+  fi
+  log ""
+  log "  ⚠️ 现在跑一次 ./infra/scripts/verify-isolation.sh —— 这是「不影响已部署服务」这条承诺的可执行形式。"
+  log "  ⚠️ /-/healthz **不查数据库**（控制面故障不得升级为数据面故障）；要确认库连得上看 /readyz。"
+}
+
 deploy() {
   step "部署 $SERVICE（修订版 ${SERVICE}-${TAG}）"
 
@@ -558,7 +602,7 @@ BP_ALLOWED_ORIGINS=${origins}"
   # **待核实**：--update-labels 是否会落到**新建的修订版**上（gcloud 文档未逐字复核）。
   #    即便不落，image-provenance.sh 会退回去读镜像 label，答案不会因此丢失。
   if [ "$STAMP_RUN_LABELS" -eq 1 ]; then
-    args+=(--update-labels="bp-git-sha=${GIT_SHA},bp-git-dirty=${GIT_DIRTY}")
+    args+=(--update-labels="bp-git-sha=${GIT_SHA},bp-git-dirty=${IMAGE_DIRTY}")
   else
     warn "--no-build 且 --tag=${TAG} 与当前 HEAD 无关：本次**不**往修订版写 bp-git-sha。
      写了就是撒谎 —— 那个镜像不是从当前工作树构建的。
@@ -571,10 +615,32 @@ BP_ALLOWED_ORIGINS=${origins}"
   #    --no-cpu-throttling 把计费从 request-based 切到 instance-based，成本模型当场作废
 
   if [ "$DO_PROMOTE" -eq 1 ]; then
-    confirm "将把 100% 流量切到新修订版 ${SERVICE}-${TAG}。
+    confirm "将把 100% 流量切到修订版 ${SERVICE}-${TAG}。
   当前修订版会立刻停止接收新请求。
   ⚠️ 若本次发布改了 DB schema，请记住：**代码能秒级回滚，schema 不能**（deploy.md §12.3）。" "promote"
-    ok "流量：新修订版 100%"
+
+    # 🔴 两段式发布的第 4 步（README §3.2）是 `--no-build --tag=<sha> --promote`，
+    #    而那个 sha 的修订版**在第 2 步就已经建出来了**。再发一次 `gcloud run deploy`
+    #    会带着同一个 --revision-suffix 去建同名修订版 —— README §1 自己写着
+    #    「同一 commit 重复部署会因修订版重名失败」。也就是说，文档里的发布流程
+    #    第 4 步会撞上文档里第 1 节记的那条限制。
+    #
+    #    「把流量切到一个**已经存在**的修订版」本来就不该走 run deploy。
+    #    rollback.sh 与 .github/workflows/deploy.yml 都已经用 update-traffic 了，
+    #    这里对齐它们：修订版已存在 → update-traffic；不存在 → 照旧 run deploy。
+    #    存在性检查是只读的，查不到就退回原路径，所以这条改动不会让任何原本能跑的情况变坏。
+    #
+    #    **待核实**：未在真实 gcloud 上跑过（本次任务不执行任何 gcloud 变更）。
+    if gcloud run revisions describe "${SERVICE}-${TAG}" \
+         --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1; then
+      ok "修订版 ${SERVICE}-${TAG} 已存在 —— 只切流量，不重建（避免修订版重名失败）"
+      run gcloud run services update-traffic "$SERVICE" \
+        --project="$PROJECT_ID" --region="$REGION" \
+        --to-revisions="${SERVICE}-${TAG}=100"
+      promote_epilogue
+      return 0
+    fi
+    ok "流量：新修订版 100%（${SERVICE}-${TAG} 尚不存在，走 run deploy 建它）"
   elif gcloud run services describe "$SERVICE" \
          --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1; then
     args+=(--no-traffic --tag=candidate)
@@ -654,6 +720,13 @@ main() {
   log "分支   : $GIT_BRANCH"
   log "工作树 : dirty=$GIT_DIRTY"
   log "构建时 : $BUILD_TIME"
+  if [ "$DO_BUILD" -eq 0 ]; then
+    # --no-build 时上面四行描述的是**此刻的工作区**，不是将被部署的那个镜像。
+    # 镜像的来源要去读它自己的 label（image-provenance.sh），别把这四行当成它的答案。
+    log "         ↑ 这四行是**工作区**的事实；--no-build 不构建任何东西，"
+    log "           将被部署的镜像 ${IMAGE:-<待定>} 的来源以它自己的 label 为准："
+    log "           ./infra/scripts/image-provenance.sh --image=<镜像引用>"
+  fi
   if [ "$DRY_RUN" -eq 1 ]; then
     log "模式   : DRY-RUN（只打印写操作）"
   fi
