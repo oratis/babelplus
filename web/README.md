@@ -214,7 +214,7 @@ web/
       其中**备用域名页**（<20 KB、无 JS、部署在每一个镜像域名上）是最后一道防线，
       优先级高于这里的很多东西。
 - [x] ~~**没有测试。** 一行都没有。~~
-      **2026-08-23 做掉第一批**：vitest 4.1.11，78 个用例，见 §9。
+      **2026-08-23 做掉第一批**：vitest 4.1.11，108 个用例，见 §9。
       README 点名的那条（`client.ts` 的「POST 不转移」）已经写成方法矩阵，
       改错了 CI 会指出改错的是哪一个方法。
       **仍然没有**：组件级测试（除路由守卫外）、E2E、可访问性自动检查。
@@ -258,14 +258,15 @@ web/
 
 ## 9 · 测试（2026-08-23 起）
 
-`vitest run`，三个包各跑各的。总计 **78 个用例 / 6 个文件**，本机 `pnpm -r test` 全绿
-（2026-08-23 实测：shared 60 / user 10 / admin 8）。
+`vitest run`，三个包各跑各的。总计 **108 个用例 / 7 个文件**，本机 `pnpm -r test` 全绿
+（2026-08-23 实测：shared 67 / user 33 / admin 8）。
 
 | 文件 | 环境 | 测什么 |
 |---|---|---|
 | `shared/api/client.test.ts` | node | 故障转移方法矩阵、超时、五类错误归一、平台层拒绝判别、401→refresh→重放 |
-| `shared/api/session.test.ts` | node | refresh 单飞、失败语义（拒绝 vs 网络失败）、在途请求的旧 token |
-| `shared/src/lib/return-to.test.ts` | node | returnTo 的开放重定向向量 |
+| `shared/api/session.test.ts` | node | refresh 单飞、失败语义（拒绝 vs 网络失败）、在途请求的旧 token、**登出/重登与在途 refresh 的竞态** |
+| `shared/src/lib/return-to.test.ts` | node | returnTo 的开放重定向向量（含**归一化之后才出现的** `//`） |
+| `user/src/App.routes.test.tsx` | jsdom | **对真实 `App` 路由表逐条**核对守卫覆盖：18 条受保护路径 + 4 条免登录 |
 | `user/src/lib/auth.test.tsx` | jsdom | 路由守卫三态：确定未登录跳转带 returnTo、**加载态不误跳**、网络失败不跳登录 |
 | `user/src/routes/auth/LoginPage.test.tsx` | jsdom | 登录接线：returnTo 落点、按 `ErrorCode` 分支（封禁 ≠ 密码错）、429 倒计时 |
 | `admin/src/lib/iap.test.ts` | node | IAP 401 与应用层 401 的判别 |
@@ -296,3 +297,31 @@ web/
   `shared` 的 tsconfig 是 `"types": []`，开 globals 就得让**生产代码**也看见测试全局变量。
 - **超时用真的短超时（20ms）而不是假时钟**。`AbortSignal.timeout` 是平台 API，
   不走 JS 的 `setTimeout`，假时钟推不动它。
+
+### 复核时补上的三条（2026-08-23）
+
+第一批测试写完之后做了一次独立复核（把规则**故意改坏**，看测试会不会红）。
+方法矩阵、单飞、三态守卫三条都如期变红 —— 但复核同时翻出两个**测试没覆盖到的真缺陷**，
+都已修掉并补了会红的回归用例：
+
+1. **`safeReturnTo` 的开放重定向绕过（安全）。** `?returnTo=/..//evil.example`
+   以单个 `/` 开头、不含反斜杠与控制字符、解析后 origin 也仍是本站 ——
+   原来的每一条检查都过得去。但 `/..` 被解析掉之后 pathname 变成 `//evil.example`，
+   这是**协议相对 URL**，交给 `navigate()` 再解析一次就落到 `https://evil.example/`。
+   根因是**所有前置检查作用在原串上，而返回的是归一化后的串**，两者不是同一个东西。
+   修法：对最终交出去的值重跑一遍结构判定。
+   同时把 `/auth/` 黑名单改成大小写不敏感 —— react-router 的路由匹配默认
+   `caseSensitive: false`，`/AUTH/login` 照样匹配得到那条路由。
+
+2. **登出被在途 refresh 撤销（安全）。** `signOut()` 只把 `inflight` 引用摘掉，
+   但那个 async 闭包**还在飞**，回来照样执行到写回那一步 ——
+   于是「点了登出 → 在途 refresh 返回 → token 被写回 sessionStorage」。
+   UI 看着是登出了（订阅者只对 `null` 反应），下次打开页面却自动登录回去。
+   在共用电脑上这是一次真实的会话泄漏。
+   修法：加一个**只由外部写入递增**的会话世代号，refresh 回来时先对世代号，
+   过期就丢掉结果。重新登录时同理 —— 上一轮 refresh 不会覆盖新会话。
+
+3. **守卫覆盖没有被逐条钉住。** `auth.test.tsx` 渲染的是一棵**测试自建的**两条路由的树，
+   验证的是 `RequireAuth` 组件的行为，验证不了 `App.tsx` 那张表有没有漏掉某一条。
+   把某条路由挪出守卫，那一支照样全绿。补 `App.routes.test.tsx`：
+   拿真实 `App` 渲染，18 条受保护路径逐条断言落到登录页，4 条认证页逐条断言可直达。
