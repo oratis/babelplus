@@ -1550,6 +1550,21 @@ TTL 24 小时，`(key, user_id)` 唯一。`request_hash` 用于检测「同一�
 （ADR 0002 把邮件从「配置项」升级为「核心基础设施」）。
 AWS SES 退信率 ≥ 5% 进入审查、≥ 10% 可能暂停发信 —— 一次针对不存在邮箱的爆破就能把退信率打上去。
 
+> **实现状态（2026-08-23，migration 0013 + `api/internal/ratelimit`）**
+>
+> | 端点 | 与本表的关系 |
+> |---|---|
+> | `POST /auth/login` | ✅ 双维度四条限额按表实施。⚠️ **「指数退避 / 解锁倒计时」未实现**，当前是固定窗口，`Retry-After` 给的是本窗口剩余时间。做退避要先裁定「锁定的是 IP 还是账号」——锁定账号可被用来定向拒绝某个用户登录，这条未裁决 |
+> | `POST /auth/password/forgot` | ✅ per email 3/h 仍返回 204、per IP 10/h 返回 429。per IP **实施成两层**：门口的 `rate_limit` 计数（每一次请求都算）+ 原有的 `email_verifications` 计数（只算真的产生了验证码的）。前者补的是「反复轰炸同一个邮箱，触发 per email 上限之后就不再计入 per IP」这个盲区 |
+> | `POST /auth/email-code` | ✅ per email 3/h 与 60 秒间隔按表实施；**另加一条本表没有的 per IP 10/h**（设定值，沿用 forgot 的 per IP）。理由：per email 只约束单个邮箱，一个 IP 轮着换邮箱发码可以无限消耗同一份 SES 配额 |
+> | `GET /invite/verify` | ✅ **另加一条本表没有的 per IP 30/min**（设定值）。它挡的不是邀请码枚举（码空间本来就爆破不动），而是「把免登录端点当免费的数据库查询放大器」 |
+> | 其余端点 | ⬜ 未实施。节点面、订阅面、用户面通用限流都还没有 |
+>
+> ⚠️ 🔴 **per IP 维度在 CGNAT / 企业 NAT 后面有真实误伤风险**，而本表只给订阅面那一行写了放宽。
+> 登录这一行按表实施（不擅自放宽），**撤回条件**：`bp_api_429` 上出现登录路径的持续 429，
+> 或收到「登录提示过于频繁」类工单 —— 命中任一条就把 per IP 的小时限额单列并放宽，
+> per email 那两条不动（它才是真正保护账号的维度）。
+
 ### 10.2 计数存储：两档，不是一档
 
 Cloud Run 多实例（`--max-instances=8`，ADR 0005）意味着进程内计数会被放大 8 倍。
@@ -1557,7 +1572,7 @@ Cloud Run 多实例（`--max-instances=8`，ADR 0005）意味着进程内计数�
 
 | 档 | 存储 | 适用 | 代价 |
 |---|---|---|---|
-| **精确档** | Postgres `UNLOGGED` 表 `rate_limit(key, window_start, count)`，`INSERT … ON CONFLICT DO UPDATE` 原子递增 | `login` / `forgot` / `email-code` / 管理面导出与群发 | 每次一条 upsert。这些端点本身低频，可接受 |
+| **精确档** | Postgres `UNLOGGED` 表 `rate_limit`，`INSERT … ON CONFLICT DO UPDATE` 原子递增 | `login` / `forgot` / `email-code` / 管理面导出与群发 | 每次一条 upsert。这些端点本身低频，可接受 |
 | **近似档** | 每实例进程内令牌桶 | 其余全部（含节点面与用户面通用限流） | **实际上限 = 配置值 × 实例数**，最坏 8 倍 |
 
 **近似档 8 倍放大是被显式接受的**：这些端点的限流目的是防雪崩不是防爆破，
@@ -1567,6 +1582,23 @@ Cloud Run 多实例（`--max-instances=8`，ADR 0005）意味着进程内计数�
 > ⚠️ 精确档的 DB 写入会占用 Cloud SQL 的连接。ADR 0005 的约束公式是
 > `max_instances × pool_max + 运维预留 ≤ max_connections − 3`（`db-f1-micro` 是 25）。
 > 限流查询与业务查询共用同一个 `pgxpool`，不新开池。
+>
+> **落地形态**（migration `0013_rate_limit`）与上面这一行的示意列名有出入，逐条说明：
+>
+> - `key` 拆成 `(bucket, subject)` 两列做联合主键。`bucket` 编码「哪个端点的哪个维度 + 窗口多长」
+>   （窗口长度**必须**进桶名：一行只持有一个 `window_start`，把 5/min 与 10/h 塞进同一个桶
+>   会让两条规则互相覆盖对方的窗口）；`subject` 是 IP 或邮箱的 **HMAC 摘要，不是明文** ——
+>   邮箱明文落库等于凭空多出一份可枚举的「谁试过登录」名单。
+> - `count` 叫 `hits`，另加一列 `window_seconds`（让每一行自解释，清理作业不必知道各桶的策略），
+>   并用 `CHECK (window_seconds BETWEEN 1 AND 3600)` 把「没有任何桶的窗口超过 1 小时」
+>   变成数据库强制的不变量 —— 清理语句的正确性依赖它。
+> - 过期窗口在**同一条 upsert 里就地重置**，不依赖任何清理作业。
+>   （反面教材是 `idempotency_keys`：它的 `ON CONFLICT` 只认主键不看过期，
+>   于是没清理的过期行会永久卡住同名键。限流表重蹈覆辙的后果是「某个 IP 一旦触顶就永远被拒」。）
+> - 清理不是定时任务而是**写时抽样**：平均每 64 次 `Allow` 顺带删一批（LIMIT 500）过期行。
+>   Cloud Run 缩到 0，进程内不能加 ticker。
+> - 🔴 **限流器失败开放**：数据库不可用时放行，并写一条 `bp_ratelimit_degraded` 的 ERROR 日志。
+>   完整论证在 `api/internal/ratelimit` 的包注释里。
 
 ---
 

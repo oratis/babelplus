@@ -292,22 +292,32 @@ func deliverSubscription(ctx context.Context, d subDeps, r *http.Request, rawTok
 
 // ---- token ----
 
+// subTokenAlphabet 是订阅 token 的字符集：URL-safe base64（RFC 4648 §5）。
+//
+// 🔴 **校验端与签发端必须共用这一个常量。**
+// 签发端（POST /api/v1/user/subscription/tokens）尚未实现；它落地时**不要**再写一遍
+// 字符集，而是从这里取，随机取字符也从这里取。
+//
+// 两边各写一份的失败模式极其难查：签发端多放进一个字符（比如 '+' 或 '='），
+// 那枚 token 会被本函数在**查库之前**判成形态非法 → 直接 404，
+// 而 404 恰恰又是「token 不存在 / 已吊销」的正常返回（ADR 0006 §10.2 规定不泄露存在性）。
+// 于是现象是「刚签发的订阅链接立刻 404」，签发端和校验端各自看都毫无问题，
+// 数据库里那行 subscription_tokens 也好端端地在。
+//
+// 为什么是 URL-safe base64：token 出现在路径段 `/s/{token}` 里，
+// 任何需要百分号编码的字符都会让用户手工复制的链接更容易被聊天软件截断。
+const subTokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
 // plausibleSubscriptionToken 做一次廉价的形态校验，**在查库之前**。
 //
-// 字符集与长度必须与签发端（POST /api/v1/user/subscription/tokens，尚未实现）
-// 保持一致。取 URL-safe base64 字符集是因为 token 要出现在路径段 `/s/{token}` 里，
-// 任何需要百分号编码的字符都会让用户手工复制的链接更容易被聊天软件截断。
-//
-// TODO(P1): 签发端落地时，把这里的字符集与它的生成器写进同一个常量 ——
-// 两边不一致的现象是「刚签发的 token 立刻 404」，而两边都「看起来没问题」。
+// 按字节而不是按 rune 遍历：非 ASCII 字符的每个字节都 ≥ 0x80，一个都不在
+// subTokenAlphabet 里，所以行为与按 rune 判等价，而少一次 UTF-8 解码。
 func plausibleSubscriptionToken(s string) bool {
 	if len(s) < subTokenMinLen || len(s) > subTokenMaxLen {
 		return false
 	}
-	for _, c := range s {
-		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
-		default:
+	for i := 0; i < len(s); i++ {
+		if strings.IndexByte(subTokenAlphabet, s[i]) < 0 {
 			return false
 		}
 	}

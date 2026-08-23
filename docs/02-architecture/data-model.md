@@ -20,9 +20,9 @@
 
 ### 1.1 表清单
 
-本文定义 **37 张表**（含 2 张 UNLOGGED）+ **4 个视图** + **10 个枚举类型**；
+本文定义 **38 张表**（含 3 张 UNLOGGED）+ **4 个视图** + **10 个枚举类型**；
 另沿用 [admin-support-docs §2.4](../01-research/admin-support-docs.md) 的 6 张工单辅助表。
-**全库共 43 张表。**
+**全库共 44 张表。**（2026-08-23：新增 `rate_limit`，见 §11.4。）
 
 | 组 | 表 | 数量 |
 |---|---|---|
@@ -35,6 +35,7 @@
 | **统计** | `stat_user_server`（唯一实表） | 1 |
 | **工单** | `tickets` `ticket_messages` + admin-support-docs §2.4 的另外 6 张 | 2（+6 沿用） |
 | **运营** | `admin_users` `audit_logs` `notices` `knowledge_articles` `email_log` `settings` | 6 |
+| **限流（UNLOGGED）** | `rate_limit` | 1 |
 | **视图** | `stat_user` `stat_server` `user_wallet_balance` `ticket_messages_public` | 4 |
 
 ### 1.2 八条全局裁决
@@ -1541,6 +1542,40 @@ WHERE template = 'verify_code' AND created_at > now() - interval '30 days'
 GROUP BY to_domain ORDER BY sent DESC;
 ```
 
+### 11.4 `rate_limit`：精确档限流的计数表
+
+事实源：[api-contract §10.2](api-contract.md)、[ADR 0005 §8](../05-adr/0005-database-selection.md)、
+migration `0013_rate_limit`。2026-08-23 新增。
+
+```sql
+CREATE UNLOGGED TABLE rate_limit (
+  bucket         text        NOT NULL,   -- login_ip_1m / login_email_1h / email_code_ip_1h / …
+  subject        bytea       NOT NULL,   -- HMAC-SHA256(pepper, bucket‖明文)，**不是明文**
+  window_start   timestamptz NOT NULL DEFAULT now(),
+  window_seconds integer     NOT NULL CHECK (window_seconds BETWEEN 1 AND 3600),
+  hits           integer     NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, subject)
+);
+CREATE INDEX rate_limit_window_start_idx ON rate_limit (window_start);
+```
+
+四个设计点，每个都有一个具体要防的失败：
+
+| 设计 | 防的是什么 |
+|---|---|
+| `UNLOGGED` | 与 §8.5 的在线态同一条裁决（ADR 0005 §8：不买 $35.77/月的 Redis）。**代价是崩溃与计划内维护重启会清空计数** —— 窗口最长 1 小时所以损失有界，但这是有意的取舍 |
+| 窗口长度编进 `bucket` 名 | 一行只有一个 `window_start`。5/min 与 10/h 共用一个桶会互相覆盖窗口，现象是「两条限额都在但哪条都不准」 |
+| `subject` 存 HMAC 摘要 | 邮箱明文落库 = 凭空多出一份可枚举的「谁试过登录」名单，而本表是排障时谁都可能 `select` 的易失表 |
+| `CHECK (… BETWEEN 1 AND 3600)` | 把「没有任何桶的窗口超过 1 小时」变成数据库强制的不变量。清理语句用 `window_start < now() - 1h` 这个可走索引的粗筛，它的正确性依赖这条 CHECK |
+
+递增与过期重置在**同一条** `INSERT … ON CONFLICT DO UPDATE` 里完成，不依赖任何清理作业 ——
+反面教材是 `idempotency_keys`：它的 `ON CONFLICT` 只认主键不看过期，
+于是没清理的过期行会永久卡住同名键。
+
+2026-08-23 在 PostgreSQL 17 上实测：`pgbench -c 20 -j 4 -t 50` 打 1000 次 upsert，
+`hits` 恰好 1000（无丢失更新）；窗口内递增不动 `window_start`、窗口过期就地重置为 1；
+`window_seconds = 3601` 被 CHECK 拒绝（23514）。
+
 ---
 
 ## 12 · 索引设计与热路径论证
@@ -1733,7 +1768,7 @@ ADR 0005 买的是 **10 GB SSD**（$1.70/月），**约 10 倍余量**。
 >    切换 Wi-Fi/蜂窝占两个名额，在 pricing §3.1 的 2 设备档位下一人一手机一电脑就可能超限。
 >    **撤回条件（page-inventory §3.2.3）：P2 阶段设备数相关工单超过总量 10%，
 >    则改回统一 5 台**，或把主键换成客户端上报的设备指纹（需要 v2node 支持，目前未知）。
-> 6. **43 张表对一个「内部使用、邀请制、规模有上限」的项目而言是偏多的。**
+> 6. **44 张表对一个「内部使用、邀请制、规模有上限」的项目而言是偏多的。**
 >    其中 `sla_policies` / `ticket_sla_breaches` / `canned_responses` / `refunds` /
 >    `knowledge_articles` 五张在第一批 20 个用户期间大概率一行数据都不会有。
 >    保留它们的理由是「加表容易，改已经在用的表难」，但这个理由**不能无限使用** ——

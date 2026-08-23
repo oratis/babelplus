@@ -152,7 +152,8 @@ flowchart TB
 > | `bp_db_pool_wait` | ✅ 已建（近似） | 按 `jsonPayload.err` 文本匹配，非结构化判据 |
 > | `bp_mail_bounce` | 🔴 建不了 | ESP 未接通，没有退信日志 |
 > | `bp_cert_issuer_bad` | 🔴 建不了 | §8 的每日证书核对作业不存在 |
-> | `bp_node_alive` | 🔴 建不了 | 需应用主动写一行带 `node_id` 的结构化日志。**§5 的 metric-absence 告警依赖它，节点上线前必须先有** |
+> | `bp_node_alive` | ⚠️ **应用侧已就绪，指标仍未创建** | 2026-08-23：`handler/nodealive.go` 已开始写日志（文案就是指标名、带字符串 `node_id`、每节点每 60 秒最多一条）。**剩下的一半是在 GCP 上 `gcloud logging metrics create` 并配 `--label-extractors`**，见下方命令。**§5 的 metric-absence 告警依赖它，节点上线前必须先有** |
+> | `bp_ratelimit_degraded` | 🔴 未建（新增） | 2026-08-23 随 `internal/ratelimit` 一起加的日志行。限流器**失败开放**：数据库不可用时放行并写这条 ERROR。没有这条指标，「本该限流却没限」在监控上是完全静默的 |
 
 ```bash
 P=oratis-491316
@@ -176,10 +177,41 @@ mkmetric bp_api_429  "bp-api 429（被拒/限流）" "$BASE AND httpRequest.stat
 | `bp_db_pool_wait` | pgxpool 获取连接超时 / `sorry, too many clients already` | ADR 0005 §6.3 的升配触发器之一 |
 | `bp_mail_bounce` | ESP 退信回调 | AWS SES 退信率 ≥5% 进入审查、≥10% 可能暂停发信（page-inventory 已记）。邮件是**唯一**失联恢复通道（ADR 0002），停信 = 恢复面失效 |
 | `bp_cert_issuer_bad` | §8 的每日证书核对写的日志 | ADR 0004 §3.4 |
-| `bp_node_alive` | 节点 `/alive` 上报成功，**带 `node_id` 标签** | §5 第 1 条的 metric-absence 告警依赖它 |
+| `bp_node_alive` | 节点任一 UniProxy 端点鉴权通过，**带 `node_id` 标签** | §5 第 1 条的 metric-absence 告警依赖它 |
+| `bp_ratelimit_degraded` | 精确档限流器降级（DB 不可用 → 失败开放） | 限流失效**不产生任何 429**，指标缺席型告警也看不见它。这条日志是它唯一的痕迹 |
 
 > ⚠️ **`bp_node_alive` 必须由应用主动写一行结构化日志**，不能靠解析 access log ——
 > access log 里 `POST /alive` 的 200 无法区分「哪个节点」，而我们需要**逐节点**的缺失告警。
+>
+> **2026-08-23 应用侧已落地**（`api/internal/handler/nodealive.go`），两条与本文档强耦合的约定：
+>
+> - 日志文案**就是指标名** `bp_node_alive`，所以过滤器匹配 `jsonPayload.message` 即可，
+>   不会因为谁改了一句中文措辞而静默失配；
+> - `node_id` 的值写成**字符串**（log-based metric 的 label 本身就是字符串类型）。
+> - 🔴 **`jsonPayload.message` 这个字段名本身也是一条依赖。** slog 默认把消息写成 `msg`，
+>   是 `cmd/server/main.go` 的 `newLoggerTo` 用 `ReplaceAttr` 把它改成 `message`
+>   （`level` 改成 `severity` 同理）。删掉那几行不会有任何编译或运行时报错，
+>   但**本页每一条 log-based metric 会同时停止匹配** —— 包括已经建好的 `bp_subscribe_404`。
+>   已由 `cmd/server/logger_test.go` 钉住（2026-08-23 补，实测删掉重命名后该用例会失败）。
+>
+> 心跳记在「鉴权 + `node_id` 校验通过之后、业务逻辑之前」，也就是说它回答的是
+> 「这个节点还能连上我们且凭据有效吗」，**不是**「这次请求成功了吗」。
+> 这个位置是为了让 DB 故障时只响 5xx 告警，而不是同时响一片「全部节点离线」
+> 把值班引去查一堆没问题的机器。
+>
+> 降频：每节点每 60 秒最多一条（告警窗口 5 分钟 ⇒ 约 5 个采样点）。
+> 降频是**每实例**的，最坏情况下 8 个实例各记一条。
+>
+> 还欠着的那一半（**节点上线前必须做**）：
+>
+> ```bash
+> gcloud logging metrics create bp_node_alive --project=$P \
+>   --description="节点心跳（应用主动写）" \
+>   --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="bp-api" AND jsonPayload.message="bp_node_alive"' \
+>   --label-extractors='node_id=EXTRACT(jsonPayload.node_id)'
+> ```
+>
+> ⚠️ 上面这条命令**尚未执行过**，`--label-extractors` 的确切写法与 EXTRACT 的行为**需实测**。
 
 ---
 

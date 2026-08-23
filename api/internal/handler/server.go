@@ -6,6 +6,7 @@ import (
 
 	"github.com/oratis/babelplus/api/internal/config"
 	"github.com/oratis/babelplus/api/internal/gen"
+	"github.com/oratis/babelplus/api/internal/ratelimit"
 	"github.com/oratis/babelplus/api/internal/store"
 )
 
@@ -23,14 +24,32 @@ type Server struct {
 	cfg    *config.Config
 	db     *store.Store
 	logger *slog.Logger
+
+	// limiter 是 api-contract §10.2 的「精确档」限流器（计数落 rate_limit 表）。
+	// 只给账户面那几个免登录端点用 —— 它们是凭据爆破与邮件配额消耗的入口。
+	limiter *ratelimit.Limiter
+
+	// nodeAlive 给 bp_node_alive 心跳日志降频。零值可用。
+	// ⚠️ 它是**进程内**状态，含 sync.Mutex —— Server 从此不可复制（一律用 *Server）。
+	nodeAlive nodeAliveThrottle
 }
 
 // 编译期断言：Server 必须满足完整接口。
 var _ gen.StrictServerInterface = (*Server)(nil)
 
 // New 构造 Server。
+//
+// 限流器在这里成型而不是由调用方注入：它的 pepper 与 *store.Store 都已经在手上，
+// 多一个构造参数只会多一个「装配时忘了传」的失败点 —— 而那个失败点的现象是
+// 限流器为 nil、第一个登录请求 panic（Recover 兜成 500），
+// 或者更糟：有人为此加了 nil 保护，于是限流静默失效。
 func New(cfg *config.Config, db *store.Store, logger *slog.Logger) *Server {
-	return &Server{cfg: cfg, db: db, logger: logger}
+	return &Server{
+		cfg:     cfg,
+		db:      db,
+		logger:  logger,
+		limiter: ratelimit.New(db, cfg.SessionSigningKey, logger),
+	}
 }
 
 // GetHealthz 是探活端点。
