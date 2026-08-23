@@ -278,7 +278,7 @@ jobs:
           indexes=$(psql -qtAc "select count(*) from pg_indexes where schemaname='public';")
           views=$(psql -qtAc "select count(*) from information_schema.views where table_schema='public';")
           echo "表 $tables · 索引 $indexes · 视图 $views"
-          echo "2026-08-16 开发机实测基线：43 表 / 118 索引 / 4 视图"
+          echo "2026-08-23 开发机实测基线：44 表 / 120 索引 / 4 视图"
           echo "（数量变化本身不算失败 —— 加表是正常演进；但 PR 描述里要说明变的是什么）"
           if [ "$tables" -eq 0 ]; then
             echo "::error::灌完全部 up migration 之后一张表都没有，migration 没有真正执行"
