@@ -28,6 +28,10 @@ type Server struct {
 	// limiter 是 api-contract §10.2 的「精确档」限流器（计数落 rate_limit 表）。
 	// 只给账户面那几个免登录端点用 —— 它们是凭据爆破与邮件配额消耗的入口。
 	limiter *ratelimit.Limiter
+
+	// nodeAlive 给 bp_node_alive 心跳日志降频。零值可用。
+	// ⚠️ 它是**进程内**状态，含 sync.Mutex —— Server 从此不可复制（一律用 *Server）。
+	nodeAlive nodeAliveThrottle
 }
 
 // 编译期断言：Server 必须满足完整接口。

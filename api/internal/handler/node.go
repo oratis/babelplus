@@ -48,6 +48,11 @@ import (
 //     （api-contract §3.5 的容错要求）。整批失败对我们是纯损失 ——
 //     v2node 不看响应状态码，不会因为 4xx/5xx 重发。
 //  3. **响应体不套统一信封**。UniProxy 是冻结契约，包一层 {"data":…} 立刻不兼容。
+//  4. **每个端点在 node_id 校验通过后都要调 s.noteNodeAlive**。它是 monitoring.md §5
+//     第 1 条「节点心跳缺失」告警的唯一数据来源（bp_node_alive），
+//     而那条告警是 metric absence —— 从未上报过的节点在监控眼里不存在。
+//     新增节点面端点时漏掉它不会有任何报错，只会让心跳的采样点变少。
+//     完整理由见 nodealive.go。
 
 // errNoNodeAuth 表示中间件没有把节点身份注入上下文 —— 属于装配错误，不是用户错误。
 var errNoNodeAuth = errors.New("节点身份缺失：路由未挂载 RequireNodeScope 中间件")
@@ -133,6 +138,7 @@ func (s *Server) GetUniProxyConfig(ctx context.Context, req gen.GetUniProxyConfi
 			NodeForbiddenJSONResponse: gen.NodeForbiddenJSONResponse(errNodeIDMismatch()),
 		}, nil
 	}
+	s.noteNodeAlive(ctx, auth)
 
 	rev, err := s.db.GetNodeRev(ctx, auth.ServerID)
 	if err != nil {
@@ -202,6 +208,7 @@ func (s *Server) GetUniProxyUsers(ctx context.Context, req gen.GetUniProxyUsersR
 			NodeForbiddenJSONResponse: gen.NodeForbiddenJSONResponse(errNodeIDMismatch()),
 		}, nil
 	}
+	s.noteNodeAlive(ctx, auth)
 
 	rev, err := s.db.GetNodeRev(ctx, auth.ServerID)
 	if err != nil {
@@ -278,6 +285,7 @@ func (s *Server) PushUniProxyTraffic(ctx context.Context, req gen.PushUniProxyTr
 			NodeForbiddenJSONResponse: gen.NodeForbiddenJSONResponse(errNodeIDMismatch()),
 		}, nil
 	}
+	s.noteNodeAlive(ctx, auth)
 	if req.Body == nil {
 		return gen.PushUniProxyTraffic400JSONResponse{
 			NodeBadRequestJSONResponse: gen.NodeBadRequestJSONResponse(
@@ -429,6 +437,7 @@ func (s *Server) PushUniProxyAlive(ctx context.Context, req gen.PushUniProxyAliv
 			NodeForbiddenJSONResponse: gen.NodeForbiddenJSONResponse(errNodeIDMismatch()),
 		}, nil
 	}
+	s.noteNodeAlive(ctx, auth)
 	if req.Body == nil {
 		return gen.PushUniProxyAlive400JSONResponse{
 			NodeBadRequestJSONResponse: gen.NodeBadRequestJSONResponse(
@@ -497,6 +506,7 @@ func (s *Server) GetUniProxyAliveList(ctx context.Context, req gen.GetUniProxyAl
 			NodeForbiddenJSONResponse: gen.NodeForbiddenJSONResponse(errNodeIDMismatch()),
 		}, nil
 	}
+	s.noteNodeAlive(ctx, auth)
 
 	rows, err := s.db.ListAliveDeviceCounts(ctx)
 	if err != nil {
