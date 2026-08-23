@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -248,11 +249,22 @@ func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg stri
 
 // newLogger 输出 JSON 结构化日志，字段名对齐 Cloud Logging。
 func newLogger(level string) *slog.Logger {
+	return newLoggerTo(os.Stdout, level)
+}
+
+// newLoggerTo 是 newLogger 的可注入写入端版本，只为让字段名可测。
+//
+// 🔴 拆出它不是为了灵活性，是因为**下面那两个字段改名是全部 log-based metric 的地基**：
+// `bp_node_alive` / `bp_ratelimit_degraded` / `bp_subscribe_404` 的过滤器统统写
+// `jsonPayload.message=…`（monitoring.md §3.2）。slog 默认的键是 `msg`，
+// 删掉这里的重命名不会有任何编译或运行时报错 —— 现象是**所有告警一起静默失灵**，
+// 而那正是这些指标本身要防的那类故障。所以它需要一条测试钉住，见 logger_test.go。
+func newLoggerTo(w io.Writer, level string) *slog.Logger {
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(level)); err != nil {
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{
 		Level: lvl,
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			// Cloud Logging 用 severity 而不是 level 做日志级别。

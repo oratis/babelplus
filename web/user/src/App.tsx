@@ -5,16 +5,19 @@
  * 只会把一次往返变成二十次，而大陆跨境链路的成本主要在往返次数上（ADR 0003 §4）。
  * 页面接线后体积起来了再按实际大小评估，那时才有数据可依。
  *
- * 同样刻意不做的：路由守卫。登录态还没有（`lib/api.ts` 的 TODO(P1)），
- * 现在加一个假守卫会让所有页面在评审时都打不开。
- * TODO(P1): 接上会话后，`AppLayout` 下的全部路由需要 `requireAuth`，
- *           未登录时跳 `/auth/login?returnTo=…`（returnTo 必须校验是站内相对路径，
- *           否则就是一个开放重定向，而这个面板的用户群恰好是最会被钓鱼的一群）。
+ * 路由守卫在这里落地：`AppLayout` 下的 16 条路由全部包在 `RequireAuth` 里。
+ * 认证四页留在守卫外面（它们本来就是给未登录用户看的），`/` 的重定向也在外面 ——
+ * 它只是把人送到 `/dashboard`，到了那里自然会被守卫接住。
+ *
+ * ⚠️ 守卫是 **layout route**（`<Route element={<RequireAuth />}>`）而不是包在每个页面上：
+ * 逐页包的写法总有一天会漏掉新加的那一页，而漏掉的表现是「这一页不用登录也能看」——
+ * 一个不会有人报 bug 的缺陷。
  */
 import { Navigate, Route, Routes } from 'react-router';
 
 import { AppLayout } from './layouts/AppLayout.tsx';
 import { AuthLayout } from './layouts/AuthLayout.tsx';
+import { AuthProvider, RequireAuth } from './lib/auth.tsx';
 
 import LoginPage from './routes/auth/LoginPage.tsx';
 import RegisterPage from './routes/auth/RegisterPage.tsx';
@@ -41,37 +44,41 @@ import NotFoundPage from './routes/NotFoundPage.tsx';
 
 export function App() {
   return (
-    <Routes>
-      {/* ① 认证四页（page-inventory §3.2.1）——免登录 */}
-      <Route element={<AuthLayout />}>
-        <Route path="/auth/login" element={<LoginPage />} />
-        <Route path="/auth/register" element={<RegisterPage />} />
-        <Route path="/auth/forgot" element={<ForgotPage />} />
-        <Route path="/auth/reset" element={<ResetPage />} />
-      </Route>
+    <AuthProvider>
+      <Routes>
+        {/* ① 认证四页（page-inventory §3.2.1）——免登录 */}
+        <Route element={<AuthLayout />}>
+          <Route path="/auth/login" element={<LoginPage />} />
+          <Route path="/auth/register" element={<RegisterPage />} />
+          <Route path="/auth/forgot" element={<ForgotPage />} />
+          <Route path="/auth/reset" element={<ResetPage />} />
+        </Route>
 
-      {/* ② 登录后的 16 条 */}
-      <Route element={<AppLayout />}>
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/subscribe" element={<SubscribePage />} />
-        <Route path="/subscribe/tokens" element={<SubscribeTokensPage />} />
-        <Route path="/plan" element={<PlanPage />} />
-        <Route path="/order" element={<OrderListPage />} />
-        <Route path="/order/:trade_no" element={<OrderDetailPage />} />
-        <Route path="/ticket" element={<TicketListPage />} />
-        <Route path="/ticket/:public_id" element={<TicketDetailPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/profile/2fa" element={<ProfileTwoFactorPage />} />
-        <Route path="/usage" element={<UsagePage />} />
-        <Route path="/wallet" element={<WalletPage />} />
-        <Route path="/invite" element={<InvitePage />} />
-        <Route path="/node" element={<NodePage />} />
-        <Route path="/notice" element={<NoticePage />} />
-        <Route path="/diagnose" element={<DiagnosePage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
+        {/* ② 登录后的 16 条 —— 整段在 RequireAuth 之下 */}
+        <Route element={<RequireAuth />}>
+          <Route element={<AppLayout />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/subscribe" element={<SubscribePage />} />
+            <Route path="/subscribe/tokens" element={<SubscribeTokensPage />} />
+            <Route path="/plan" element={<PlanPage />} />
+            <Route path="/order" element={<OrderListPage />} />
+            <Route path="/order/:trade_no" element={<OrderDetailPage />} />
+            <Route path="/ticket" element={<TicketListPage />} />
+            <Route path="/ticket/:public_id" element={<TicketDetailPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/profile/2fa" element={<ProfileTwoFactorPage />} />
+            <Route path="/usage" element={<UsagePage />} />
+            <Route path="/wallet" element={<WalletPage />} />
+            <Route path="/invite" element={<InvitePage />} />
+            <Route path="/node" element={<NodePage />} />
+            <Route path="/notice" element={<NoticePage />} />
+            <Route path="/diagnose" element={<DiagnosePage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
+        </Route>
 
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </AuthProvider>
   );
 }

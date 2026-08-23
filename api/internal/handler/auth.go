@@ -600,6 +600,102 @@ func isUniqueViolation(err error) bool {
 }
 
 // ============================================================
+// 精确档限流（api-contract §10.1 的限额 / §10.2 的存储）
+// ============================================================
+
+// 桶名。**窗口长度必须编进桶名。**
+//
+// 一行 rate_limit 只持有一个 window_start，把 5/min 与 10/h 塞进同一个桶
+// 会让两条规则互相覆盖对方的窗口 —— 现象是「两条限额都在，但哪条都不准」，
+// 而且只在两条同时接近触顶时才显形。
+const (
+	bucketLoginIPMinute    = "login_ip_1m"
+	bucketLoginIPHour      = "login_ip_1h"
+	bucketLoginEmailMinute = "login_email_1m"
+	bucketLoginEmailHour   = "login_email_1h"
+	bucketEmailCodeIPHour  = "email_code_ip_1h"
+	bucketForgotIPHour     = "forgot_ip_1h"
+	bucketInviteIPMinute   = "invite_ip_1m"
+)
+
+// 限额。**来源已标注**，照 monitoring.md 的约定分「契约」与「设定」两档 ——
+// 「设定」= 拍板的值，没有实测依据，上线后要按基线回来改。
+const (
+	// 契约：api-contract §10.1「POST /auth/login，per IP + per email 双维度，
+	// 5/min 且 10/h」。
+	loginPerMinute = 5
+	loginPerHour   = 10
+
+	// 设定：契约给了 email-code 的 per email 3/h 与 60 秒间隔，**没有给 per IP 维度**。
+	// 取 10/h 是沿用 forgot 的 per IP 值，因为两者消耗的是同一份 SES 配额，
+	// 而 SES 退信率 ≥ 5% 进审查这条外部约束对两个端点是同一条。
+	// per email 那两条限额挡不住「一个 IP 轮着换邮箱发码」——正是这个缺口需要它。
+	emailCodePerIPPerHour = 10
+
+	// 设定：契约没给 /invite/verify 任何限额（它既不是登录也不消耗邮件）。
+	// 30/min 的依据是「人类填一次注册表单不可能超过它，而它把这个免登录端点
+	// 当免费数据库查询放大器用的价值压到很低」。**不是**为了防邀请码枚举 ——
+	// 那件事靠的是码本身的随机性（4–32 位、剔除易混字符）。
+	invitePerIPPerMinute = 30
+)
+
+// rateRule 是一条待检查的限流规则。
+type rateRule struct {
+	bucket  string
+	subject string // 明文（IP 或归一化邮箱）；哈希由 ratelimit 包负责
+	limit   int
+	window  time.Duration
+}
+
+// checkRateRules 依次检查若干条规则，**第一条**超限就返回它的 Retry-After 秒数。
+//
+// 三条实现要点：
+//
+//  1. subject 为空的规则被**跳过**而不是归到一个「未知」桶里。
+//     采集不到来源 IP（没挂 RequestBinding、或 XFF 解析不出地址）时把所有人算成
+//     同一个 subject，会让第一个触顶的人把所有人一起锁在门外。
+//     宁可漏限流也不要误伤 —— 与 ForgotPassword 里原有的那句注释同一条取舍。
+//
+//  2. Allow 的 error 被**刻意忽略**。它在失败时已经放行并写了
+//     bp_ratelimit_degraded；在这里再判一次 err 只会诱使人写出「err != nil 就拒绝」，
+//     而那正是 ratelimit 包注释里论证过不能做的事。
+//
+//  3. 短路返回意味着后面的桶这一次不计数。这是有意的：既然请求已经要被拒，
+//     再去给其余维度记账只是额外的写入 —— 而拒绝本身已经保护了下游。
+func (s *Server) checkRateRules(ctx context.Context, rules ...rateRule) (int32, bool) {
+	for _, r := range rules {
+		if r.subject == "" {
+			continue
+		}
+		allowed, retry, _ := s.limiter.Allow(ctx, r.bucket, r.subject, r.limit, r.window)
+		if !allowed {
+			return retryAfterSeconds(retry), true
+		}
+	}
+	return 0, false
+}
+
+// retryAfterSeconds 把剩余时长换成 `Retry-After` 头要的整数秒。
+//
+// **向上取整，且至少 1。** 向下取整会让守规矩的客户端在窗口结束前一刻重试，
+// 再吃一个 429 —— 一次完全可以避免的往返，而且它看起来像是限流器在骗人。
+func retryAfterSeconds(d time.Duration) int32 {
+	if d <= 0 {
+		return 1
+	}
+	secs := (d + time.Second - 1) / time.Second
+	return int32(secs)
+}
+
+// rateSubjectIP 取来源 IP 作为限流维度；采集不到时返回空串（该维度被跳过）。
+func rateSubjectIP(meta RequestMetadata) string {
+	if meta.IP == nil {
+		return ""
+	}
+	return meta.IP.String()
+}
+
+// ============================================================
 // 会话签发
 // ============================================================
 
@@ -687,12 +783,26 @@ func plausibleInviteCode(c string) bool {
 
 // VerifyInviteCode 校验邀请码，区分「无效」与「已用尽」。
 //
-// ⚠️ 已知缺口：本端点是**免登录**的，而它会如实回答「这个码存在但已用尽」。
-// 配合 §10 要求的限流才是完整方案，但精确档限流需要一张 rate_limit 表
-// （api-contract §10.2），当前 migration 里没有。
-// TODO(P1): 补 rate_limit 表后给本端点加 per-IP 限流。在那之前，
-// 唯一的缓解是邀请码本身的随机性（4–32 位，剔除易混字符）。
+// 本端点是**免登录**的，而且会如实回答「这个码存在但已用尽」—— 契约要求如此
+// （两种结果对应的用户动作完全不同：一个是「换个码」，一个是「催邀请人再生成」）。
+// 代价是它天然可被探测，缓解有两条，缺一不可：
+//
+//  1. 邀请码本身的随机性（4–32 位，且入库时剔除 0/O/1/I/l 等易混字符）；
+//  2. 下面这条 per-IP 限流 —— 它挡的不是枚举（码空间本来就爆破不动），
+//     而是「把一个免登录端点当成免费的数据库查询放大器」。
+//
+// 第 2 条曾经因为没有 rate_limit 表而缺席（TODO(P1)），0013 落地后补上。
 func (s *Server) VerifyInviteCode(ctx context.Context, req gen.VerifyInviteCodeRequestObject) (gen.VerifyInviteCodeResponseObject, error) {
+	if retry, limited := s.checkRateRules(ctx, rateRule{
+		bucket:  bucketInviteIPMinute,
+		subject: rateSubjectIP(s.requestMetadata(ctx)),
+		limit:   invitePerIPPerMinute,
+		window:  time.Minute,
+	}); limited {
+		return gen.VerifyInviteCode429JSONResponse{ErrRateLimitedJSONResponse: s.rateLimited(ctx,
+			"校验过于频繁，请稍后再试", retry)}, nil
+	}
+
 	code := normalizeInviteCode(req.Params.Code)
 
 	result := gen.InviteVerifyResult{Valid: false, State: gen.InviteVerifyResultStateInvalid}
@@ -1027,6 +1137,27 @@ func (s *Server) SendEmailCode(ctx context.Context, req gen.SendEmailCodeRequest
 	meta := s.requestMetadata(ctx)
 	email := normalizeEmail(string(req.Body.Email))
 
+	// ---- 限流第一层：门口的 per IP（rate_limit 表）----
+	//
+	// **在任何校验之前**，与 Login 同一条理由：格式非法的请求同样是敲门声，
+	// 让它免费重试等于给限流器留后门。
+	//
+	// 它补的是第二层补不到的两个洞：
+	//   · per email 的 3/h 与 60 秒间隔只约束**同一个邮箱**，一个 IP 轮着换邮箱发码
+	//     可以无限次消耗同一份 SES 配额，而退信率 ≥ 5% 就进审查；
+	//   · 第二层数的是 email_verifications 的行，而本端点有若干条不写行就返回的路径
+	//     （422、email_change 的 501、以及第二层自己拒掉的那些）——
+	//     走这些路的请求对第二层完全隐形。
+	if retry, limited := s.checkRateRules(ctx, rateRule{
+		bucket:  bucketEmailCodeIPHour,
+		subject: rateSubjectIP(meta),
+		limit:   emailCodePerIPPerHour,
+		window:  time.Hour,
+	}); limited {
+		return gen.SendEmailCode429JSONResponse{ErrRateLimitedJSONResponse: s.rateLimited(ctx,
+			"获取验证码过于频繁，请稍后再试", retry)}, nil
+	}
+
 	if !validEmail(email) {
 		return gen.SendEmailCode422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx,
 			"邮箱格式不正确", detail("email", "email_invalid"))}, nil
@@ -1043,10 +1174,11 @@ func (s *Server) SendEmailCode(ctx context.Context, req gen.SendEmailCodeRequest
 		return nil, ErrNotImplemented
 	}
 
-	// ---- 限流（精确档，走 Postgres）----
-	// 计数直接来自 email_verifications 的历史行，不需要额外的 rate_limit 表，
-	// 也天然跨实例一致 —— 进程内计数会被 max-instances=8 放大 8 倍，
-	// 而这里限的是**发信配额**（SES 退信率 ≥ 5% 进审查），8 倍是真实损失。
+	// ---- 限流第二层：per email（精确档，走 email_verifications 的历史行）----
+	// 计数直接来自 email_verifications，不走 rate_limit 表，也天然跨实例一致。
+	// 保留它而不是一并挪进 rate_limit，是因为**两层的失败模式互相独立**：
+	// email_verifications 是普通表（写 WAL、进备份），rate_limit 是 UNLOGGED
+	// （崩溃即 TRUNCATE）。发信配额是外部机构对我们的判罚，不该只由易失表守着。
 	window, err := s.db.CountRecentEmailVerifications(ctx, dbgen.CountRecentEmailVerificationsParams{
 		Lower: email, Purpose: purpose, CreatedAt: tstz(now.Add(-time.Hour)),
 	})
@@ -1178,10 +1310,25 @@ func (s *Server) issueVerification(ctx context.Context, email string, purpose db
 //     被封的用户看到「邮箱或密码不正确」会反复重试并开工单，
 //     而 HTTP 状态仍是 401（契约没给本端点定义 403）。
 //
-// ⚠️ 已知缺口：api-contract §10.1 要求 per IP + per email 双维度 5/min、10/h
-// 且指数退避，需要精确档的 rate_limit 表，当前 migration 里没有。
-// TODO(P1): 补 rate_limit 表后接上。在那之前，唯一的兜底是 argon2Slots ——
-// 它挡住的是**资源耗尽**（并发打满内存），挡不住慢速凭据填充。
+// 限流（api-contract §10.1：per IP + per email 双维度，各 5/min 与 10/h），
+// 计数走 0013 的 rate_limit 表，跨 Cloud Run 实例一致。原 TODO(P1) 到此为止。
+//
+// **必须跑在 argon2 之前**：argon2Slots 挡的是资源耗尽（并发打满内存），
+// 它对慢速凭据填充完全无效，而每一次哈希的 CPU 都是我们自己付。
+//
+// ⚠️ 两处与契约不一致，都是明知的：
+//
+//  1. 契约还要求「指数退避 + 解锁倒计时」，**未实现**。当前是固定窗口，
+//     Retry-After 给的是本窗口剩余时间，不是逐次翻倍的锁定时长。
+//     要做退避得先裁定「锁定的是 IP 还是账号」—— 锁定账号可以被用来定向
+//     拒绝某个用户登录（只要一直用错密码打他的邮箱），这条没裁决前不做。
+//
+//  2. 🔴 per IP 10/h 在 **CGNAT / 企业 NAT 后面是有真实误伤风险的**：
+//     契约自己在订阅面那一行就写了「放宽是因为一个企业 NAT 后可能有多个用户」，
+//     但登录这一行没放宽。这里按契约实施（不擅自放宽），
+//     **撤回条件**：bp_api_429 上出现登录路径的持续 429，或者收到
+//     「登录提示过于频繁」类工单 —— 命中任一条就把 per IP 的小时限额单列并放宽，
+//     per email 的那两条不动（它才是真正保护账号的维度）。
 func (s *Server) Login(ctx context.Context, req gen.LoginRequestObject) (gen.LoginResponseObject, error) {
 	if req.Body == nil {
 		return gen.Login422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx, "请求体不能为空")}, nil
@@ -1189,6 +1336,24 @@ func (s *Server) Login(ctx context.Context, req gen.LoginRequestObject) (gen.Log
 	now := time.Now()
 	meta := s.requestMetadata(ctx)
 	email := normalizeEmail(string(req.Body.Email))
+
+	// 限流放在**所有校验之前**：格式非法的请求同样是敲门声，
+	// 让它免费重试等于给限流器留了一道后门（发一批空邮箱的请求就能把
+	// per IP 的计数绕过去）。email 为空时 per email 两条会自动跳过（subject 为空），
+	// per IP 两条照常计数。
+	//
+	// 代价是每次登录多 4 次 upsert。相对同一请求里 argon2id 的哈希耗时，
+	// 这四次同区往返是低一个数量级的（具体毫秒数需实测），
+	// 且它们在**验证密码之前**就完成 —— 被限流的请求根本不会走到哈希。
+	if retry, limited := s.checkRateRules(ctx,
+		rateRule{bucket: bucketLoginIPMinute, subject: rateSubjectIP(meta), limit: loginPerMinute, window: time.Minute},
+		rateRule{bucket: bucketLoginIPHour, subject: rateSubjectIP(meta), limit: loginPerHour, window: time.Hour},
+		rateRule{bucket: bucketLoginEmailMinute, subject: email, limit: loginPerMinute, window: time.Minute},
+		rateRule{bucket: bucketLoginEmailHour, subject: email, limit: loginPerHour, window: time.Hour},
+	); limited {
+		return gen.Login429JSONResponse{ErrRateLimitedJSONResponse: s.rateLimited(ctx,
+			"登录尝试过于频繁，请稍后再试", retry)}, nil
+	}
 
 	if email == "" || req.Body.Password == "" {
 		return gen.Login422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx, "邮箱与密码不能为空")}, nil
@@ -1362,6 +1527,24 @@ func (s *Server) ForgotPassword(ctx context.Context, req gen.ForgotPasswordReque
 	meta := s.requestMetadata(ctx)
 	email := normalizeEmail(string(req.Body.Email))
 
+	// per IP 10/h 的第一层：门口计数（rate_limit 表），**在任何校验之前**。
+	//
+	// 它与第二层不是重复。第二层数的是 email_verifications 的行，
+	// 而本端点有**三条**不写行的返回路径：邮箱格式非法（422）、
+	// per email 超限（静默 204）、以及 issueVerification 之前的任何失败。
+	// 走这三条路的请求对第二层完全隐形 —— 也就是说，反复拿同一个邮箱轰炸
+	// （最典型的攻击形态）在触发 per email 上限之后就再也不计入 per IP 了。
+	// 门口这一层数的是每一次请求，没有这个盲区。
+	if retry, limited := s.checkRateRules(ctx, rateRule{
+		bucket:  bucketForgotIPHour,
+		subject: rateSubjectIP(meta),
+		limit:   forgotPerIPPerHour,
+		window:  time.Hour,
+	}); limited {
+		return gen.ForgotPassword429JSONResponse{ErrRateLimitedJSONResponse: s.rateLimited(ctx,
+			"操作过于频繁，请稍后再试", retry)}, nil
+	}
+
 	if !validEmail(email) {
 		return gen.ForgotPassword422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx,
 			"邮箱格式不正确", detail("email", "email_invalid"))}, nil
@@ -1371,7 +1554,10 @@ func (s *Server) ForgotPassword(ctx context.Context, req gen.ForgotPasswordReque
 		Headers: gen.ForgotPassword204ResponseHeaders{XRequestId: middleware.RequestIDFrom(ctx)},
 	}
 
-	// per IP 10/h。只在采集到 IP 时生效 —— 没挂 CaptureRequestMetadata 时
+	// per IP 10/h 的第二层：只数**真的产生了验证码**的请求。
+	// 保留它的理由与 SendEmailCode 相同 —— email_verifications 是普通表，
+	// 不随 UNLOGGED 的 rate_limit 一起在崩溃时清零，而它守的是 SES 配额。
+	// 只在采集到 IP 时生效 —— 没挂 CaptureRequestMetadata 时
 	// meta.IP 为 nil，此处静默跳过（宁可漏限流也不要把所有人算成同一个 IP）。
 	if meta.IP != nil {
 		n, err := s.db.CountRecentEmailVerificationsByIP(ctx, dbgen.CountRecentEmailVerificationsByIPParams{

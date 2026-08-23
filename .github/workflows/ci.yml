@@ -278,7 +278,7 @@ jobs:
           indexes=$(psql -qtAc "select count(*) from pg_indexes where schemaname='public';")
           views=$(psql -qtAc "select count(*) from information_schema.views where table_schema='public';")
           echo "表 $tables · 索引 $indexes · 视图 $views"
-          echo "2026-08-16 开发机实测基线：43 表 / 118 索引 / 4 视图"
+          echo "2026-08-23 开发机实测基线：44 表 / 120 索引 / 4 视图"
           echo "（数量变化本身不算失败 —— 加表是正常演进；但 PR 描述里要说明变的是什么）"
           if [ "$tables" -eq 0 ]; then
             echo "::error::灌完全部 up migration 之后一张表都没有，migration 没有真正执行"
@@ -342,11 +342,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 确认 web workspace 声明了 build 与 typecheck
+      - name: 确认 web workspace 声明了 build / typecheck / test
         # pnpm -r run <script> 对没有该脚本的包是**静默跳过**的。
         # 没有这一步，「所有包都忘了写 typecheck」会表现为绿灯。
+        #
+        # test 从 2026-08-23 起进这张单子。它比另外两个更需要这层保护：
+        # 删掉一个包的 test 脚本之后，`pnpm -r test` 仍然退出 0，
+        # 表现出来就是「测试全过」——而实际上是一条都没跑。
         run: |
-          for s in build typecheck; do
+          for s in build typecheck test; do
             if ! grep -rq "\"$s\"" --include=package.json --exclude-dir=node_modules web; then
               echo "::error::web/ 下没有任何 package 定义 $s 脚本"
               exit 1
@@ -375,6 +379,14 @@ jobs:
       - name: 类型检查
         working-directory: web
         run: pnpm -r typecheck
+
+      # 单元测试（vitest）。放在门禁里而不是「本地跑一跑」：
+      # 这批测试里有一条是安全规则 —— shared/api/client.ts 的「POST 不故障转移」
+      #（非幂等请求换域名重发一次 = 重复下单）。它是一条**会被后来者好心改错**的规则，
+      # 而改错之后除了这个作业没有任何东西会报警。
+      - name: 单元测试
+        working-directory: web
+        run: pnpm -r test
 
       # ADR 0003：面板不得引用任何外部 CDN 资源（在中国会整页卡住）。
       # --if-present 只判断 package.json 里有没有声明这个脚本；

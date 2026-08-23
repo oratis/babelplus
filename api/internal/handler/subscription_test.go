@@ -741,6 +741,50 @@ func TestPlausibleSubscriptionToken(t *testing.T) {
 	}
 }
 
+// TestSubTokenAlphabetIsURLSafeBase64 把字符集常量钉死在 RFC 4648 §5 上。
+//
+// 期望值是**独立推导**出来的，不是把常量抄一遍：6 位值 i 左移 2 位单独编码，
+// 结果的第一个字符就是字母表里的第 i 个。抄一遍的写法在常量被改错时会跟着一起错。
+//
+// 这条用例存在的理由是签发端还没落地：等它落地时，它必须复用 subTokenAlphabet，
+// 而「两边字符集不一致」的现象是**刚签发的订阅链接立刻 404** ——
+// 而 404 恰好又是「token 不存在」的正常返回（不泄露存在性），
+// 于是签发端和校验端各自看都毫无问题，数据库里那行 subscription_tokens 也好端端地在。
+func TestSubTokenAlphabetIsURLSafeBase64(t *testing.T) {
+	var want strings.Builder
+	for i := 0; i < 64; i++ {
+		want.WriteByte(base64.RawURLEncoding.EncodeToString([]byte{byte(i) << 2})[0])
+	}
+	if subTokenAlphabet != want.String() {
+		t.Fatalf("subTokenAlphabet = %q\n期望（URL-safe base64）= %q", subTokenAlphabet, want.String())
+	}
+
+	seen := make(map[byte]bool, len(subTokenAlphabet))
+	for i := 0; i < len(subTokenAlphabet); i++ {
+		if seen[subTokenAlphabet[i]] {
+			t.Fatalf("字符集里 %q 重复 —— 签发端按下标随机取字符时，概率分布会被悄悄扭曲",
+				subTokenAlphabet[i])
+		}
+		seen[subTokenAlphabet[i]] = true
+	}
+}
+
+// TestPlausibleTokenAcceptsExactlyTheAlphabet 逐字节确认「接受面 == 那个常量」。
+//
+// 遍历全部 256 个字节值，而不是挑几个样例：常量与校验函数分开写就有分开跑偏的可能，
+// 而多接受一个字符（比如 '+'）的后果是把一批本该 404 的形态放进数据库查询，
+// 少接受一个字符的后果是一部分合法 token 永远 404。
+func TestPlausibleTokenAcceptsExactlyTheAlphabet(t *testing.T) {
+	for i := 0; i < 256; i++ {
+		b := byte(i)
+		tok := strings.Repeat(string([]byte{b}), subTokenMinLen)
+		want := strings.IndexByte(subTokenAlphabet, b) >= 0
+		if got := plausibleSubscriptionToken(tok); got != want {
+			t.Fatalf("字节 %#x：plausibleSubscriptionToken = %v，按 subTokenAlphabet 应为 %v", b, got, want)
+		}
+	}
+}
+
 func TestTokenHashDependsOnPepper(t *testing.T) {
 	// pepper 在 Secret Manager 里、不落库：只拿到数据库的攻击者无法离线爆破。
 	a := subscriptionTokenHash("pepper-a", testToken)

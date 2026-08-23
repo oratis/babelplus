@@ -225,6 +225,13 @@ func LimitBody(next http.Handler) http.Handler {
 //
 // ⚠️ **将来在前面加一层代理（CF 橙云 / GCLB，见 deploy §11.1 与 roadmap B9）时必须回来改这里**：
 // 每多一跳可信代理，要跳过的尾部段数就多一段。**不要改回取最左。**
+//
+// 🔴 2026-08-23 起这件事的代价变了：本函数的返回值现在是 `rate_limit` 表里
+// per-IP 维度的 subject（`internal/ratelimit` + auth.go 的 login / email-code /
+// forgot / invite-verify）。忘了改这里的现象不再只是「审计日志记错 IP」——
+// 多一跳代理之后**所有请求的最后一段都会是那一跳的地址**，于是全站用户共用
+// 同一个限流 subject：每分钟前 5 次登录之后，**所有人一起 429**。
+// 也就是说这条 TODO 的失败模式从「记错一列」升级成了「全站登录不可用」。
 func ClientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
 		if ip := rightmostForwardedFor(r.Header.Get("X-Forwarded-For")); ip != "" {

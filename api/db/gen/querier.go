@@ -152,6 +152,36 @@ type Querier interface {
 	BulkUpsertUserDeviceState(ctx context.Context, arg BulkUpsertUserDeviceStateParams) error
 	// 改节点配置后必须调用（改 host/port/protocol_settings 等）
 	BumpConfigRev(ctx context.Context, serverID int64) (BumpConfigRevRow, error)
+	// ratelimit.sql · 精确档限流计数（api-contract.md §10.2）
+	//
+	// 事实源：api-contract.md §10.1 / §10.2、migration 0013_rate_limit
+	//
+	// 🔴 本文件只有两条语句，但它们承担的是「凭据爆破」与「邮件配额消耗」两条防线，
+	//    而这两条恰恰是 api-contract §10.2 点名**不能**用进程内近似计数的场景
+	//    （Cloud Run 8 实例 = 8 倍放大 = 真实的安全损失）。
+	// 原子递增并返回当前窗口的计数。
+	//
+	// 为什么是一条语句而不是「先 SELECT 再 UPDATE」：
+	// 后者在两个并发请求之间必然丢计数（两边都读到 4，都写回 5，实际发生了 6 次）。
+	// INSERT … ON CONFLICT DO UPDATE 由 PostgreSQL 保证：冲突方会等到先到者提交后
+	// **重新读取该行的最新版本**再执行 SET，所以 hits 是真正的原子自增。
+	// 这就是 api-contract §10.2 指定这个写法的原因，不是风格偏好。
+	//
+	// 过期窗口在**同一条语句里**就地重置（CASE 的两个分支），不依赖任何清理作业。
+	// 这一条是被 idempotency_keys 教出来的：那张表的 ON CONFLICT 只认主键、不看过期，
+	// 于是没被清理的过期行会**永久卡住**同名键（local-development.md §6 已登记）。
+	// 限流表如果重蹈覆辙，后果是「某个 IP 一旦触顶就永远被拒」——
+	// 一个只影响真实用户、攻击者换个 IP 就绕开的故障。
+	//
+	// 返回值刻意包含 server_now：retry_after 必须用**数据库的时钟**算，
+	// 应用进程与 Cloud SQL 之间的时钟差会直接变成 Retry-After 的误差，
+	// 而客户端是照着这个头退避的。
+	//
+	// ⚠️ 窗口长度一律写成 make_interval(secs => …)，**不要**写成
+	//    `(window_seconds * interval '1 second')`。后者 PostgreSQL 认，但 sqlc 1.31.1
+	//    在改写命名参数时会把这条语句改坏，报 `edited query syntax is invalid:
+	//    syntax error at or near "BY"`（2026-08-23 实测）。这不是风格问题，是踩过的坑。
+	BumpRateLimit(ctx context.Context, arg BumpRateLimitParams) (BumpRateLimitRow, error)
 	// message_count 的维护：写消息时在同一事务内 UPDATE，**刻意不用触发器**
 	// （data-model §10.1 修改 4：本表写频率低，漏了只是计数不准，不是静默故障）。
 	BumpTicketMessageCount(ctx context.Context, arg BumpTicketMessageCountParams) (Ticket, error)
@@ -600,6 +630,21 @@ type Querier interface {
 	// 只软删：stat_user_server.server_id 是 ON DELETE RESTRICT，成本历史不能因为删节点而消失
 	SoftDeleteServer(ctx context.Context, id int64) error
 	SumConfirmedCommissions(ctx context.Context, inviterID int64) (int64, error)
+	// 清理过期行。
+	//
+	// 为什么需要它：上面那条 upsert 保证**回头客**不会新增行，但 subject 里有 IP，
+	// 而 IP 空间是无界的 —— 一次换源爆破会留下等量的死行。
+	//
+	// 为什么条件是「比最长窗口还老」而不是逐行按自己的 window_seconds 判过期：
+	//   · `window_start < now() - 最长窗口` 走得了 rate_limit_window_start_idx；
+	//     逐行判过期要算 `window_start + make_interval(secs => window_seconds)`，
+	//     那是个 STABLE 表达式，建不了表达式索引，等于每次清理全表扫描。
+	//   · 「最长窗口」这个前提由 0013 的 CHECK (window_seconds BETWEEN 1 AND 3600) 保证，
+	//     不是靠调用方自觉。
+	//
+	// LIMIT 是硬要求：本语句跑在**用户请求路径上**（抽样触发，见 internal/ratelimit）。
+	// 不封顶的话，攒了一天的死行会让某一个倒霉用户的登录请求去删几十万行。
+	SweepExpiredRateLimits(ctx context.Context, arg SweepExpiredRateLimitsParams) (int64, error)
 	// 密钥使用留痕。刻意与鉴权分开：鉴权在读路径上必须零写，
 	// 这条由 handler 异步（或降采样）调用，写失败不影响请求。
 	TouchServerKey(ctx context.Context, arg TouchServerKeyParams) error

@@ -137,7 +137,7 @@ make pg-down        # 用完拆掉
 make migrate-verify
 ```
 
-实测结果：**43 张表、118 个索引、4 个视图；回滚后残留 0 张表。**
+实测结果：**44 张表、120 个索引、4 个视图；回滚后残留 0 张表。**（2026-08-23 复测，含新增的 `rate_limit`；此前是 43 表 / 118 索引。）
 
 ### 3.3 改了规格或 SQL 之后
 
@@ -386,7 +386,7 @@ cd web && pnpm dev:user      # → http://localhost:5173
 
 | 部分 | 状态 |
 |---|---|
-| 数据库 schema（43 表 / 118 索引 / 4 视图） | ✅ 可正向可回滚，`make migrate-verify` 实测：建表 43、回滚后残留 0 |
+| 数据库 schema（44 表 / 120 索引 / 4 视图） | ✅ 可正向可回滚，2026-08-23 实测：建表 44、回滚后残留 0 表 / 0 视图 / 0 枚举 |
 | sqlc 查询层（6 个领域） | ✅ 生成通过；`sqlc generate` 与提交版本一致 |
 | OpenAPI 契约（128 operation） | ✅ `make gen-api` + `gen-stubs` + `gofmt` 后零漂移 |
 | 配置 fail-closed | ✅ 实测通过（含 `BP_ALLOWED_ORIGINS` 的格式校验） |
@@ -402,7 +402,7 @@ cd web && pnpm dev:user      # → http://localhost:5173
 | CORS | ✅ 已实现并挂载；真实浏览器正反向验证通过（§3.6） |
 | 日志脱敏（订阅 token 不进访问日志） | ✅ 已实现（`middleware.RedactPath`），有回归测试 |
 | 幂等骨架 | ✅ 三态 `BeginIdempotent` 已实现；⚠️ **清理定时任务尚未挂**（§6） |
-| Go 全套（build / vet / test / gofmt / race） | ✅ 全绿：155 个顶层用例 + 98 个子用例，0 失败 |
+| Go 全套（build / vet / test / gofmt / race） | ✅ 全绿：195 个顶层用例 + 133 个子用例，0 失败（2026-08-23 复测） |
 | web workspace（shared / user / admin） | ✅ 构建、类型检查、外链检查全通过 |
 | web 路由骨架（用户 20 条 + 后台 21 条） | ✅ 每页有布局与三态占位，业务逻辑全是 `TODO(P1)` |
 | web TS 客户端（从契约生成，128 operation） | ✅ 生成物已提交，幂等已实测 |
@@ -410,7 +410,7 @@ cd web && pnpm dev:user      # → http://localhost:5173
 | web 登录态与路由守卫 | ⬜ **未实现**，所有页面可直达（`web/README.md` §8 已标红） |
 | web 页面真的调过本地 API | ⬜ **还没有** —— §3.6 验证的是浏览器层的 CORS，不是页面业务接线 |
 | 后台危险操作确认组件 `DangerAction` | ⬜ **未实现**，16 条 D 项目前只有清单展示 |
-| 登录 / 邀请码校验的限流（`rate_limit` 表） | ⬜ **未实现**，migration 里没有这张表（§6） |
+| 登录 / 邀请码校验的限流（`rate_limit` 表） | ✅ **已实现**（migration 0013 + `internal/ratelimit`）：`login` / `email-code` / `forgot` / `invite/verify` 四个端点，超限 429 + `Retry-After`。⚠️ 契约要的**指数退避未做**，且限流器是**失败开放**的（§6） |
 | 邮件真正发送（SES） | ⬜ **未接**，`email_log.status` 恒为 `queued` |
 | CI（9 个作业）与 deploy（6 个作业） | ✅ 已建；本机可复跑的作业均已等价验证 |
 | GCP 上的 `bp-` 资源 | ✅ **`bp-api` / `bp-db` / `bp-api-sa` / 4 个 `bp-` secret 已建并在计费**（2026-08-20 复核，见 [as-built-gcp §10](../02-architecture/as-built-gcp.md)）；`bp-web`、`bp-migrate`、Scheduler / Tasks / Pub/Sub 与 `infra/node/` 侧仍无 |
@@ -508,12 +508,17 @@ cd web && pnpm dev:user      # → http://localhost:5173
       于是过期未清理的行会永久卡住同名键。每次非空 `/push` 都写一行（10 节点 ≈ 1.4 万行/天）。
       按 system-design §4 应该走 Cloud Scheduler，而**进程内不能加 ticker**
       （Cloud Run 缩到 0，加 ticker 等于必须常开 min-instances，成本模型立刻不成立）。
-- [ ] 🔴 **登录与邀请码校验没有限流**，因为 api-contract §10.2 的「精确档」需要一张
-      `rate_limit` 表，而 migration 里没有它。现状：`/auth/login` 唯一的兜底是
-      argon2 的并发信号量 —— 它挡的是**资源耗尽**，挡不住慢速凭据填充；
-      `/invite/verify` 则是一个免登录的邀请码探测端点（该端点必须如实区分
-      「无效」与「已用尽」是契约明写的要求）。发码类限流不受影响，
-      已用 `email_verifications` 的历史行做精确计数，天然跨实例一致。
+- [x] ~~**登录与邀请码校验没有限流**~~ —— 2026-08-23 落地：migration `0013_rate_limit`
+      （`UNLOGGED` 表，ADR 0005 §8 的同一条裁决）+ `internal/ratelimit` 包，
+      接在 `/auth/login`（per IP + per email 各 5/min、10/h）、`/auth/email-code`
+      与 `/auth/password/forgot`（per IP 10/h 的门口计数）、`/invite/verify`（per IP 30/min）上。
+      **仍然欠着的三件事**，都不是「小尾巴」：
+      - 契约要求的**指数退避 / 解锁倒计时未实现**（当前是固定窗口）。
+        做它之前要先裁定「锁定的是 IP 还是账号」—— 锁定账号可以被用来定向拒绝某个用户登录。
+      - 限流器**失败开放**：数据库不可用时放行。理由写在 `internal/ratelimit` 的包注释里，
+        但它意味着 `bp_ratelimit_degraded` 这条日志指标不建出来，限流失效就是**静默**的。
+      - `rate_limit` 是 `UNLOGGED` 表，**Cloud SQL 崩溃或计划内维护重启会清空全部计数**。
+        窗口最长 1 小时（由 CHECK 强制），所以损失有界，但这是一次有意的取舍不是顺带的好处。
 - [ ] `?state=loading|empty|error` 这个三态开关**会进生产构建**（`web/README.md` §7 代价 3）。
       它不泄漏数据，但接线时必须删掉 `resolveShellState` 对查询参数的读取。
 - [ ] **`infra/` 下的脚本，只有 `deploy/` 侧有线上结果可对照。**

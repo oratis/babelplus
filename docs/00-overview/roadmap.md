@@ -204,7 +204,7 @@
 **1.B · API 与数据侧**
 
 - [ ] 建 Cloud SQL `db-f1-micro`（`--edition=ENTERPRISE` 必须显式写，否则命令直接失败）
-- [ ] 选迁移工具（`golang-migrate` / `atlas` / `goose` / `dbmate`）并落 43 张表的 DDL
+- [ ] 选迁移工具（`golang-migrate` / `atlas` / `goose` / `dbmate`）并落 44 张表的 DDL
 - [ ] `bp-api` 骨架：chi + pgx/v5 + pgxpool（MaxConns=2）+ sqlc，`--max-instances=8`
 - [ ] 冻结 `openapi/uniproxy-v1.yaml`，实现 UniProxy 五端点
       （`/config` `/user` `/push` `/alive` `/status`），**裸 JSON 不套信封**
