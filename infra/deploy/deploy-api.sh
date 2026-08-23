@@ -15,6 +15,16 @@
 #    10% 的流量切分意味着同一个节点在相邻两次轮询里可能拿到两个不同版本的响应，
 #    改动 UniProxy 响应体或 ETag 计算方式时会造成节点反复失效缓存。
 #    一律 0% → 验证 → 100%。
+#
+# 🔴 镜像 label 是「线上跑的到底是哪份源码」的**权威答案**（roadmap B41）。
+#    这不是假想的风险，它已经发生过：生产 bp-api-2fbf49d 的 tag 来自
+#    `git rev-parse --short=7 HEAD`，而那个 commit（2fbf49d3d2b6…）**不被任何分支引用**
+#    —— pr7/p1-core-and-deploy 被 force-push 改写，它成了孤儿。
+#    「线上跑的是哪份源码」当时只能靠去 GitHub 对象库捞完整 sha 才答得出来。
+#    证据：docs/evidence/gcp-inventory-20260821/README.md §5.2。
+#
+#    所以本脚本把**完整 40 位 sha + 分支名 + 构建时间 + 工作树是否干净**写进镜像 label；
+#    tag 仍是短 sha（人要读它），但**不再是唯一线索**。反查：infra/scripts/image-provenance.sh。
 
 set -euo pipefail
 
@@ -27,6 +37,22 @@ readonly AR_REPO="bp-images"
 readonly AR_HOST="us-central1-docker.pkg.dev"
 readonly SA_API="bp-api-sa"
 readonly SQL_INSTANCE="bp-db"
+
+# ───────────────────────── 镜像来源 label（roadmap B41）─────────────────────────
+#
+# 前三个用 OCI 标准 key（org.opencontainers.image.*）—— docker inspect、crane 与各类
+# 供应链工具都认得，不需要人先知道我们的私有约定；后三个是本项目自己的事实，
+# 没有对应的 OCI key，走反向域名 plus.babel.*（域名是 babel.plus）。
+#
+# ⚠️ 这六个 key **同时**写在 infra/scripts/image-provenance.sh 里（反查那一侧）。
+#    两处刻意重复，理由与六个脚本各自复制守卫代码相同：每个脚本要能单独拷出去跑。
+#    改这里 = 改两处。
+readonly LABEL_SHA="org.opencontainers.image.revision"      # 完整 40 位 sha
+readonly LABEL_VERSION="org.opencontainers.image.version"   # 镜像 tag（短 sha，可能带 -dirty）
+readonly LABEL_CREATED="org.opencontainers.image.created"   # 构建时间（RFC3339 UTC）
+readonly LABEL_BRANCH="plus.babel.git.branch"               # 分支名；detached 时是 (detached)
+readonly LABEL_DIRTY="plus.babel.git.dirty"                 # true / false
+readonly LABEL_BUILDER="plus.babel.build.by"                # 哪条构建路径产的
 
 # Secret 名 → 环境变量名。**必须与 setup-infra.sh 的 SECRET_* 和
 # api/internal/config/config.go 的 required 表三方一致。**
@@ -47,6 +73,18 @@ DO_PROMOTE=0
 USE_CLOUD_BUILD=1
 ALLOW_DIRTY=0
 TAG=""
+
+# 下面五个由 resolve_provenance() **一次性**填好，之后只读不改。
+# 刻意不在构建过程中重新读 git：构建期间工作区若被改动，label 会与真正构建进去的内容不符，
+# 而一句**可信但错误**的来源记录比没有记录更糟。
+GIT_SHA=""          # 完整 40 位
+GIT_BRANCH=""       # 分支名，或 (detached)
+GIT_DIRTY=""        # true / false
+BUILD_TIME=""       # RFC3339 UTC
+STAMP_RUN_LABELS=1  # 是否把 sha 写进 Cloud Run 修订版 label（--no-build 换 tag 时会关掉）
+
+# Cloud Build 的构建配置是运行时生成的临时文件，退出时删。
+CB_CONFIG=""
 
 # ───────────────────────── 通用工具（与 infra/ 下其它脚本刻意保持重复，见 setup-infra.sh 的说明）─────────────────────────
 
@@ -79,7 +117,8 @@ usage() {
   --tag=<sha>     镜像 tag。默认取 git rev-parse --short=7 HEAD
   --no-build      跳过构建，直接部署已在仓库里的该 tag（回补一次失败的部署时用）
   --promote       部署后把 100% 流量切到新修订版。会要求二次确认
-  --allow-dirty   允许工作区有未提交改动时构建。⚠️ 会让 tag 与 commit 不对应
+  --allow-dirty   允许工作区有未提交改动时构建。tag 会变成 <短sha>-dirty，
+                  且镜像 label 里 plus.babel.git.dirty=true（见下）
   --project=<id>  GCP 项目 ID。**必须是 oratis-491316**
   --dry-run       只打印将要执行的命令，不做任何写操作
   --yes           跳过交互确认
@@ -95,7 +134,25 @@ usage() {
 回滚:
   ./infra/deploy/rollback.sh --list
   ./infra/deploy/rollback.sh --to=<修订版名>
+
+镜像来源（roadmap B41 的处置）:
+  每个镜像都带六个 label：完整 40 位 sha、tag、构建时间、分支名、工作树是否干净、构建路径。
+  tag 只是给人读的短名，**不是**「线上跑的是哪份源码」的答案 ——
+  短 sha 在分支被 force-push 之后会指向一个不被任何分支引用的孤儿 commit（已发生过）。
+
+  反查线上修订版对应的完整 sha：
+    ./infra/scripts/image-provenance.sh                 # 当前接 100% 流量的修订版
+    ./infra/scripts/image-provenance.sh --revision=bp-api-<sha>
 EOF
+}
+
+# 由 main 里的 trap cleanup EXIT 调用，shellcheck 看不出间接调用。
+# 两个码都要留：0.9.0（CI 的 ubuntu-24.04 预装版）报 SC2317，SC2329 是 0.10.0 才引入的。
+# shellcheck disable=SC2317,SC2329
+cleanup() {
+  if [ -n "$CB_CONFIG" ] && [ -f "$CB_CONFIG" ]; then
+    rm -f "$CB_CONFIG"
+  fi
 }
 
 run() {
@@ -192,20 +249,133 @@ EOF
 
 # ───────────────────────── 构建 ─────────────────────────
 
-resolve_tag() {
-  if [ -n "$TAG" ]; then
-    return 0
-  fi
+# resolve_provenance 解析四件来源事实并定下 tag。**构建之前**跑，之后不再读 git。
+#
+# 🔴 与旧版 resolve_tag 的两处区别，都是 B41 的直接后果：
+#   1. 即使显式给了 --tag=，也照样解析来源事实 —— tag 是名字，来源是事实，两者不是一回事。
+#   2. dirty 构建**换一个 tag**（<短sha>-dirty），而不是沿用短 sha。
+resolve_provenance() {
   need_cmd git
   if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-    die "不在 git 仓库里且没给 --tag=<sha>，无法确定镜像 tag。"
+    die "不在 git 仓库里，解析不出镜像来源（完整 sha / 分支 / 工作树状态）。
+     没有这些 label 就不要构建 —— 那正是 B41 里「线上跑的是哪份源码答不出来」的起点。
+     只想部署一个**已经存在**的镜像时用 --no-build --tag=<已有tag>。"
   fi
-  TAG="$(git -C "$ROOT" rev-parse --short=7 HEAD)"
 
-  if [ -n "$(git -C "$ROOT" status --porcelain)" ] && [ "$ALLOW_DIRTY" -eq 0 ]; then
-    die "工作区有未提交改动，而 --revision-suffix 会把修订版命名成 ${SERVICE}-${TAG}。
-     这会让「线上跑的是哪个 commit」这个问题**答不出来** —— 而排障时它是第一个要问的。
-     先提交，或显式加 --allow-dirty。"
+  GIT_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+  # detached HEAD 是常态（CI 的 checkout 就是），不是错误 —— 但要显式记下来，
+  # 因为「分支名」在那种情况下是不存在的东西，不能编一个。
+  GIT_BRANCH="$(git -C "$ROOT" symbolic-ref --quiet --short HEAD || printf '(detached)')"
+  BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+  if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
+    GIT_DIRTY=true
+  else
+    GIT_DIRTY=false
+  fi
+
+  local short="${GIT_SHA:0:7}"
+
+  # 🔴 默认**拒绝**带脏工作区构建，而不是「标个 dirty 就放行」。
+  #    理由：label 只能记下 HEAD 的 sha，但真正被构建进镜像的是**工作区**。
+  #    工作区一脏，label 里那个 sha 就是一句可信但错误的话 —— 而这比没有 label 更糟：
+  #    没有 label 时人会去查，有一个错的 label 时人会直接信。
+  #    dirty=true 这个 label 的作用是**给已经明知故犯的那次留证据**，不是许可证。
+  if [ "$GIT_DIRTY" = true ] && [ "$ALLOW_DIRTY" -eq 0 ]; then
+    die "工作区有未提交改动，拒绝构建。
+     镜像 label 会写 ${LABEL_SHA}=${GIT_SHA}，而那个 commit **不等于**将被构建进去的内容。
+     修订版还会被命名成 ${SERVICE}-${short}，看起来与那个 commit 一一对应。
+     先提交（推荐），或显式加 --allow-dirty ——
+     那会把 tag 改成 ${short}-dirty 并在 label 里写 ${LABEL_DIRTY}=true。"
+  fi
+
+  if [ -z "$TAG" ]; then
+    TAG="$short"
+    if [ "$GIT_DIRTY" = true ]; then
+      # dirty 构建**必须换个 tag**：否则它会在 Artifact Registry 里把同一个短 sha 下
+      # 那份干净镜像顶掉（tag 会移动到新 digest），被顶掉的那份就只剩 digest 可寻 ——
+      # 又回到 B41 那种「答不出来」。
+      TAG="${short}-dirty"
+      warn "--allow-dirty：tag 取 ${TAG}，label ${LABEL_DIRTY}=true。
+     ⚠️ 这个镜像与仓库里任何一个 commit 都**不**对应，只能用于救火，不要 --promote 到生产。"
+    fi
+  fi
+
+  # --no-build 且 tag 与当前 HEAD 无关时，不往修订版上写 sha label。
+  # 写了就是撒谎：那个镜像不是从当前工作树构建的。
+  if [ "$DO_BUILD" -eq 0 ] && [ "$TAG" != "$short" ] && [ "$TAG" != "${short}-dirty" ]; then
+    STAMP_RUN_LABELS=0
+  fi
+}
+
+# label_pairs 打印本次构建要写进镜像的 label，每行一个 k=v。
+# **两条构建路径都从这里取**，所以 docker 与 Cloud Build 产出的 label 不会漂移。
+label_pairs() {
+  printf '%s=%s\n' "$LABEL_SHA"     "$GIT_SHA"
+  printf '%s=%s\n' "$LABEL_VERSION" "$TAG"
+  printf '%s=%s\n' "$LABEL_CREATED" "$BUILD_TIME"
+  printf '%s=%s\n' "$LABEL_BRANCH"  "$GIT_BRANCH"
+  printf '%s=%s\n' "$LABEL_DIRTY"   "$GIT_DIRTY"
+  printf '%s=%s\n' "$LABEL_BUILDER" "$1"
+}
+
+# assert_substitutable —— gcloud 的 --substitutions 是逗号分隔的 k=v 串。
+# 值里出现逗号或换行时**拒绝构建**，而不是想办法转义：这里宁可挡住一次合法的构建，
+# 也不要产出一个 label 内容被切坏的镜像 —— 那正是 B41 想根除的「可信但错误的来源记录」。
+assert_substitutable() {
+  case "$2" in
+    *,*|*$'\n'*)
+      die "$1 的值里有逗号或换行（$2），没法安全地经 gcloud --substitutions 传进 Cloud Build。
+     改用 --local 走本机 docker 构建（那条路径的 --label 不受此限），或者把分支名改掉。" ;;
+  esac
+}
+
+# write_cloudbuild_config 生成一份**不含任何插值**的 Cloud Build 配置，写到临时文件。
+#
+# 🔴 为什么不能继续用 `gcloud builds submit --tag=<镜像>`：那条捷径是 gcloud 自己拼出来的
+#    固定构建，**没有任何形式能传 --label 或 --build-arg**。而 B41 要的四项来源事实
+#    只能靠 label 落进镜像 —— 所以这里必须换成显式的构建配置。
+#
+# 配置里的动态值全部是 Cloud Build 的替换变量（${_XXX}），真实值走 --substitutions 传。
+# 这样分支名之类的外部字符串永远不会进入 YAML 结构，也就不可能改变配置的形状。
+#
+# **待核实**：本配置尚未在 Cloud Build 上真跑过（本次任务不执行任何 gcloud 变更）。
+write_cloudbuild_config() {
+  CB_CONFIG="$(mktemp "${TMPDIR:-/tmp}/bp-cloudbuild.XXXXXX")"
+  cat > "$CB_CONFIG" <<'EOF'
+# 由 infra/deploy/deploy-api.sh 运行时生成，勿手工编辑（改脚本里的 write_cloudbuild_config）。
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=VERSION=${_VERSION}
+      - --label=org.opencontainers.image.revision=${_GIT_SHA}
+      - --label=org.opencontainers.image.version=${_VERSION}
+      - --label=org.opencontainers.image.created=${_BUILD_TIME}
+      - --label=plus.babel.git.branch=${_GIT_BRANCH}
+      - --label=plus.babel.git.dirty=${_GIT_DIRTY}
+      - --label=plus.babel.build.by=${_BUILD_BY}
+      - --tag=${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+EOF
+
+  # 自检：配置模板里的 label key 必须与本脚本顶部的常量逐个对上。
+  # 这两处必然重复（YAML 里不能插值，否则就不是「不含插值」了），所以用断言把它们锁在一起 ——
+  # 漂移会在这里以一次响亮的失败暴露，而不是变成一个少了某个 label 的镜像。
+  local key
+  for key in "$LABEL_SHA" "$LABEL_VERSION" "$LABEL_CREATED" \
+             "$LABEL_BRANCH" "$LABEL_DIRTY" "$LABEL_BUILDER"; do
+    if ! grep -q -- "--label=${key}=" "$CB_CONFIG"; then
+      die "Cloud Build 配置模板里缺 label ${key}。
+     模板（write_cloudbuild_config）与脚本顶部的 LABEL_* 常量漂移了，两处都要改。"
+    fi
+  done
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "  [dry-run] 生成的 Cloud Build 配置（$CB_CONFIG）："
+    sed 's/^/    | /' "$CB_CONFIG" >&2
   fi
 }
 
@@ -228,11 +398,26 @@ build_and_push() {
   # --local 保留给环境正常的机器。
   if [ "$USE_CLOUD_BUILD" -eq 1 ]; then
     need_cmd gcloud
+    write_cloudbuild_config
+
+    # 每个值都要过一遍逗号/换行检查：gcloud 的 --substitutions 用逗号分隔 k=v，
+    # 值里带逗号会被切错 —— 而切错的结果是一个**内容错误的 label**，不是一次失败。
+    local subs
+    assert_substitutable "镜像引用"   "$IMAGE"
+    assert_substitutable "tag"        "$TAG"
+    assert_substitutable "完整 sha"   "$GIT_SHA"
+    assert_substitutable "构建时间"   "$BUILD_TIME"
+    assert_substitutable "分支名"     "$GIT_BRANCH"
+    subs="_IMAGE=${IMAGE},_VERSION=${TAG},_GIT_SHA=${GIT_SHA}"
+    subs="${subs},_BUILD_TIME=${BUILD_TIME},_GIT_BRANCH=${GIT_BRANCH}"
+    subs="${subs},_GIT_DIRTY=${GIT_DIRTY},_BUILD_BY=deploy-api.sh/cloud-build"
+
     run gcloud builds submit "$ROOT/api" \
       --project="$PROJECT_ID" \
-      --tag="$IMAGE" \
+      --config="$CB_CONFIG" \
+      --substitutions="$subs" \
       --timeout=15m
-    ok "镜像已构建并推送（Cloud Build）"
+    ok "镜像已构建并推送（Cloud Build），label 见上面的配置"
     return 0
   fi
 
@@ -244,12 +429,23 @@ build_and_push() {
   # 代理三连：Docker Desktop 会往构建容器注入代理变量，且注入的端口可能与宿主机
   # 实际代理不一致，导致 go mod download 在构建容器里失败。api/Dockerfile 把它们
   # 声明成 ARG 就是为了让这里能显式清空（api/Makefile 的 docker-build 同样处理）。
+  # label 与 Cloud Build 路径同源（label_pairs），两条路径产出的镜像带的 label 一致。
+  local -a label_args=()
+  local pair
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    label_args+=(--label "$pair")
+  done <<EOF
+$(label_pairs "deploy-api.sh/local-docker")
+EOF
+
   run docker build \
     --platform=linux/amd64 \
     --build-arg "VERSION=${TAG}" \
     --build-arg HTTP_PROXY= --build-arg HTTPS_PROXY= \
     --build-arg http_proxy= --build-arg https_proxy= \
     --build-arg 'GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct' \
+    "${label_args[@]}" \
     -t "$IMAGE" \
     "$ROOT/api"
   ok "镜像已构建"
@@ -352,6 +548,23 @@ BP_ALLOWED_ORIGINS=${origins}"
     --set-secrets="$SECRET_MOUNTS"
   )
 
+  # 修订版 label：让「这个修订版是哪个 commit」变成**一条 gcloud 就能查**的事实，
+  # 不必先把镜像拉下来看 label。镜像 label 仍是权威记录，这里是快捷方式。
+  #
+  # ⚠️ Cloud Run 的 label 值只允许小写字母 / 数字 / - / _，最长 63 位 ——
+  #    40 位 hex 合法，**分支名不合法**（含 /），所以分支只写在镜像 label 里，不写这里。
+  # ⚠️ 用 --update-labels（合并）而不是 --labels（全量替换）：线上服务可能带着别人
+  #    加的 label，全量替换会静默抹掉它们（与 --set-env-vars 同一类陷阱）。
+  # **待核实**：--update-labels 是否会落到**新建的修订版**上（gcloud 文档未逐字复核）。
+  #    即便不落，image-provenance.sh 会退回去读镜像 label，答案不会因此丢失。
+  if [ "$STAMP_RUN_LABELS" -eq 1 ]; then
+    args+=(--update-labels="bp-git-sha=${GIT_SHA},bp-git-dirty=${GIT_DIRTY}")
+  else
+    warn "--no-build 且 --tag=${TAG} 与当前 HEAD 无关：本次**不**往修订版写 bp-git-sha。
+     写了就是撒谎 —— 那个镜像不是从当前工作树构建的。
+     要知道它的来源：./infra/scripts/image-provenance.sh --image=${IMAGE}"
+  fi
+
   # 🔴 下列参数**没有出现在上面，且必须继续没有**（deploy.md §1）：
   #    --source            会自动复用 cloud-run-source-deploy（现有三个服务的镜像仓库）
   #    --vpc-connector / --network / --subnet   会碰 default 网络（vpn-us / vpn-jp 所在）
@@ -429,12 +642,18 @@ main() {
   need_cmd gcloud
 
   ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-  resolve_tag
+  trap cleanup EXIT
+  resolve_provenance
   IMAGE="${AR_HOST}/${PROJECT_ID}/${AR_REPO}/${SERVICE}:${TAG}"
 
   log "项目   : $PROJECT_ID"
   log "服务   : $SERVICE @ $REGION"
   log "镜像   : $IMAGE"
+  # 这四行就是 B41 的答案本身，所以它们**每次都打**，不藏在 --verbose 后面。
+  log "commit : $GIT_SHA"
+  log "分支   : $GIT_BRANCH"
+  log "工作树 : dirty=$GIT_DIRTY"
+  log "构建时 : $BUILD_TIME"
   if [ "$DRY_RUN" -eq 1 ]; then
     log "模式   : DRY-RUN（只打印写操作）"
   fi
