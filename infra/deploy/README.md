@@ -19,18 +19,20 @@
 
 ---
 
-## 1 · 六个脚本，各管一件事
+## 1 · 八个脚本，各管一件事
 
 | 脚本 | 做什么 | 幂等 | 危险度 |
 |---|---|---|---|
 | [`setup-infra.sh`](setup-infra.sh) | 一次性资源：API、Artifact Registry、SA 与 IAM、Secret、Cloud SQL、Scheduler、Tasks、Pub/Sub | ✅ 反复跑无副作用 | 中（建 Cloud SQL = 持续支出，有二次确认） |
-| [`deploy-api.sh`](deploy-api.sh) | 构建镜像 → 推 AR → `gcloud run deploy` | ⚠️ 同一 commit 重复部署会因修订版重名失败（**特性不是 bug**） | 中（默认 0% 流量；`--promote` 才切） |
+| [`deploy-api.sh`](deploy-api.sh) | 构建镜像 → 推 AR → `gcloud run deploy` | ⚠️ 同一 commit **重复构建**会因修订版重名失败（**特性不是 bug**）。`--promote` 到一个**已存在**的修订版则只切流量，不重建（2026-08-23 修，见 §3.2 注） | 中（默认 0% 流量；`--promote` 才切） |
 | [`deploy-web.sh`](deploy-web.sh) | 两个 SPA 的静态发布：`web/user`→`bp-web`、`web/admin`→`bp-admin`，**独立主域名** | ✅ | 低（不碰 GCP） |
 | [`rollback.sh`](rollback.sh) | Cloud Run 修订版流量切换 | ✅ | 中（写操作，有二次确认） |
 | [`../scripts/inventory.sh`](../scripts/inventory.sh) | 把 as-built §7 的清点固化成可 diff 的快照 | ✅ | **零**（纯只读） |
 | [`../scripts/verify-isolation.sh`](../scripts/verify-isolation.sh) | 确认现有服务未受影响；**有差异非零退出** | ✅ | **零**（纯只读） |
+| [`../scripts/image-provenance.sh`](../scripts/image-provenance.sh) | 反查一个修订版跑的是哪个**完整 sha**，并判断该 commit 是否还被分支引用（B41，2026-08-23 加） | ✅ | **零**（纯只读；`--pull` 会往本机拉镜像） |
+| [`../scripts/check-cert-issuer.sh`](../scripts/check-cert-issuer.sh) | 每日核对证书签发者，不符就写 `bp_cert_issuer_bad` 要的那条日志（B42，2026-08-23 加） | ✅ | **低**（只读 TLS 握手 + 写一条日志，**不建任何资源**） |
 
-六个脚本共同遵守四条：
+八个脚本共同遵守四条：
 
 1. `set -euo pipefail`；每个都有 `--help`、`--dry-run`。
 2. **开头校验 `PROJECT_ID` 必须是 `oratis-491316`**，且每个被创建/修改的资源名必须带 `bp-`（或 `bp_`）前缀。
@@ -39,7 +41,7 @@
    deploy.md §2 的原话：「`gcloud config set project` 打错项目是本文最现实的事故源」。
 4. 危险操作要求**手工键入一个特定字符串**确认（不是 y/N —— y/N 是肌肉记忆，键入 `create-bp-db` 不是）。
 
-> 守卫代码在六个脚本里各复制了一份，这是**故意的**：每个脚本都必须能单独 `scp` 出去跑，
+> 守卫代码在八个脚本里各复制了一份，这是**故意的**：每个脚本都必须能单独 `scp` 出去跑，
 > 且单独具备「打错项目就拒绝」的能力。抽成公共库会让守卫的存在取决于另一个文件有没有被一起拷走。
 > 代价见 §6 第 1 条。
 
@@ -50,8 +52,8 @@
 | 需要 | 用在哪 | 没有会怎样 |
 |---|---|---|
 | `gcloud`（已登录且有项目权限） | 全部 GCP 脚本 | 直接报缺命令 |
-| `jq` | `rollback.sh` / `inventory.sh` / `verify-isolation.sh` | 直接报缺命令 |
-| `openssl` | `setup-infra.sh` 生成密钥与密码 | 直接报缺命令 |
+| `jq` | `rollback.sh` / `inventory.sh` / `verify-isolation.sh` / `image-provenance.sh` | 直接报缺命令 |
+| `openssl` | `setup-infra.sh` 生成密钥与密码；`check-cert-issuer.sh` 取证书 | 直接报缺命令 |
 | `docker`（能跑 `--platform=linux/amd64`） | `deploy-api.sh` 构建 | 只能 `--no-build` 部署已有镜像 |
 | `pnpm` | `deploy-web.sh` | 只能 `--dry-run` |
 | `gcloud auth configure-docker us-central1-docker.pkg.dev` | 推镜像 | 推送 `denied`。**脚本不替你改本机 docker 配置**，只提示 |
@@ -116,6 +118,20 @@ curl -sS https://candidate---<服务主机名>/healthz
 可能拿到两个不同版本的响应；若这次发布改了 UniProxy 响应体或 ETag 计算方式，
 灰度会造成节点反复失效缓存。所以两个脚本都**只提供 0% 与 100%**。
 
+> **2026-08-23 修的两件（都是上面这四行命令自己踩的）：**
+>
+> 1. **第 4 步以前会撞上 §1 表里那条「修订版重名失败」。** 第 2 步已经用
+>    `--revision-suffix=<sha>` 把 `bp-api-<sha>` 建出来了，第 4 步再发一次
+>    `gcloud run deploy` 会带着同一个 suffix 去建同名修订版。现在 `--promote` 先做一次
+>    只读的 `gcloud run revisions describe`：**修订版已存在就只 `update-traffic` 切流量**
+>    （与 [`rollback.sh`](rollback.sh) 和 CI 的 `--to-tags=candidate=100` 同一形态），
+>    不存在才走 `run deploy`。**待核实**：未在真实 `gcloud` 上跑过。
+> 2. **「工作树脏时拒绝」以前也拦 `--no-build`。** 第 4 步不构建任何东西，工作区脏不脏
+>    与将被部署的那个镜像的内容无关；而值班在做第 4 步时工作区**通常**是不干净的
+>    （正在改、正在查）。现在这道门只在真的要构建时才关。
+>    连带修掉的还有：脏树 + `--no-build` 时脚本会自作主张把 tag 换成 `<短sha>-dirty`，
+>    去指一个多半根本不存在的镜像 —— 即脚本自己建议的那条出路会把人送进 image not found。
+
 ### 3.3 发布前端
 
 ```bash
@@ -152,6 +168,72 @@ BP_WEB_DOMAINS=... BP_ADMIN_DOMAINS=... BP_API_DOMAINS=... \
 
 🔴 **代码秒级可回滚，schema 不能。** 一次发布只做 expand（加列/加表/加可空字段），
 contract（删列/改类型）放下一次 —— 这是「旧代码能在新 schema 上跑」的唯一保证。
+
+### 3.5 线上跑的到底是哪份源码（roadmap B41 的处置，2026-08-23）
+
+**问题不是假想的，它已经发生过一次。** 生产 `bp-api-2fbf49d` 的 tag 取自
+`git rev-parse --short=7 HEAD`，而那个 commit（`2fbf49d3d2b6…`）**不被任何分支引用** ——
+`pr7/p1-core-and-deploy` 被 force-push 改写，它成了孤儿。
+于是「线上跑的是哪份源码」只能靠去代码托管方的对象库按完整 sha 捞才答得出来
+（[evidence/gcp-inventory-20260821 §5.2](../../docs/evidence/gcp-inventory-20260821/)）。
+**答不出来 = 无法回滚到已知 good，也无法审计。**
+
+处置分三层，`deploy-api.sh` 与 `image-provenance.sh` 各占一半：
+
+| 层 | 放什么 | 谁写 | 谁读 |
+|---|---|---|---|
+| 镜像 label（**权威**） | `org.opencontainers.image.revision`（完整 40 位 sha）·`.version`（tag）·`.created`（构建时间）·`plus.babel.git.branch`·`plus.babel.git.dirty`·`plus.babel.build.by` | `deploy-api.sh` 的两条构建路径**同源**（`label_pairs`），加 `.github/workflows/deploy.yml` 这**第三条**（`plus.babel.build.by=github-actions`） | `docker inspect` / `image-provenance.sh` |
+| 修订版 label（快捷） | `bp-git-sha` = 完整 sha、`bp-git-dirty` | `gcloud run deploy --update-labels` | 一条 `gcloud run revisions describe` |
+| 镜像 tag | 短 sha（可能带 `-dirty`） | 同上 | 人眼。**它不再是唯一线索** |
+
+**一条命令查出线上跑的完整 sha：**
+
+```bash
+./infra/scripts/image-provenance.sh                       # 当前接 100% 流量的修订版
+./infra/scripts/image-provenance.sh --revision=bp-api-2fbf49d
+./infra/scripts/image-provenance.sh --image=<镜像引用> --pull   # 绕开 Cloud Run，拉镜像读 label
+```
+
+它会顺带回答**那个 commit 现在还在不在**：本地仓库里找不到、或者找得到但**不被任何分支引用**，
+都会红着退出（退出码 1）并给出处置 —— 先 `git tag deployed/<短sha> <完整sha>` 把它钉住，
+别让 GC 收走，再去查是哪个分支被 force-push 了。
+
+不带任何 label 的老镜像（2026-08-23 之前构建的全部镜像）在它这里会明确报「答不出来」，
+**这正是 B41 的原始状态本身**，不是脚本坏了。
+
+> ⚠️ 三条构建路径写同一组 label key，而这三处**没有任何机制保证同步**（与 §6 第 1 条同一类债）：
+> `deploy-api.sh` 的 `LABEL_*` 常量、它生成的 Cloud Build 配置模板（这两处之间有断言互锁）、
+> 以及 `.github/workflows/deploy.yml` 里那六行 `--label`（**这一处没有互锁**）。
+> 读的那一侧 `image-provenance.sh` 还有第四份。改 key 要改四处。
+
+> ⚠️ **工作树脏时默认拒绝构建**，`--allow-dirty` 才放行。
+> **这道门只在真的要构建时才关** —— `--no-build`（两段式发布的第 4 步、回补一次失败的
+> 部署）不构建任何东西，不受它约束；那条路径上的 `bp-git-dirty` 从 tag 反推
+> （`<短sha>` = 干净构建，`<短sha>-dirty` = 脏构建，其它 tag 一律不写 label）。
+> 理由：label 只能记下 HEAD 的 sha，而真正被构建进镜像的是**工作区** ——
+> 两者不一致时 label 会变成一句**可信但错误**的话，而这比没有 label 更糟：
+> 没有 label 时人会去查，有一个错的 label 时人会直接信。
+> 放行时 tag 会变成 `<短sha>-dirty`（不换 tag 的话，这次构建会把同一短 sha 下那份
+> 干净镜像顶掉，被顶掉的那份就只剩 digest 可寻 —— 又回到「答不出来」）。
+
+### 3.6 每日证书签发者核对（roadmap B42 的一条，2026-08-23）
+
+```bash
+# 平时（域名还没注册，清单为空 → 打提示后以 0 退出）
+./infra/scripts/check-cert-issuer.sh --dry-run
+
+# 域名接进来之后（定时作业里这么调）
+BP_WEB_DOMAINS=... BP_ADMIN_DOMAINS=... BP_API_DOMAINS=... \
+  ./infra/scripts/check-cert-issuer.sh --require-targets
+```
+
+判定按 [monitoring.md §8](../../docs/04-ops/monitoring.md)：**只校验 issuer 的 `O`，不校验 `CN`**。
+不符时写一条结构化日志到 `logName=projects/oratis-491316/logs/bp-cert-issuer-check`，
+那是 log-based metric `bp_cert_issuer_bad`（告警第 15 条，**P0**）的**唯一**信号源。
+
+> ⚠️ `*.a.run.app` 的签发者**本来就是 GTS**（2026-08-21 实测），所以 run.app 主机名
+> **不属于**目标清单 —— 放进去只会得到一条永远为红的告警，而长期为红的告警等于没有告警。
+> 目标清单只放三套域名池里我们自己钉了 LE 的域名。
 
 ---
 
@@ -206,9 +288,9 @@ deploy.md 写于 2026-08-16，早于 `openapi/openapi.yaml` 与 `api/` 骨架。
 
 > ⚠️ 这一选择的代价，必须留在记录里而不是被措辞掩盖：
 >
-> 1. **守卫代码在六个脚本里各复制了一份，会漂移。** 换来的是每个脚本可以单独拷出去执行
+> 1. **守卫代码在八个脚本里各复制了一份，会漂移。** 换来的是每个脚本可以单独拷出去执行
 >    且单独具备「打错项目就拒绝」的能力。哪天要改守卫，就是改六处 —— 且没有任何机制提醒你改全。
-> 2. **完全没有 IaC。** 这六个脚本是命令式的：没有状态文件、没有 drift 检测、
+> 2. **完全没有 IaC。** 这些脚本是命令式的：没有状态文件、没有 drift 检测、
 >    没有「谁在什么时候改了什么基础设施」的 code review 入口。
 >    `setup-infra.sh` 的幂等靠「先探测再创建」，它能防重复创建，**防不了手工在控制台改过之后的漂移**。
 >    这是 P1 阶段主动接受的技术债，理由与 deploy.md §15 第 1 条相同（Cloudflare 侧资产未清点完，
@@ -257,6 +339,10 @@ deploy.md 写于 2026-08-16，早于 `openapi/openapi.yaml` 与 `api/` 骨架。
 - [ ] **monitoring.md §3 的 log-based metrics、§4 的通知渠道、§5 的 17 条告警策略都没有脚本。**
       而 §3.1 要求它们必须在 `bp-api` 首次部署**之前**建好（日志指标不追溯）。
       这是目前部署流程里最大的一处「文档要求存在、可执行形式不存在」。
+      2026-08-23 补上的只是其中**一条指标的信号源**（`check-cert-issuer.sh` →
+      `bp_cert_issuer_bad`）：**指标本身仍要人工建一次**（命令在该脚本 `--help` 末尾），
+      而且把这个脚本挂成每日作业的那一步（Cloud Scheduler / cron / CI 定时任务，三选一）
+      **也还没有裁决、没有脚本**。现在它只是一条能手工跑的命令。
 - [ ] **`/internal/tasks/alert-relay` 不在 `openapi/openapi.yaml` 里**（契约只到 `remind-sweep`），
       但 `setup-infra.sh` 会为它建 Pub/Sub push 订阅。订阅建好后会持续 404 直到中继实现。
 - [ ] **Artifact Registry 的清理策略没配。** `set-cleanup-policies` 的子命令名与 JSON schema
@@ -268,8 +354,11 @@ deploy.md 写于 2026-08-16，早于 `openapi/openapi.yaml` 与 `api/` 骨架。
       本身**未实测**（前端仍在开发中）。
 - [ ] **`bp-docs`（教程站）完全没有脚本** —— 而 page-inventory 把它定为整个自助排障体系的单点，
       且它必须在用户连不上代理时可达。第三套域名池、第三份发布路径，一样都还没有。
-- [ ] **域名一个都还没注册**，所以证书签发者校验（本目录里唯一一条能挡住 GTS 的机制）**跑不了**。
-      在第一个域名接入之前，「钉 Let's Encrypt」这条承诺没有任何可执行形式在生效。
+- [ ] **域名一个都还没注册**，所以证书签发者校验**仍然跑不了** —— 2026-08-23 之后
+      「可执行形式」有了两个（`deploy-web.sh` 发布后的即时确认、`check-cert-issuer.sh`
+      的每日核对），但两个都需要一个真实存在的域名才能产生判定。
+      在第一个域名接入之前，「钉 Let's Encrypt」这条承诺**依然没有任何东西在生效**，
+      `bp_cert_issuer_bad` 也不会有任何信号。**接入第一个域名时必须回来把它填进目标清单。**
 - [ ] **Cloud Build 触发器没有脚本**（deploy.md §4.2 路径 B），因为代码仓库托管在哪未定。
       现在只有本地构建这一条路，意味着**发布能力绑在某一台开发机上**。
 - [ ] **没有自动化冒烟测试，没有基于错误率的自动回滚。**

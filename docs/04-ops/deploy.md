@@ -290,6 +290,34 @@ ENTRYPOINT ["/bp-api"]
 > `-X main.revision` 也一样只带短 sha —— 它解决的是「线上是哪版」，
 > 但当短 sha 变成孤儿时这个答案是不可解析的。
 >
+> ---
+>
+> **2026-08-23 处置（第一条已做，第二条没做）：**
+>
+> 1. `infra/deploy/deploy-api.sh` 现在往镜像写六个 label：
+>    `org.opencontainers.image.revision`（**完整 40 位 sha**）· `.version`（tag）· `.created`（构建时间）·
+>    `plus.babel.git.branch` · `plus.babel.git.dirty` · `plus.babel.build.by`。
+>    tag **仍是短 sha**（人要读它），但不再是唯一线索。
+>    修订版另加 `--update-labels=bp-git-sha=<完整sha>`，让反查不必先拉镜像
+>    （该 label 是否传播到新建修订版 **待核实**）。
+> 2. 反查工具：`./infra/scripts/image-provenance.sh` —— 拿一个正在跑的 revision，
+>    一条命令查出完整 sha，并**当场判断那个 commit 是否还被分支引用**（B41 的判据本身）。
+> 3. **工作树脏时默认拒绝构建**，`--allow-dirty` 才放行且 tag 变成 `<短sha>-dirty`。
+>    选「拒绝」而不是「标记后放行」的理由：label 记的是 HEAD 的 sha，构建进去的是工作区，
+>    两者不一致时 label 就是一句**可信但错误**的话 —— 比没有 label 更糟。
+>    ⚠️ 这道门**只在真的要构建时才关**。`--no-build`（两段式发布的第 4 步、回补一次
+>    失败的部署）不构建任何东西，工作区脏不脏与那个已经存在的镜像无关 ——
+>    早先的版本在那里也拦，等于把值班最常用的一条路堵死（值班做第 4 步时工作区
+>    通常正脏着），2026-08-23 修。
+> 4. **第二条修法（禁止已部署分支 force-push）没有做** ——
+>    它要在代码托管方配分支保护，而仓库托管在哪至今未定（§15）。
+>
+> ⚠️ 顺带核实到的一件事：`-X main.version` 打的那个符号
+>    **在 `api/cmd/server/main.go` 里根本不存在**（2026-08-23 grep），
+>    所以 `--build-arg VERSION=` 目前是**空转**的，`/healthz` 也回报不了版本。
+>    这不影响 label（label 在镜像元数据上，不经过链接器），但意味着
+>    「让 `/healthz` 自证是哪个 commit」这条**还没有实现**。单独登记，不在本次处理。
+>
 > ⚠️ **需实测**：`distroless:nonroot`（uid 65532）能否读写 Cloud Run 注入的
 > `/cloudsql/<conn-name>` Unix socket。若首次部署报连接被拒，先把 `USER nonroot` 去掉验证是不是权限问题，
 > **不要**先去怀疑 Cloud SQL 配置。这一条没有一手数据。
@@ -855,6 +883,13 @@ done
 | 🔴 立即处置 | `O = Google Trust Services`，或 CN ∈ {`WE1`,`WR2`,`WR3`,`GTS CA 1C3`,`GTS CA 1D4`,`GTS CA 1P5`} | 中国用户会遭遇单向丢包，且现象酷似网络抖动。按 ADR 0004 §3.4 处理 |
 
 这条检查不是一次性的，它必须变成每日任务 —— 见 [monitoring.md](monitoring.md) §8。
+
+**2026-08-23：那个每日任务的可执行形式有了** —— `infra/scripts/check-cert-issuer.sh`，
+判定口径与上表逐条一致（只校验 `O`），不符时写一条结构化日志喂 `bp_cert_issuer_bad`。
+`infra/deploy/deploy-web.sh` 里那条发布后的即时确认继续保留，两者不互相替代：
+一个是发布这一刻的门，一个是之后每天的哨。
+
+⚠️ 两个都需要**一个真实存在的域名**才能产生判定，而域名一个都还没注册。
 
 ### 11.3 新增一个镜像域名（ADR 0003 §5「一键新增」的具体形态）
 
