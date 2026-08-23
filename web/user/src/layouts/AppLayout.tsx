@@ -9,6 +9,45 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { Button, Icon, SiteFooter, cx } from '@babelplus/shared/ui';
 import { NAV } from './nav.ts';
+import { useAuth } from '../lib/auth.tsx';
+
+/**
+ * 当前身份 + 登出。
+ *
+ * 放在布局层的理由和页脚一样：**想漏都漏不掉**。
+ * 「登出」在共用电脑上是一个安全动作，不该藏在某一个二级页面里。
+ */
+function AccountBar({ compact = false }: { compact?: boolean }) {
+  const { user, signOut } = useAuth();
+  const [pending, setPending] = useState(false);
+
+  async function onSignOut(): Promise<void> {
+    setPending(true);
+    try {
+      await signOut();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className={cx('flex items-center gap-2', compact ? 'ml-auto' : 'mt-4 px-3')}>
+      {user ? (
+        <span className="min-w-0 flex-1 truncate text-xs text-fg-subtle" title={user.email}>
+          {user.email}
+        </span>
+      ) : null}
+      <Button
+        tone="ghost"
+        className="min-h-9 shrink-0 px-2 text-xs"
+        onClick={() => void onSignOut()}
+        disabled={pending}
+      >
+        {pending ? '正在登出…' : '登出'}
+      </Button>
+    </div>
+  );
+}
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
   return (
@@ -59,6 +98,7 @@ export function AppLayout() {
           {drawerOpen ? <Icon.Close size={20} /> : <Icon.Menu size={20} />}
         </Button>
         <span className="font-semibold tracking-tight text-fg">babel.plus</span>
+        <AccountBar compact />
       </header>
 
       {drawerOpen ? (
@@ -73,6 +113,7 @@ export function AppLayout() {
           <div className="sticky top-6">
             <p className="mb-4 px-3 text-lg font-semibold tracking-tight text-fg">babel.plus</p>
             <NavList />
+            <AccountBar />
           </div>
         </aside>
 
