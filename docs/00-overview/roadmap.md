@@ -519,7 +519,7 @@ flowchart TD
 | B1 | **ADR 0001 未获批准** | 拓扑与成本模型，进而定价、ADR 0004 的层级复审、CF 应急通道的存在与否 | **需用户决策** | README §7、ADR 0001 §7 | P0 |
 | B2 | ~~GCP 出口到中国大陆的准确单价未核实~~ **✅ 2026-08-17 已解决** —— Cloud Billing Catalog API 权威价目：Standard **$0.11/GiB + 每源区域每月 200 GiB 免费**（不区分目的地）；Premium **$0.23/GiB**（中国是香港出口最贵的目的地）。证据 [evidence/gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/) | 定价可以定稿了；但**用量分布仍无数据**，总成本预测仍是猜的 | ✅ 已解决（单价）/ 仍需用量基线 | pricing §2 |
 | B3 | **v2node 是否发 `If-None-Match`** | 整套 ETag、`node_rev` 表、ADR 0006 §3.3 的 Cloud Run 免费额度算术（10 节点 = 86%）、data-model §12.1 的「1.33 次索引查找/秒」 | **可直接做**（起容器） | ADR 0006 §15 🔴、data-model §16 🔴、api-contract §14 🔴、node-provisioning §10 🔴 | P0 |
-| B4 | **域名一个都没注册 + 域名策略未裁决**（system-design §2 用子域 vs §4.1 禁止子域，**同一文档内矛盾**） | 部署、API 入口、镜像池、Hysteria2 的 LE 证书、deploy 全文的 `*.babel.plus` 占位符 | **需用户决策** + 可直接做 | product-brief §11、page-inventory §8 🔴、deploy §15、api-contract §13 | P0 |
+| B4 | ~~域名一个都没注册~~ **✅ 2026-08-25 订正**：`babel.plus` 是项目所有者自己的域名（此前文档漏记，生产 `BP_ALLOWED_ORIGINS` 一直指向它）；域名**策略已裁决**（[ADR 0010](../05-adr/0010-domain-strategy.md)，提案未批）。**仍未做**：镜像域名池尚未采购（0010 定 5 个中性域名）、Hysteria2 的 LE 证书链未搭 | 镜像池、备用域名切换仍等采购落地 | ✅ 归属+策略已定 / 采购与证书待做 | [ADR 0010](../05-adr/0010-domain-strategy.md) | P0→P1 |
 | B5 | **「域名被封」的自动检测机制不存在** | product-brief §8 承诺的「域名失联恢复 ≤ 30 分钟」**零机制支撑**；域名池表存什么列是猜的；管理面模块 17 无法设计 | 待裁决（需一份合并 ADR） | ADR 0002 §7、ADR 0003 §7、system-design §9、user-journey §16 🔴、api-contract §14、data-model §16、runbook §7 —— **七处** | P0 设计 / P3 实现 |
 
 ### 9.2 T2 · 卡住 P1（技术链）

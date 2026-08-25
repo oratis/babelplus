@@ -6,8 +6,9 @@
 > 域名可用性 / 注册局 RDAP / Porkbun pricing API / 证书签发者抽样 / 官方文档引文均为 2026-08-23 当日一手取得；
 > 仓库侧事实由裁决人于 2026-08-23 在该 commit 上逐条复核（源码行号、`gh repo view oratis/babelplus` 仓库可见性、
 > `docs/05-adr/0003` §3.2 的 OONI 原始测量、`docs/04-ops/deploy.md` §10.2/§11.2 原文、`docs/00-overview/roadmap.md` R1/R3/B42/B44）。
-> ⚠️ **归属未决**：`babel.plus` 已被注册但 RDAP 注册人隐藏，**归属未知**（§2.1）——
-> 在用户回答之前，§1.2 第 1、3 步是条件动作，**不得改动生产 `BP_ALLOWED_ORIGINS`**。
+> ✅ **归属已答（2026-08-25，用户确认）：`babel.plus` 是项目所有者自己的域名（§2.1 情形 (a)）。**
+> 因此 §1.2 第 1 步降为「什么都不要动」——生产 `BP_ALLOWED_ORIGINS` 指向正确，**改它会打断生产 CORS**；
+> 第 3 步（`subscription.go:61`）降为「可以等」的非阻塞项。本 ADR 不再有任何待用户回答的问题。
 > 关联：[0001](0001-cloudflare-tos-risk.md) §1/§3.4/§5、[0002](0002-notification-channels.md) §4.1/§5、
 > [0003](0003-web-hosting-and-reachability.md) §2.2/§3.2/§5、[0004](0004-transport-hardening.md) §3.4/§3.5、
 > [0011](0011-domain-blackout-detection.md)（承接本文 §8.4 留给「合并 ADR」的判定口径，同批提案）、
@@ -39,7 +40,7 @@
 
 | # | 动作 | 成本 | 阻塞谁 |
 |---|---|---|---|
-| 1 | 🔴 **向用户问清 `babel.plus` 的归属**（§2.1：RDAP 证实它已被注册，但**注册人信息隐藏**，无法证明属于谁）。**在得到答案之前，不得改动生产的 `BP_ALLOWED_ORIGINS`** —— 若它是我们自己的，这一改会当场打断生产 CORS。答案若是「不是我们的」，才改 `infra/deploy/deploy-api.sh:529` 的默认 `origins` 并重新部署 `bp-api` | $0 | **P0，与采购完全解耦，先做** |
+| 1 | ✅ **已答（2026-08-25）：`babel.plus` 是我们自己的（情形 (a)）。** 因此 `BP_ALLOWED_ORIGINS` / `infra/deploy/deploy-api.sh:529` 的默认 `origins` **保持不动**（改它会当场打断生产 CORS）。此步从「问清归属」转为「确认不动」，已完成 | $0 | ✅ 已完成 |
 | 2 | 加 `BP_WEB_BASE_URL` 独立配置项，`subscription.go:187–190` 不再借用 `AllowedOrigins[0]` | $0 | **无条件做，与归属无关**（§2.1） |
 | 3 | **（条件动作，等第 1 步）** 改 `subscription.go:61` 的 `subContentDisposition`，把 `babel.plus` 换成不带 TLD 形态的品牌串 —— 只在归属答案是「不是我们的」时是必改项 | $0 | 等第 1 步（§2.5） |
 | 4 | 写一个 20 行的命名校验脚本（§4.3），**下单前必须跑过** | $0 | 第 6–7 步 |
@@ -126,13 +127,14 @@ last changed **2026-08-12**，NS `dns13.hichina.com` / `dns14.hichina.com`。
 
 | | 情形 | 证据方向 | 处置 |
 |---|---|---|---|
-| **(a)** | 它是**项目所有者自己的域名**，只是从未被记进任何文档 | 生产 `bp-api` 的 `BP_ALLOWED_ORIGINS` 正指向 `web.babel.plus` / `admin.babel.plus`；域名注册在中国大陆的注册商上，与项目所有者的地理位置一致 | **什么都不要动**。改 `BP_ALLOWED_ORIGINS` 会**当场打断生产的 CORS** |
+| **(a)** ✅ **确认成立（2026-08-25）** | 它是**项目所有者自己的域名**，只是从未被记进任何文档 | 生产 `bp-api` 的 `BP_ALLOWED_ORIGINS` 正指向 `web.babel.plus` / `admin.babel.plus`；域名注册在中国大陆的注册商上，与项目所有者的地理位置一致；**用户 2026-08-25 直接确认** | **什么都不要动**。改 `BP_ALLOWED_ORIGINS` 会**当场打断生产的 CORS** |
 | **(b)** | 它属于别人 | 仓库文档一致声称「域名一个都没注册」（`roadmap.md` B4 原文「**域名一个都没注册** + 域名策略未裁决」、`launch-readiness-review-20260821.md` §2 资产表「域名｜**0 个注册**」）—— 若 (a) 成立，这两处就都是漏记 | 按 §1.2 第 1、3 步改配置与常量 |
 
-> 🔴 **这是本 ADR 唯一一条必须由用户本人回答的问题。它不阻塞采购**（§1.5：`.plus` 续费 $43.77/年
-> 决定它无论归谁都不进池），**只阻塞两处生产改动**：`BP_ALLOWED_ORIGINS` 与 `subscription.go:61`。
-> **在得到答案之前，不得改动生产的 `BP_ALLOWED_ORIGINS`。** 一次「以为是别人的」的清理动作，
-> 在 (a) 成立时的后果是用户面板与后台全部跨源请求被拒（`cors.go` 是 fail-closed 的，白名单为空 = 拒绝所有跨源请求）。
+> ✅ **已答（2026-08-25）：情形 (a) 成立 —— `babel.plus` 是项目所有者自己的。**
+> 因此**生产的 `BP_ALLOWED_ORIGINS` 保持不动**（它指向正确）；`subscription.go:61` 的清理降为非阻塞项。
+> 差一点发生的事故：若当初按「以为是别人的」去清理 `BP_ALLOWED_ORIGINS`，
+> 后果是用户面板与后台全部跨源请求被拒（`cors.go` 是 fail-closed 的，白名单为空 = 拒绝所有跨源请求）。
+> 这也正是本 ADR 坚持「先问归属再动配置」的价值所在。
 > **本节以下的分析，对 (a) 与 (b) 同样成立** —— 因为它们的问题不是「域名属于谁」，而是「哪个配置项决定订阅里印什么」。
 
 生产 `bp-api` 的环境变量（2026-08-23 `gcloud run services describe` 实查）：
@@ -1108,7 +1110,7 @@ NameSilo 侧 **待核实**，按 ±$2/域名/年估。
 
 ## 14 · 这次没有解决的
 
-- [ ] 🔴 **`babel.plus` 的归属未答**（§2.1）—— **本 ADR 唯一一条必须由用户本人回答的问题。**
+- [x] ~~🔴 `babel.plus` 的归属未答（§2.1）~~ ✅ **已答（2026-08-25）：是项目所有者自己的（情形 (a)）**，生产 `BP_ALLOWED_ORIGINS` 保持不动。
       RDAP 证实它已被注册（2023-01-11 → 2027-01-11，HiChina），但**注册人字段隐藏**，
       而生产 `bp-api` 的 `BP_ALLOWED_ORIGINS` 正指向它的两个子域。
       在答案给出之前：**不得改动生产 `BP_ALLOWED_ORIGINS`**（§1.2 第 1 步），
