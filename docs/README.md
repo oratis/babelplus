@@ -129,6 +129,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | 设计稿 v1 |
 | | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | 设计稿 v1 |
 | **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，出口成本已实测（Premium 层混合 $0.1005/GiB），价格仍待定 |
+| | [pricing-and-plans-revision-20260823.md](03-product/pricing-and-plans-revision-20260823.md) — 定价定稿的修订说明（含推导附录） | 设计方案（2026-08-23），**待并入活文档** |
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
@@ -145,6 +146,12 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | 设计稿 v1 |
 | | [0007](05-adr/0007-node-migration.md) — 节点混合迁移 | 设计稿 v1 |
 | | [0008](05-adr/0008-network-tier-standard.md) — 网络层级改 Standard（**推翻 0004 §3.7**） | **已实施（仅新节点）** |
+| | [0010](05-adr/0010-domain-strategy.md) — 域名策略（按故障域买五个中性主域名） | **提案，未批准**（2026-08-23） |
+| | [0011](05-adr/0011-domain-blackout-detection.md) — 域名失联的发现与恢复 | **提案，未批准**（2026-08-23） |
+| | [0012](05-adr/0012-payment-gateway.md) — 收款：一单一址、自扫链、不归集 | **提案，未批准**（2026-08-23） |
+| | [0013](05-adr/0013-billing-and-refund-rules.md) — 计费与退款规则 | **提案，未批准**（2026-08-23） |
+| | [0014](05-adr/0014-slo-and-oncall.md) — SLO、on-call 与告警分级 | **提案，未批准**（2026-08-23） |
+| | [0015](05-adr/0015-client-strategy.md) — 客户端策略 | **提案，未批准**（2026-08-23） |
 | **evidence** | 6 个证据目录（出口单价 · v2node 契约 · healthz 拦截 · 网络层级落地 · 2026-08-21 的账单 SKU 拆分与 gcloud 实查 · 2026-08-22 的客户端配置校验） | 见 [evidence/README.md](evidence/README.md) |
 
 ---
