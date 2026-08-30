@@ -141,6 +141,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 执行中（`bp-api` / `bp-db` 已上线，§5 示例命令与线上不一致） |
 | | [monitoring.md](04-ops/monitoring.md) — 监控与告警 | 设计稿 v1 |
 | | [local-development.md](04-ops/local-development.md) — 本地开发（无需装 Go） | **As-Built** |
+| | [first-deploy-20260831.md](04-ops/first-deploy-20260831.md) — 首次上线记录（控制面） | **As-Built**，不回改 |
 | **05-adr** | [0001](05-adr/0001-cloudflare-tos-risk.md) — CF 只承载控制面 | **已批准**（2026-08-17） |
 | | [0002](05-adr/0002-notification-channels.md) — 邮件是唯一失联恢复通道 | 设计稿 v1 |
 | | [0003](05-adr/0003-web-hosting-and-reachability.md) — 托管按实测可达性选型 | 设计稿 v1 |
