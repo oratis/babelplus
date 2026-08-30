@@ -7,12 +7,32 @@
 ## 1 · 这是什么项目
 
 内部使用的流量中转服务（中国 → Cloudflare 边缘 → Google Cloud → 全球）。
-当前处于 **P0 收尾 / P1 内核过半**：`api/`（Go，128 个 operation 里实现 18 个，其余 110 个 fail-closed 返 501）、
-`web/`（双 SPA；**不再是「业务逻辑为零」**——2026-08-23 起有登录态、`RequireAuth` 路由守卫、
-16 条受保护路由与 108 个前端测试，2026-08-29 又接线了 dashboard 与工单列表两页；
-**但其余页面仍是空壳**，44 处 `TODO(P1)` 分布在 30 个文件里未接线）、
-`infra/`（建机与部署脚本，**全部带 dry-run，一台节点都没建过**）都已入库，
-`bp-api` 已在 Cloud Run 运行并计费。
+当前处于 **P0 收尾 / P1 软件侧基本完成、基础设施侧为零**（2026-08-30 实数）：
+
+- `api/`（Go）：**128 个 operation 实现 120 个**，剩 **8 个 501**
+  （5 条缺表 `domains` / `mail_templates`，3 条契约自己声明未实现；
+  清单钉在 `api/internal/handler/unimplemented_test.go`，**改它之前先读那一条为什么被拦住**）。
+  **37 个 `_test.go` / 573 个顶层 `Test` 函数**，19 组迁移 / 47 张表 / 343 条 sqlc 查询。
+- `web/`（双 SPA）：**623 个前端用例 / 48 个文件全绿**（`pnpm test`）。
+  用户面板 **20 条业务路由全部接线**（`App.tsx` 共 22 条 `path=`，另两条是 `/` 重定向与
+  `*` 的静态 `NotFoundPage`）；后台 23 页**接线 21 页**
+  （不接的两页：`DomainsPage` 三个端点都是 501、`NotFoundPage` 是静态页）。
+  `TODO(P1)` **22 处 / 16 个文件**。
+- `infra/`：建机与部署脚本 **18 支 / 10,705 行，全部带 dry-run，一台节点都没建过**。
+
+🔴 **写代码之前必须先知道的三件事，它们是本项目当前的真实状态**：
+
+1. **自有节点 0 台。** `gcloud compute instances list --project=oratis-491316` 只返回
+   既有的 `vpn-us` / `vpn-jp`。**P1 的八条出口标准全部要求一台在跑的机器，所以 P1 = 0/8。**
+2. **生产跑的不是 master。** `bp-api` 的 serving revision 是 `bp-api-618bf1c`
+   = commit `618bf1cc89b3`（2026-08-23），**落后 14 个提交**；在那个 commit 上实现数是 **18/128**。
+   **凡是说「已实现」的地方，默认是仓库口径不是线上口径。**
+3. **管理面在生产上整体关闭，而且必须如此。** 生产 `bp-api` 没有配 `BP_ADMIN_IAP_AUDIENCE`，
+   按 fail-closed 设计 61 个 `/admin/*` + 9 个 `/internal/tasks/*` 一律 403。
+   更根本的是**管理面根本没有登录端点**（45 条 admin 路径里没有 login/session/me，
+   `AuthenticateAdmin` 从不读 `Authorization`，它验 IAP 断言）——
+   见 [roadmap B51](docs/00-overview/roadmap.md)。**不要试图用用户面的 `login` 端点去接管理面。**
+
 **「仓库中只有文档」这句话到 2026-08-21 为止已经不成立**，
 阶段判定见 [`docs/00-overview/launch-readiness-review-20260830.md`](docs/00-overview/launch-readiness-review-20260830.md)
 （更早的时点快照：[`launch-readiness-review-20260821.md`](docs/00-overview/launch-readiness-review-20260821.md)，

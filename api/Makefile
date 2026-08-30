@@ -11,7 +11,12 @@
 #     导致容器内 go mod 下载失败。所以下面显式**清空**代理变量。
 
 GO_IMAGE  ?= golang:1.25-alpine
-SQLC_IMAGE ?= sqlc/sqlc:latest
+# 🔴 与 .github/workflows/ci.yml 的 SQLC_IMAGE **必须一起改**。
+# 这里曾经是 `sqlc/sqlc:latest`，而 CI 钉的是具体版本 —— 那是一颗定时炸弹：
+# sqlc 发新版的那一天，本地 `make gen-db` 生成的代码与 CI 重新生成的不再逐字节相同，
+# contract-drift 门禁会在一个谁都没改过生成器的 PR 上无故变红，
+# 而现象（「生成物漂移」）指向的是改动本身，不是指向版本差异。
+SQLC_IMAGE ?= sqlc/sqlc:1.31.1
 REPO_ROOT  := $(shell cd .. && pwd)
 
 # 清空代理 + 指定 GOPROXY + 挂载缓存目录（避免每次重新下载依赖）

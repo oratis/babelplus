@@ -100,7 +100,7 @@ ADR 0006 §13：**code review 时能看见契约变化本身。**
 |---|---|---|
 | `go` | `api/**` `openapi/**` | `go build` / `go vet` / `go test` / `gofmt -l` |
 | `contract-drift` | `api/**` `web/**` `openapi/**` | §3 的四处生成物 |
-| `migrations` | `api/**` | 起 `postgres:17`，正序灌全部 up，逆序灌全部 down，断言残留表 / 视图 / 枚举类型均为 0 |
+| `migrations` | `api/**` | 起 `postgres:17`，正序灌全部 up，逆序灌全部 down，断言残留表 / 视图 / 枚举类型均为 0；**另跑两步真打数据库的检查**（2026-08-30 新增）：`api/scripts/db_explain.py` 对 `db/gen/*.sql.go` 里的 **343 条**常量 SQL 逐条 `EXPLAIN (GENERIC_PLAN)`（其中 **172 条**是写语句），以及 `api/scripts/ci_post_rollback_write.sql` 的**回滚后写探针** |
 | `openapi-lint` | `openapi/**` | `redocly lint` |
 | `web` | `web/**` `openapi/**` | `pnpm install --frozen-lockfile` → `pnpm -r build` → `pnpm -r typecheck` |
 | `shellcheck` | `infra/**` | 扫全部 `*.sh` |
@@ -194,6 +194,13 @@ ADR 0006 §13：**code review 时能看见契约变化本身。**
       > （`api/scripts/db_explain.py` 对 194 条生成 SQL 跑 `EXPLAIN (GENERIC_PLAN)`、
       > `api/scripts/ci_post_rollback_write.sql` 的回滚后写探针，见 commit `a4604c9396f`）——
       > 它们打的是真 Postgres，但**测的是 schema 与 SQL 而不是 handler**，不构成集成测试。
+      >
+      > **2026-08-30 二次订正：上面的三个数都要改，而这一条的实质仍然一个字没变。**
+      > 现为 **37 个 `_test.go` / 573 个顶层 `Test` 函数**（同两条命令实数），
+      > `db_explain.py` 抽出的是 **343 条**语句、其中 **172 条**写语句。
+      > **而「573 个用例全部是进程内单元测试」与「真实 Postgres / 真实 v2node 容器都不存在」
+      > 逐字仍然成立** —— 测试数翻了近三倍，本条要的那两样**依旧各是 0**。
+      > 🔴 **这正是本条值得反复读的原因：`测试数` 是工作量指标，`测试形态` 才是本条的完成度指标。**
 - [ ] **`deploy.yml` 一次都没有真正执行过。** 它的参数来自状态为「待实施」的 deploy.md，
       WIF 的 provider 与 service account 都还是 TODO。首次执行必然撞上偏差，
       **撞到就回写 deploy.md，不要在工作流里悄悄改一个能跑通的写法了事。**
