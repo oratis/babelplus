@@ -24,14 +24,19 @@
 
 1. **自有节点 0 台。** `gcloud compute instances list --project=oratis-491316` 只返回
    既有的 `vpn-us` / `vpn-jp`。**P1 的八条出口标准全部要求一台在跑的机器，所以 P1 = 0/8。**
-2. **生产跑的不是 master。** `bp-api` 的 serving revision 是 `bp-api-618bf1c`
-   = commit `618bf1cc89b3`（2026-08-23），**落后 14 个提交**；在那个 commit 上实现数是 **18/128**。
-   **凡是说「已实现」的地方，默认是仓库口径不是线上口径。**
+2. **生产跑的就是 master（2026-08-31 起）。** `bp-api` 的 serving revision 是
+   `bp-api-87886e4`，`bp-db` 在迁移版本 19。用户面实测可用（注册 → 登录 → 下单 → 取消）。
+   此前这一条长期写着「落后 14 个提交、实现数 18/128」，**那句话已经不成立**。
+   ⚠️ 但**「已部署」不等于「可以卖」**：自有节点 0 台，买了套餐也没有节点可连（见第 1 条）。
 3. **管理面在生产上整体关闭，而且必须如此。** 生产 `bp-api` 没有配 `BP_ADMIN_IAP_AUDIENCE`，
-   按 fail-closed 设计 61 个 `/admin/*` + 9 个 `/internal/tasks/*` 一律 403。
+   按 fail-closed 设计 61 个 `/admin/*` 一律 403（**实测**：连伪造的
+   `x-goog-iap-jwt-assertion` 头也是 403 —— 它验签名，不信头的存在）。
    更根本的是**管理面根本没有登录端点**（45 条 admin 路径里没有 login/session/me，
    `AuthenticateAdmin` 从不读 `Authorization`，它验 IAP 断言）——
    见 [roadmap B51](docs/00-overview/roadmap.md)。**不要试图用用户面的 `login` 端点去接管理面。**
+   ⚠️ **内部面已经不在这一条里了**（2026-08-31 起）：`BP_INTERNAL_OIDC_AUDIENCE` 与
+   `BP_INTERNAL_TASK_CALLERS` 已配上，9 条 `/internal/tasks/*` 由 8 条 Cloud Scheduler
+   带 OIDC 令牌调用，**实测 200**；无凭据调它仍是 403。
 
 **「仓库中只有文档」这句话到 2026-08-21 为止已经不成立**，
 阶段判定见 [`docs/00-overview/launch-readiness-review-20260830.md`](docs/00-overview/launch-readiness-review-20260830.md)
