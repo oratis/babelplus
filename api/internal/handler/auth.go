@@ -599,6 +599,27 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
+// isCheckViolation 识别 PG 的 CHECK 约束冲突（23514）。
+//
+// 与 isUniqueViolation 同一形状、同一理由：**让数据库拒绝，再把拒绝翻译成 422/409**，
+// 而不是自己先读一次再比大小 —— 后者是一次 TOCTOU，读与写之间被另一笔操作插进来，
+// 判断就是错的。管理面有五处 CHECK 会被**正常输入**触发，全部必须翻成 422/409 而不是 500
+// （500 会让管理员反复重试一个被数据库正确拒绝的请求）：
+//   - `users.transfer_enable_plan >= 0`（D1 把总配额改到低于已购加油包，0003）
+//   - `plans_cycle_needs_monthly`（kind='cycle' 必须有 price_monthly，0016）
+//   - `plans.speed_limit_mbps > 0`（不限速是 NULL 不是 0，0002）
+//   - `commissions.amount >= 0`（D11 负向调整调过头，0007）
+//   - `wallet_balances.balance >= 0`（退款追回佣金时扣到负数，0007）——
+//     这一条尤其不能是 500：现象会是「退款偶尔报服务器错误」，没有人会想到去看余额。
+//
+// 放在这里而不是某个 admin_*.go：它是 PG 错误码的分类，不是管理面的业务规则。
+// 曾经三个并行交付的 admin_*.go 各带一份（isPgCheckViolation / adminCheckViolation /
+// isCheckViolation），三份一字不差。
+func isCheckViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23514"
+}
+
 // ============================================================
 // 精确档限流（api-contract §10.1 的限额 / §10.2 的存储）
 // ============================================================

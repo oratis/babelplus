@@ -1,9 +1,20 @@
 # babel.plus 路线图：P1 与「批准 + 定价」两条链解耦并行，在第一笔真实付款处汇合
 
-> 日期：2026-08-16 · 性质：**排期计划** · 状态：**设计稿 v1**（2026-08-16，待用户确认）
+> 日期：2026-08-16（**2026-08-30 复核 §3–§7 的勾选状态与 §9 的 B1–B52 总账；同日第二次复核，
+> 基线从 `a4604c9396f` 前推到 `b6e7603e7f9`**） ·
+> 性质：**排期计划** · 状态：**执行中**（2026-08-30；原「设计稿 v1（2026-08-16，待用户确认）」）
 > 事实基线：细化自 [product-brief.md](product-brief.md) §9 的 P0–P4 五段；阻塞项与风险逐条来自
-> `05-adr/0001`–`0007`、`02-architecture/*`、`03-product/*`、`04-ops/*` 各自的
-> 「这次没有解决的」尾节与「代价」尾节；实测清单来自 [evidence/README.md](../evidence/README.md)
+> `05-adr/0001`–`0015`、`02-architecture/*`、`03-product/*`、`04-ops/*` 各自的
+> 「这次没有解决的」尾节与「代价」尾节；实测清单来自 [evidence/README.md](../evidence/README.md)。
+> **2026-08-30 那一轮的每个数字都出自当场跑过的命令**（命令写在对应条目里）。
+> ⚠️ **同日两次复核，基线不同，本文的追加块各自标注了哪一次**：
+> 第一次基线 master `a4604c9396f`（operation 18/128）；
+> **第二次基线 `b6e7603e7f9`（operation 120/128、前端测试 623、迁移 19 组 / 47 张表、sqlc 343 条）**，
+> 并第一次用只读 `gcloud` 实查了 GCP 侧（节点 0 台、`bp-` 告警 0 条、`bp-` Scheduler 0 条）。
+> **凡标「2026-08-30 二次复核」的追加块以第二次为准；第一次的原文一律保留，不抹掉。**
+> 关联（2026-08-30 追加）：[launch-readiness-review-20260830.md](launch-readiness-review-20260830.md)
+> （本次复核的同源时点快照，含与 2026-08-21 那份的逐条对读）、
+> [launch-readiness-review-20260821.md](launch-readiness-review-20260821.md)（**As-Built，不回改**）
 > 关联：[docs/README.md §7](../README.md)（当前阻塞项）、
 > [ADR 0001](../05-adr/0001-cloudflare-tos-risk.md)（P0 头号阻塞）、
 > [ADR 0007 §9](../05-adr/0007-node-migration.md)（P1 的节点侧七阶段已单独排过）
@@ -78,43 +89,114 @@
 
 ### 3.2 任务清单
 
+> **2026-08-30 勾选复核。三条判定口径，先说清楚再看勾：**
+> 1. **写了代码 ≠ 上线，写了脚本 ≠ 执行过，裁决落库 ≠ 已批准。**
+>    `infra/` 下 **18 支脚本共 10,705 行**全部带 dry-run，而 `bp-node-*` 现有 **0 台** ——
+>    所有节点侧任务一条都不勾。
+> 2. **ADR 0010–0015 六份全是「提案，未批准」**，所以它们对应的任务
+>    （域名策略 / 退款政策 / 折抵算法 / iOS 客户端 / SLO / on-call）**一条都不勾**，
+>    只在行尾登记「有裁决草案」。
+> 3. **勾了的每一条都注明日期 + 证据**（commit、文件路径或一条可复跑的命令）。
+
 **0.A · 决策解锁（需用户决策，⏳ 外部等待）**
 
-- [ ] ⏳ **ADR 0001 拍板**：Cloudflare 用不用做数据面。批准提案 C，或裁为 A/B 并按
-      [docs/README §4](../README.md) 的规矩写新 ADR 逐条交代旧理由落点。**这是头号阻塞。**
+- [x] ~~⏳ **ADR 0001 拍板**：Cloudflare 用不用做数据面。批准提案 C，或裁为 A/B 并按
+      [docs/README §4](../README.md) 的规矩写新 ADR 逐条交代旧理由落点。**这是头号阻塞。**~~
+      **✅ 2026-08-17 用户批准提案 C**（指示「所有决策按照推荐」），
+      证据：`docs/05-adr/0001-cloudflare-tos-risk.md:3` 的「**已批准，待实施**」
+      与「裁决人：用户（2026-08-17 批准）」一行；记录随 commit `a70a9621298` 进 master
+      （`git merge-base --is-ancestor a70a9621298 HEAD` 为真，2026-08-30 实查）。
+      ⚠️ **是「已批准，待实施」不是「已实施」** —— 落地约束 1–3 一条都没做（B33）。
 - [ ] ⏳ **`vpn-us` / `vpn-jp` 上是否有人在用** —— ADR 0007 §11 第 1 条自陈
       「本文唯一一个必须由人回答、任何命令都替代不了的问题」。
-- [ ] ⏳ **域名策略**：要几个主域名、注册在哪、DNS 用谁、带外推送怎么做。
+- [ ] 🔶 ⏳ **域名策略**：要几个主域名、注册在哪、DNS 用谁、带外推送怎么做。
       当前 `system-design §2`（用 `web.babel.plus` / `docs.babel.plus` 子域）与
       `system-design §4.1`（禁止子域）**直接矛盾**，需一份 ADR 裁决。
-- [ ] ⏳ **退款政策** —— 法务页不能空着上线，年付 75 折把风险前置。
+      **2026-08-30：ADR 写出来了，但本条不勾。**
+      [ADR 0010](../05-adr/0010-domain-strategy.md)（2026-08-23，随 PR #18 于 2026-08-29 进 master）
+      裁决「按故障域买五个中性主域名，品牌不进域名；NS 全放注册商，CF 在 P1 持零个池内 zone」，
+      §2.2 直接消解了 system-design 的那处矛盾。
+      **不勾的两条理由**：① 状态是**提案，未批准**；② 它规定的 **5 个域名一个都没买**。
+      ✅ 顺带订正一个错误前提：`babel.plus` **已注册且 DNS 可控**
+      （`dig +short NS babel.plus` → `dns13/dns14.hichina.com`，2026-08-30 实查），
+      归属已于 2026-08-25 由用户确认为「项目所有者自己的」。见 §9 B4。
+- [ ] 🔶 ⏳ **退款政策** —— 法务页不能空着上线，~~年付 75 折把风险前置~~。
       [page-inventory §8](../03-product/page-inventory.md) 标为**上线前置条件不是待办事项**。
-- [ ] ⏳ **升级折抵算法**（按剩余天数还是剩余流量）与**流量包在周期重置时保留还是清零**
+      **2026-08-30 两处更新**：① **「年付 75 折」已被推翻，改 85 折且年付不随首发上架**
+      （[pricing §3.2](../03-product/pricing-and-plans.md) 逐格复算：75 折下标准/重度年付
+      落到 1.17/1.16，破 1.20× 地板）；② [ADR 0013](../05-adr/0013-billing-and-refund-rules.md)
+      给了完整退款方案，迁移 `0016` 甚至已经把「冷静期退款一生一次」做成数据库约束
+      （`refunds_cooling_off_once`，commit `a4604c9396f`）。
+      **仍不勾**：ADR 0013 是**提案，未批准**，且这一条的实质是**用户对外承诺**不是技术方案。
+- [ ] 🔶 ⏳ **升级折抵算法**（按剩余天数还是剩余流量）与**流量包在周期重置时保留还是清零**
       —— 两条都是产品规则，卡着 `POST /orders` 的 `surplus_amount` 契约与
       `users.transfer_enable` 是否要拆成 `_plan` + `_pack` 两列。
-- [ ] ⏳ **iOS 首推客户端**：Karing（user-journey，旅程步数最短）vs Shadowrocket
+      **2026-08-30：`transfer_enable` 那半句已经在数据库里落地了**（迁移 `0016`：
+      它现在是 GENERATED STORED 列 = `transfer_enable_plan + transfer_enable_pack`，
+      `pack_expire_at` 顺延 12 个月，加油包跨周期结转），
+      [ADR 0013](../05-adr/0013-billing-and-refund-rules.md) 裁决「升级只按剩余天数折抵」
+      且 `GetRefundBasis` 的 `WITH RECURSIVE` 升级链已在真库上对过算例。
+      🔴 **仍不勾，两条理由**：① ADR 0013 **提案，未批准** ——
+      **也就是说数据库已经按一份未获批准的裁决改了形状**；
+      ② [pricing §3.5.10](../03-product/pricing-and-plans.md) 明记
+      **降档、周期内多次升档、加油包余量三种情形都还没有算式**，`surplus_amount` 契约仍未定。
+- [ ] 🔶 ⏳ **iOS 首推客户端**：Karing（user-journey，旅程步数最短）vs Shadowrocket
       （tutorials-spec，需要注册外区 Apple ID 的完整子旅程）。
+      **2026-08-30：[ADR 0015](../05-adr/0015-client-strategy.md) 已裁决**（连同 sing-box profile
+      形态、分流规则一致性、设备数软限制口径一并处理），但状态是**提案，未批准**，
+      **所以不勾** —— 在用户批准之前 tutorials-spec 与 user-journey 都不该按它改。
 - [ ] ⏳ **是否采购境内探测能力**（租三网短期 VPS 或买商业监测服务）——
       §10 六项实测里有三项依赖它，而 [ADR 0004 §6](../05-adr/0004-transport-hardening.md)
       记录了境内 VPS 探测境外中转服务本身的法律敞口。
 
 **0.B · 零成本、零依赖、能立即做的验证（应当排在所有事情之前）**
 
-- [ ] 🔴 **起一个真实 v2node 容器，一次测完三件事**：
+- [x] ~~🔴 **起一个真实 v2node 容器，一次测完三件事**：
       (a) 是否发送 `If-None-Match`；(b) 能否配置 `Authorization` 头；
       (c) 收到 401/403 时**是否清空本地用户列表**。
-      成本以分钟计，影响见 §9 与 §11-R8。**这是全项目性价比最高的一个动作。**
-- [ ] 🔴 **`openssl s_client` 核对 `*.run.app` 与 Cloud Run 自定义域名映射的证书签发者。**
+      成本以分钟计，影响见 §9 与 §11-R8。**这是全项目性价比最高的一个动作。**~~
+      **✅ 三个问题都有答案了，但 🔴 容器一次都没起 —— 勾的是答案，不是方法。**
+      (a) **发**（2026-08-17，读源码；v2node 完整实现条件请求：发送 → 304 短路 → 保存新 ETag，
+      证据 [v2node-contract-20260817 §2](../evidence/v2node-contract-20260817/)）；
+      (b) **不能**（只发 query，无 `Authorization` 支持、无开关 —— 即 B6，裁决为 query）；
+      (c) **不会清空**（2026-08-21，读源码；`GetUserList` 在 401/403 上返 error 而非空列表，
+      `nodeInfoMonitor` 在 `compareUserList` 之前提前 return，证据
+      [v2node-401-behavior-20260821](../evidence/v2node-401-behavior-20260821/)）。
+      🔴 **但 (c) 的答案带出一个方向相反的新风险**：`Controller.Start()` 在拉不到用户表时**拒绝启动**
+      —— 运行中是静默失效（只有一行 `log.Error`），**重启**才是全员掉线且不自愈。
+      🔴 **真机验证仍然欠着**：§4.3 出口标准 2 要的「180 秒窗口 1×200 + 2×304」是真机判据，
+      读源码替代不了它（B3 仍记 🔶）。
+- [x] ~~🔴 **`openssl s_client` 核对 `*.run.app` 与 Cloud Run 自定义域名映射的证书签发者。**
       成本 10 秒。若是 Google Trust Services，则 API 必须有两个入口
-      （面向中国用户的域名经能钉 LE 的代理，节点继续直连 run.app）。
-- [ ] **读 v2node 源码**：它到底承载哪些协议（是否内置 Hysteria2 core）、
+      （面向中国用户的域名经能钉 LE 的代理，节点继续直连 run.app）。~~
+      **✅ 2026-08-21 做完，答案是 GTS**：签发者 **Google Trust Services `CN=WR2`**
+      （→ GTS Root R1 → GlobalSign），**不是 LE**。
+      证据 [gcp-inventory-20260821 §2](../evidence/gcp-inventory-20260821/)。
+      ⚠️ **括号里那个「则」现在成立了，而它指向的动作没做**：deploy §15 的「若是 GTS」分支生效 ——
+      `*.run.app` 直连**不能**作为面向中国用户的 API 入口，必须过一个能钉 LE 的代理
+      （CF 橙云 $0 或 GCLB 约 $18/月**仍待核实**），**代理选型至今未定**（B9 的后半条）。
+- [ ] 🔶 **读 v2node 源码**：它到底承载哪些协议（是否内置 Hysteria2 core）、
       轮询频率与端点次数（`4 次/60 秒` 目前是假设）、是否可配。
       前者决定 HY2 装机自动化要不要从头写，后者决定 §11-R6 的 Cloud Run 请求量算术。
-- [ ] **`gcloud sql instances describe` 核对四个配置细节**：存储下限、自动备份默认份数、
+      **2026-08-30：读过了，但结论没有落进任何一个 evidence 目录，所以不勾**（即 B8）。
+      按本仓的证据纪律，「我记得读过」不构成事实基线 ——
+      §11-R6 的「10 节点 = 免费额度的 86%」这条算术至今建立在一个没有出处的 `4 次/60 秒` 上。
+- [ ] 🔶 **`gcloud sql instances describe` 核对四个配置细节**：存储下限、自动备份默认份数、
       PITR 事务日志保留天数、**删除实例时自动备份是否一并删除**（第四项优先级最高）。
-- [ ] **查现有节点的网络层级**（`gcloud compute instances describe` + `addresses describe`
+      **2026-08-21 解决 3/4，所以不勾**：存储 **10 GB PD_SSD**、自动备份**保留 14 份**、
+      PITR 事务日志 **7 天**；**第四问 `describe` 里根本没有这个字段，仍开放**（即 B12）。
+      🔴 顺带查到三条本来没在问、但比第四问更要紧的：**`deletionProtection: false`**
+      （一条命令就能删掉实例）、`storageAutoResize` 开且**无上限**（存储成本没有天花板）、
+      公网 IP 存在且 `sslMode: ALLOW_UNENCRYPTED_AND_ENCRYPTED`。
+      证据 [gcp-inventory-20260821 §3](../evidence/gcp-inventory-20260821/)。
+- [x] ~~**查现有节点的网络层级**（`gcloud compute instances describe` + `addresses describe`
       两处，可能不一致）。查不清则 reference-repos §1.5 那组吞吐实测没有层级归属，
-      ADR 0004 §3.7 无法复审。
+      ADR 0004 §3.7 无法复审。~~
+      **✅ 2026-08-20 查完，两处一致**：`vpn-us`（us-west1-a）/ `vpn-jp`（asia-northeast1-a）
+      **两台实例与两个静态 IP 全部 `PREMIUM`**。
+      证据 [network-tier-implementation-20260820 §2](../evidence/network-tier-implementation-20260820/)。
+      附带两条：Premium 是 GCP 默认值；当时脚本里**显式硬编码 `--network-tier=PREMIUM` 共 7 处**
+      （不是疏忽，是写死的）。这一条解开了 ADR 0004 §3.7 的复审前提，进而有了 ADR 0008。
 - [ ] **实验 mux 与 XTLS-Vision 是否互斥** —— 若互斥，
       ADR 0004 §3.3 与 system-design §3.1 必须放弃一个。
 - [ ] **抓各客户端真实 `User-Agent` 字符串**（Clash Verge Rev / sing-box / Karing /
@@ -145,15 +227,32 @@
 
 **0.D · 补齐三份缺失的裁决**
 
-- [ ] **域名策略 ADR** —— 消解 system-design §2 与 §4.1 的矛盾（承 0.A）
-- [ ] **节点密钥传输形式 ADR** —— ADR 0006 §10.2 要求 `Authorization: Bearer`，
+> 🔴 **2026-08-30 复核：三条一条都不勾，但三条的欠法各不相同，必须分开说** ——
+> 因为 §3.3 出口标准 6 的判据是「**各自存在，且不是「提案，未批准」**」，
+> 这两个条件当前**没有一条同时满足**。
+
+- [ ] 🔶 **域名策略 ADR** —— 消解 system-design §2 与 §4.1 的矛盾（承 0.A）。
+      **文件存在**：[ADR 0010](../05-adr/0010-domain-strategy.md)（2026-08-23，PR #18 于 2026-08-29 合并）。
+      **状态「提案，未批准」→ 出口标准 6 不满足，不勾。**
+- [ ] 🔴 **节点密钥传输形式 ADR** —— ADR 0006 §10.2 要求 `Authorization: Bearer`，
       而 UniProxy 冻结契约里节点把 token 放 query string。
       api-contract §3.2.4 已给出 A（打补丁维护 fork）/ B（过渡态接受 query）/ C（换 agent，已否）
       三条路径，**需要一次裁决而不是一份手册**。依赖 0.B 第一条的 (b)。
-- [ ] **「域名被封的自动检测」ADR** —— 这个洞在
+      🔴 **2026-08-30：这一份 ADR 到今天根本不存在。** `ls docs/05-adr/` 是
+      `0001`–`0008` 与 `0010`–`0015` 共 **14 份**，**没有一份是节点密钥传输形式**。
+      事实上的裁决只活在 evidence 与 api-contract 里（B6：读源码确认「只发 query、无 Bearer 支持、
+      无开关」，因此裁决为 query），**但那不是一份 ADR** ——
+      按 [docs/README §4](../README.md)，它推翻的是 ADR 0006 §10.2 的一条明文要求，
+      而「推翻旧裁决要写一份新 ADR 并逐条交代落点」这一步**没有做**。
+      这是三条里唯一一条**连文件都没有**的。
+- [ ] 🔶 **「域名被封的自动检测」ADR** —— 这个洞在
       ADR 0002 §7、ADR 0003 §7、system-design §9、user-journey §16、api-contract §14、
       data-model §16、runbook §7 **七处各被登记一次**，需要一次合并裁决。在它解决前，
       product-brief §8 承诺的「域名失联恢复 ≤ 30 分钟」**零机制支撑**。
+      **文件存在**：[ADR 0011](../05-adr/0011-domain-blackout-detection.md)（2026-08-23），
+      一次性合并解决了那七处登记。
+      **状态「提案，未批准」→ 出口标准 6 不满足，不勾**；且**零机制支撑这句话今天仍然成立**
+      （代码里没有域名池表、没有判决逻辑、没有广播通道）。
 
 ### 3.3 出口标准
 
@@ -169,6 +268,27 @@
 
 > **出口标准 7 是 P1 的真实硬前置**：node-provisioning 的 Hysteria2 需要 Let's Encrypt 证书
 > （DNS-01 签发，刻意不建 A 记录，域名只存在于证书里），deploy.md 里所有 `*.babel.plus` 都是占位符。
+
+**2026-08-30 逐条实测（上表原文不动，判定追加在这里）：**
+
+| # | 判定 | 依据（当场跑过的命令 / 读过的文件） |
+|---|---|---|
+| 1 | ✅ **满足** | `0001-cloudflare-tos-risk.md:3` = 「**已批准，待实施**（2026-08-17 用户批准）」，不再是「提案，未批准」 |
+| 2 | ✅ **满足，且超额**：要求 ≥ 5 个，实有 **9 个**，且 **9/9 都有 README** | `ls -d docs/evidence/*/ \| wc -l` = 9。最后一个缺 README 的目录 `ipv6-censorship-20260817/` 已于 2026-08-29 补上（含「证明什么 / 不证明什么」一节，并附 `sha256` 与逐字段解包） |
+| 3 | ✅ **满足**（本轮由 §7 与定价落库共同达成） | `grep -n "待定" docs/03-product/pricing-and-plans.md` **无命中**（2026-08-30）；三档 ¥72/¥159/¥358 已定案；`pricing §7` 第一条已是 `- [x]` |
+| 4 | 🔶 **半满足** | [docs/README §7](../README.md) 第 1 条已划掉（ADR 0001 已批准）；**第 2 条「零实测数据」原封不动** —— Standard 的性能数据仍是零，`nettier-ab-*` 未做 |
+| 5 | 🔶 **答案有了，形式不合** | 三项行为全部有结论（见 0.B 第一条），但落在 `v2node-contract-20260817` 与 `v2node-401-behavior-20260821` 两个目录，**没有一个叫 `evidence/v2node-behavior-*`**；且判据要的「起容器」一次都没做 |
+| 6 | 🔴 **不满足，0/3** | 域名策略（0010）与域名失联检测（0011）**文件存在但状态是「提案，未批准」**，判据明确排除这个状态；**节点密钥传输形式那一份连文件都不存在**（`ls docs/05-adr/` = `0001`–`0008` + `0010`–`0015`，14 份，无此题）。逐条见 0.D |
+| 7 | ✅ **满足** —— 🔴 **而且它一直是满足的，只是没人查过** | `dig +short NS babel.plus` → `dns13.hichina.com.` / `dns14.hichina.com.`；`dig +short SOA babel.plus` → `dns13.hichina.com. hostmaster.hichina.com. 2026082617 3600 1200 86400 600`（2026-08-30 实查）。**即「至少一个域名已注册且 DNS 可控」为真。** 归属 2026-08-25 由用户确认为项目所有者自己的 |
+
+> 🔴 **出口标准 7 的这次订正值得单独记一笔，因为它推翻的是一个被反复引用的前提。**
+> 「域名一个都没注册」这句话曾出现在 §9 B4、`launch-readiness-review-20260821` §1/§2.2/§3、
+> 以及 ADR 0014 的三处论证里，并且是 §4.4「P1 硬前置」的第一条。
+> **它是错的** —— `babel.plus` 从 2023-01-11 起就注册着，NS 一直在我们手上，
+> 生产 `bp-api` 的 `BP_ALLOWED_ORIGINS` 也一直指向它。
+> **真正缺的是 ADR 0010 那 5 个中性镜像主域名（未采购）**，那是另一件事。
+> 换句话说：**P1 的 Hysteria2 / DNS-01 证书链今天就可以开始搭，它并没有被「零域名」卡着。**
+> ⚠️ 但请不要把这条读成「P0 快做完了」—— 出口标准 6 是 0/3，第 4 条只满足一半。
 
 ### 3.4 依赖
 
@@ -187,6 +307,20 @@
 
 ### 4.2 任务清单
 
+> **2026-08-30 勾选复核：1.A 节点侧一条都不勾，1.B API 侧勾了 6 条。**
+> **2026-08-30 二次复核（基线 `b6e7603e7f9`）：1.B 再勾 1 条（UniProxy 端点），
+> 1.A 仍然一条都不勾 —— `gcloud compute instances list --project=oratis-491316` 只返回
+> `vpn-us` / `vpn-jp`，`bp-node-*` **0 台**（本次只读实查，不是转述）。**
+> 🔴 **本阶段最该被记住的一句话，在二次复核之后变得更硬了**：
+> API 侧从 18/128 做到 **120/128**、9 个 `RunXxxTask` 全部实现、六个节点面端点齐了，
+> **而 §4.3 的八条出口标准仍然一条都不满足** —— 它们全部要求一台在跑的机器。
+> **P1 现在只差一台机器，软件侧的借口没有了。**
+> 🔴 **1.A 的脚本全部写好了，一台机器都没建。**
+> `infra/node/` 下 `create-node.sh` 779 行、`setup-node.sh` 941 行、`verify-route.sh` 518 行、
+> `rotate-ip.sh` 383 行（`infra/` 全目录 **18 支脚本 / 10,705 行**，2026-08-30 `wc -l` 实数），
+> **全部带 dry-run，而 `bp-node-*` 现有 0 台**。
+> **写了脚本 ≠ 执行过** —— 本节所有节点侧条目按此口径一律保持 `- [ ]`。
+
 **1.A · 节点侧（照 [ADR 0007 §9](../05-adr/0007-node-migration.md) 与
 [node-provisioning](../04-ops/node-provisioning.md) 执行）**
 
@@ -203,19 +337,104 @@
 
 **1.B · API 与数据侧**
 
-- [ ] 建 Cloud SQL `db-f1-micro`（`--edition=ENTERPRISE` 必须显式写，否则命令直接失败）
-- [ ] 选迁移工具（`golang-migrate` / `atlas` / `goose` / `dbmate`）并落 44 张表的 DDL
-- [ ] `bp-api` 骨架：chi + pgx/v5 + pgxpool（MaxConns=2）+ sqlc，`--max-instances=8`
-- [ ] 冻结 `openapi/uniproxy-v1.yaml`，实现 UniProxy 五端点
-      （`/config` `/user` `/push` `/alive` `/status`），**裸 JSON 不套信封**
-- [ ] `node_id` 从密钥推导，请求里带的 `node_id` **一律忽略**，不一致返 403 并告警
-- [ ] ETag：`servers.config_rev` / `servers.user_rev` 两列 + 四条 bump 规则
-      （改可见用户集合要 bump / 流量累加不 bump / **跨越 `transfer_enable` 阈值那一次要 bump** /
-      **到期由定时任务 bump**）
-- [ ] 订阅下发：token 十步校验、UA 分发、`subscription-userinfo` 头、伪节点、**同步写审计表**
-- [ ] 账户体系最小集：邀请码、邮箱登录、订阅 token 表、设备数
+- [x] ~~建 Cloud SQL `db-f1-micro`（`--edition=ENTERPRISE` 必须显式写，否则命令直接失败）~~
+      **✅ 2026-08-17 建成**：`bp-db`，PostgreSQL **17**，`db-f1-micro`，`us-central1`，
+      自建成起运行并计费（到 08-20 gross $0.74）。
+      证据 [as-built-gcp §10.2](../02-architecture/as-built-gcp.md)。
+- [x] ~~选迁移工具（`golang-migrate` / `atlas` / `goose` / `dbmate`）并落 44 张表的 DDL~~
+      **✅ 选 `golang-migrate`（版本钉死，`infra/migrate/Dockerfile:28`），走独立 Cloud Run Job
+      `bp-migrate`；44 张表已在库。** 2026-08-30 实数：
+      `ls api/db/migrations/*.up.sql | wc -l` = **17 组**；
+      `grep -rhoiE 'CREATE TABLE (IF NOT EXISTS )?[a-z_."]+' api/db/migrations/*.up.sql | sort -u | wc -l` = **44**。
+      🔴 **2026-08-30 二次复核，上面这两个数都要改，而且第二个当时就是错的**：
+      现为 **19 组**（新增 `0018_ledger_commission_account` / `0019_ledger_admin_adjust`，两支都只 seed 科目、
+      `0019` 另把 `admin_users_email_uk` 改成 `WHERE disabled_at IS NULL` 的部分索引，**都不建表**）；
+      表是 **47 张**不是 44 —— 上面那条 grep 的模式匹配不到 `CREATE UNLOGGED TABLE`，
+      漏掉了 `server_online_state` / `user_device_state` / `rate_limit` 三张。
+      44 + 3 = 47，与 commit `3e18dd8b269` 记录的 `make migrate-verify` 实跑结果
+      （「up 后 47 表，down 后残留 0」）一致。
+      ⚠️ **「谁保证 CI 里的 schema 和生产一致」这半句仍未解决**（B11），从未做过一次 schema diff。
+- [x] ~~`bp-api` 骨架：chi + pgx/v5 + pgxpool（MaxConns=2）+ sqlc，`--max-instances=8`~~
+      **✅ 2026-08-17 上 Cloud Run，四个参数逐条对上**：`api/go.mod` = `go-chi/chi/v5 v5.3.1` +
+      `jackc/pgx/v5 v5.10.0`；线上 `BP_DB_MAX_CONNS=2`、`maxScale=8`
+      （[as-built-gcp §10.1](../02-architecture/as-built-gcp.md)）；
+      sqlc 生成 **194 条**查询（`api/db/gen/*.sql.go` 的 SQL 常量数，2026-08-30 实数）。
+      **2026-08-30 二次复核：现为 343 条** —— `db/queries/*.sql` 的 `-- name:` 数、
+      `db/gen/*.sql.go` 的 SQL 常量数、`Querier` 接口的方法数**三处一致**（各自一条命令实数）。
+- [x] ~~冻结 UniProxy 契约，实现 UniProxy 五端点
+      （`/config` `/user` `/push` `/alive` `/status`），**裸 JSON 不套信封**~~
+      （原文写的是「冻结 ~~`openapi/uniproxy-v1.yaml`~~」，那个文件名早已被划掉，见下方 ⚠️）
+      **✅ 2026-08-30 二次复核勾上**（commit `d5400165fc3` 之前的 `92b65e0d5f9` 段落里补完，
+      `PushUniProxyStatus` 落在 `api/internal/handler/usersub.go:1413`）：
+      **六个节点面 operation 现在全部实现** —— 五端点加上契约里多出来的 `/alivelist`。
+      「裸 JSON 不套信封」已落实（PR #14 修过一次相反的错）。
+      ⚠️ **一条文档欠账原样留着，不因为勾上就消失**：`openapi/uniproxy-v1.yaml` 这个文件仍然不存在，
+      UniProxy 契约被并进了 `openapi/openapi.yaml`，**「单独冻结一份 uniproxy 契约」这个决定
+      至今没有任何地方交代过**。勾的是「实现」，不是「那个决定被解释过了」。
+      ⚠️ 另一条：**六个端点实现了 ≠ 验过了** —— §4.3 出口标准 2 要的「180 秒窗口 `1×200 + 2×304`」
+      是真机判据，而节点数是 0（B3 仍记 🔶）。
+      **以下是 2026-08-30 第一次复核时写的不勾理由，原样保留：**
+      ① **`openapi/uniproxy-v1.yaml` 这个文件不存在** —— `ls openapi/` 只有 `openapi.yaml`
+      一份（128 个 operation）。UniProxy 契约被并进了那一份，**「单独冻结一份 uniproxy 契约」
+      这个决定被静默改掉了，没有任何地方交代过**。
+      ② **五个端点实现了四个**：`GetUniProxyConfig` / `GetUniProxyUsers` /
+      `PushUniProxyTraffic`（`/push`）/ `PushUniProxyAlive`（`/alive`）已实现，
+      外加本行没列的 `GetUniProxyAliveList`（`/alivelist`）；
+      🔴 **`PushUniProxyStatus`（`/status`）未实现，仍返 501**
+      —— 而 `authmap.go` 的注释专门警告过它：表里查不到的 operation 会被**原样放行不做鉴权**，
+      上一版正是把它拼错成 `GetUniProxyStatus`，「当时无害（handler 仍返回 501），
+      但实现 /status 的那一刻它就是一个无鉴权写端点」。
+      「裸 JSON 不套信封」已落实（节点面不套信封，PR #14 修过一次相反的错）。
+- [x] ~~`node_id` 从密钥推导，请求里带的 `node_id` **一律忽略**，不一致返 403 并告警~~
+      **✅ 已实现**：`api/internal/handler/node.go` 的 `nodeIDMatches`，
+      五个已实现的节点面 operation 逐个先过它，不一致返 `403 NodeForbidden`。
+      鉴权本身按 scope 白名单走 `authmap.go` 的 `nodeOperationScopes`（6 个 operation 各一个 scope），
+      覆盖性由 `TestOperationAuthCoverage` 反射比对强制，不靠人肉核对。
+- [x] ~~ETag：`servers.config_rev` / `servers.user_rev` 两列 + 四条 bump 规则~~
+      **✅ 表结构已落库，但列的位置与本行写的不同**：不是 `servers` 上的两列，
+      而是独立的 `node_rev` 表（`api/db/migrations/0004_servers.up.sql:71`，
+      `server_id` 主键 + `config_rev` / `user_rev` / 两个 `_at`）。
+      bump 规则由迁移 `0012` 的触发器实现（改 `users` 的 9 个字段自动 bump `user_rev`）。
+      🔴 **两条代价原样留着**：① 触发器在 sqlc 生成的 Go 代码里是**隐形的**，
+      调用方看不到任何线索（data-model §15.1 已登记）；
+      ② **真机 ETag 生效未验证** —— §4.3 出口标准 2 的「180 秒 1×200 + 2×304」没跑过（B3）。
+- [x] ~~订阅下发：token 十步校验、UA 分发、`subscription-userinfo` 头、伪节点、**同步写审计表**~~
+      **✅ 2 个 operation 已实现并上云**：`GetShortSubscription` / `GetClientSubscription`
+      （`api/internal/handler/subscription.go` + `internal/subgen/`，有 `subgen_test.go` /
+      `clash_rules_test.go` 两支单测）。
+      ⚠️ 两处真机欠账：`GEOIP,CN` 已按 B46 从下发规则里去掉（**代价是国内流量现在也走节点**）；
+      sing-box 侧缺 `inbounds` / `route.rules`（B45，需真机验）。
+- [x] ~~账户体系最小集：邀请码、邮箱登录、订阅 token 表、设备数~~
+      **✅ 10 个 operation 已实现并上云**：`VerifyInviteCode` / `RegisterAccount` /
+      `SendEmailCode` / `Login` / `RefreshToken` / `Logout` / `ForgotPassword` /
+      `ResetPassword` / `ChangePassword` / `GetCurrentUser`（`api/internal/handler/auth.go`）。
+      🔴 **但邮箱这条链是断的**：ESP 未选型、**发信未接通**，`email_log.status` 恒为 `queued`
+      —— 也就是说「邮箱登录」现在拿不到验证码（B22）。
 - [ ] 六条 Cloud Scheduler + 一条 Cloud Tasks 入账队列（OIDC aud 用 `*.run.app` 不用镜像域名）
-- [ ] 十条 log-based metrics **必须在 `bp-api` 第一次部署之前建好**（它们不追溯）
+      **2026-08-30：不勾。** 9 个 `RunXxxTask` 端点**全部 501**
+      （`authmap.go` 的 `internalTaskOperations` 硬 501，见 §9 B48）；
+      `infra/scripts/setup-scheduler.sh`（916 行）已写好并过 shellcheck，**但从未执行**。
+      as-built 记录 GCP 上已有 **2 条 Cloud Tasks 队列**，Scheduler 作业则是 0 条。
+      🔴 **2026-08-30 二次复核：上面那半句「9 个端点全部 501」已经不成立，而本条仍然不勾。**
+      九个 `RunXxxTask` **全部实现**（commit `6ed53d5a8bc`，22 个顶层测试 / 63 个子测试）；
+      外部依赖做成可注入接口，未配置时优雅退出 `200 + WARN` 而不是 503
+      （每分钟一次的假告警会训练所有人忽略它）。
+      **不勾的理由换成了纯粹的一条**：`gcloud scheduler jobs list`（us-central1 / asia-east2 / us-west1
+      三个 location 各查一次，2026-08-30 只读实查）返回的**只有 `lisa-autonomy-sweep` 一条，
+      `bp-` 作业 0 条**。**端点在那里，没有任何东西会去调它。**
+- [ ] 🔴 十条 log-based metrics **必须在 `bp-api` 第一次部署之前建好**（它们不追溯）
+      **2026-08-30：这一条已经失败了，不是「还没做」而是「做晚了，损失已经发生」。**
+      `bp-api` 首次部署是 2026-08-17，而当天 `gcloud logging metrics list` 返回空 ——
+      **2026-08-17 → 08-21 的四天数据因「不追溯」永久缺失**。
+      2026-08-21 补建 **7 条**；清单现为 **11 条**（`bp_ratelimit_degraded` 是本轮新增），
+      仍有 **4 条未建**：`bp_mail_bounce`（ESP 未接通）、`bp_cert_issuer_bad`（信号源已有，指标未建）、
+      `bp_node_alive`（应用侧已写日志，指标未建，**§5 的 metric-absence 告警依赖它**）、
+      `bp_ratelimit_degraded`（限流失败开放时唯一的痕迹，**它不产生任何 429**）。
+      逐条见 [monitoring §3.2](../04-ops/monitoring.md) 与 §9 B42。
+      **2026-08-30 二次复核（`gcloud logging metrics list --project=oratis-491316` 只读实查）：
+      确实是 7 条，逐条对上** —— `bp_admin_authz_fail` `bp_api_429` `bp_api_5xx` `bp_db_pool_wait`
+      `bp_subscribe_404` `bp_task_idem_skip` `bp_uniproxy_auth_fail`。
+      **此前这个「7」是转述，现在是实测；差的那 4 条也确实一条都没建。**
 
 ### 4.3 出口标准
 
@@ -250,11 +469,62 @@
 
 **2.A · 前端与页面（P1 档共 28 个，其中 8 页是关键路径）**
 
-- [ ] 选前端框架与组件库（用户面板 M1 移动优先 / 后台 M3 桌面优先，两者要求差异很大）
-- [ ] 关键路径 8 页：落地页 → `/auth/register` → `/plan` → `/order/:trade_no` →
+> **2026-08-30 勾选复核：本组只有第一条能勾一半，其余一条都不勾。**
+> 前端确实动了（登录态、守卫、108 个测试、三页接线），
+> **但关键路径 8 页里只有 `/dashboard` 与 `/ticket` 两页接了线**，
+> 落地页、注册、套餐、收银台、订阅页、docs 教程站**都还是空壳或不存在**。
+>
+> **2026-08-30 二次复核（基线 `b6e7603e7f9`）：本组再勾 1 条，前两条仍不勾但理由缩小了一大圈。**
+> `pnpm test` 本次真跑：**623 个用例 / 48 个文件全绿**（shared 67/3 + user 189/20 + admin 367/25）。
+> 用户面板 **20 条业务路由全部接线**（commit `d5400165fc3`；`user/src/App.tsx` 共 22 条 `path=`，
+> 另两条是 `/` 重定向与 `*` 的静态 `NotFoundPage`）；
+> 后台 23 页接线 **21 页**（`b6e7603e7f9`），不接的两页是 `DomainsPage`（三个端点都是 501）
+> 与 `NotFoundPage`（静态页）。`web/` 下的 `TODO(P1)` 从 **44 处 / 30 个文件**降到
+> **22 处 / 16 个文件**（`grep -rho 'TODO(P1)' web --include='*.ts*' | wc -l` 实数）。
+> 🔴 **关键路径 8 页现在接线 6 页，仍缺的两页是同一件事**：落地页与 `docs.*` 教程站
+> **属第三套前端，目录都还不存在**。
+
+- [ ] 🔶 选前端框架与组件库（用户面板 M1 移动优先 / 后台 M3 桌面优先，两者要求差异很大）
+      **框架已定并已在跑**（`web/*/package.json` 2026-08-30 实读）：
+      **React `19.2.8` + react-router `7.18.2` + Vite `8.2.1` + Tailwind `4.3.3`**，
+      测试 vitest `4.1.11`，**108 个用例 / 7 个文件全绿**（`pnpm -r test` 2026-08-30 复跑：
+      shared 67 + user 33 + admin 8）；`AuthProvider` + `RequireAuth` 三态守卫落地，
+      16 条受保护路由整段在 layout route 守卫之下，`App.routes.test.tsx` 对**真实路由表逐条**核对。
+      🔴 **组件库仍未选型，所以不勾**：`web/README §7` 代价 5 明记手写的
+      `Button` / `Card` / `Badge` 只够撑骨架，**后台 16 条危险操作需要的确认对话框
+      （焦点管理 + 键盘 + 屏幕阅读器）现在不存在**；后台 admin 框架（Refine 之类）也未定，
+      因此 `openapi/admin-api.yaml` **仍不能冻结**（B27）。
+      **2026-08-30 二次复核：测试数改为 623 个用例 / 48 个文件**（本次真跑）；
+      后台侧另有 `admin/src/lib/auth.tsx` 的 `RequireAdmin` 守卫与
+      `admin/src/App.routes.test.tsx` 对真实路由表逐条核对。
+      🔴 **仍不勾，两条理由都没变，而第一条现在有了一个具体的证物**：
+      ① 后台 16 条危险操作用的是 `components/DangerousAction.tsx`（742 行），
+      它是**行内确认块不是 modal** —— `grep 'role="dialog"\|aria-modal\|<dialog'` 在该文件里**无命中**。
+      这不是疏忽，是 web/README §7 代价 5 那句「那个组件现在不存在」的直接后果：
+      做不对焦点管理的 modal 对键盘与读屏用户就是死路，所以刻意退回行内块。
+      **组件库这一条一个字都没被解决。**
+      ② 后台 admin 框架（Refine 之类）仍未定，`admin-api.yaml` 仍不能冻结。
+- [ ] 🔶 关键路径 8 页：落地页 → `/auth/register` → `/plan` → `/order/:trade_no` →
       `/subscribe` → `docs.*` → `/dashboard` → `/ticket`
-- [ ] `/order/:trade_no` **必须独立成页不能做弹窗**（要承载链选择、汇率倒计时、
-      `underpaid` 显式界面、可关页再回来的轮询、「我已付款帮我查一下」主动查单）
+      **2026-08-30：8 页里接线 2 页（`/dashboard`、`/ticket`，commit `2c0c6b69bde`），
+      外加不在这 8 页里的 `/auth/login`。** 全仓 47 个路由组件里只有这 3 个真的调过 API；
+      `web/` 下仍有 **44 处 `TODO(P1)` 散在 30 个文件里**（2026-08-30 `grep` 实数）。
+      **落地页与 `docs.*` 教程站属第三套前端，目录都还不存在**（`web/README §8` 已登记）。
+      **2026-08-30 二次复核：8 页里接线 6 页**（`/auth/register`、`/plan`、`/order/:trade_no`、
+      `/subscribe`、`/dashboard`、`/ticket`，commit `d5400165fc3`）。
+      🔴 **仍不勾，缺的两页是同一件事**：**落地页**与 **`docs.*` 教程站**属第三套前端，
+      目录到现在都不存在。
+      ⚠️ **另一条不能被「6/8」盖过去的实况**：`/auth/register` 这一页前端是完整的，
+      **而真人现在收不到那封验证码邮件** —— ESP 一行没接（见 2.C）。
+      「页面接好了」与「这条路径能走通」在这一页上是两件事。
+- [x] ~~`/order/:trade_no` **必须独立成页不能做弹窗**（要承载链选择、汇率倒计时、
+      `underpaid` 显式界面、可关页再回来的轮询、「我已付款帮我查一下」主动查单）~~
+      **✅ 2026-08-30 二次复核勾上**（commit `d5400165fc3`）：
+      `web/user/src/routes/OrderDetailPage.tsx` 是 `App.tsx` 里 `path="/order/:trade_no"`
+      的独立路由（不是弹窗），承载的五件事逐条对上后端已实现的
+      `GetOrderPayment` / `PayOrder` / `RecheckOrderPayment`（「我已付款帮我查一下」走最后这条）。
+      ⚠️ **勾的是「这一页存在且形态对」，不是「付款能走通」** ——
+      链上扫描器是「未配置」的默认实现，没有任何一笔真钱经过这一页（见 2.B）。
 - [ ] 落地页四条硬约束：零 API 调用纯静态、域名探测后台并行不阻塞首屏、
       页脚常驻全部镜像域名、字体图标全部自托管
 - [ ] 备用域名页部署在**每一个**镜像域名上，< 20 KB 且无 JS
@@ -262,22 +532,116 @@
 
 **2.B · 支付与计费（⏳ 含外部等待）**
 
-- [ ] ⏳ 支付网关定型（自托管 EPUSDT vs 托管 OxaPay）与尽调
+> **2026-08-30：本组一条都不勾。** 支付相关 operation **全部 501**；
+> 数据库侧倒是先走了一步 —— 迁移 `0014`–`0017` 已落 `payments` / `pay_addresses` /
+> `refunds` / `coupons` 等表并带上 `refunds_cooling_off_once` 这类约束（commit `a4604c9396f`），
+> 但**表在库 ≠ 有读写路径**，而且它们是按**提案未批准**的 ADR 0012/0013 建的形状。
+>
+> 🔴 **2026-08-30 二次复核：上面那句「支付相关 operation 全部 501」已经不成立，本组勾了 4 条。**
+> 11 条支付 operation 全部实现（`CreateOrder` / `PayOrder` / `GetOrderPayment` /
+> `RecheckOrderPayment` / `HandlePaymentNotify` / `VerifyCoupon` / `CancelOrder` …，commit `92b65e0d5f9`），
+> 复式账在写入前按币种断言 `SUM = 0`（**不平的分录根本写不进去**），
+> 两条冲突的入账路径已合并成一条（`3e18dd8b269`）。
+> ⚠️ **但「实现了」在这一组里离「能收钱」比别处更远，三条都要说**：
+> ① **裁决没批**（ADR 0012 提案未批），**AML 完全未定** —— 现在的状态是「实现了但不许开」；
+> ② 链上扫描器是**可注入接口的「未配置」默认实现**，代码里没有任何第三方 endpoint 字面量，
+>    没有连过 TronGrid，**一次链都没扫过**；
+> ③ 🔴 **`paid → completed` 的权益开通未接** —— `markOrderPaid` 现在**响亮地**停在 `paid`，
+>    每次打一条 `metric=bp_order_paid_not_provisioned` 的 ERROR。缺一条「首次开通的
+>    covers_from / covers_to / reset_at」查询，而 `reset_at` 的口径唯一实现在
+>    `stats.sql` 的 `AdvanceUserResetCycle` 里，在 Go 侧再抄一份就是本仓反复警告的漂移。
+>    **也就是说：即使今天真收到一笔钱，用户也不会自动开通。**
+
+- [ ] 🔶 ⏳ 支付网关定型（自托管 EPUSDT vs 托管 OxaPay）与尽调
+      **2026-08-30：[ADR 0012](../05-adr/0012-payment-gateway.md) 把问题换掉了** ——
+      裁决为「**不部署 EPUSDT、不接易支付、`bp-api` 自扫链、一单一址且永不复用、
+      第一阶段一次都不归集**」。**状态「提案，未批准」，不勾**；AML 筛查方案仍完全未定。
+      **2026-08-30 二次复核：仍不勾，理由一个字没改**，但现在它的分量不同了 ——
+      **代码已经按这份未获批准的裁决实现完了**（11 条 operation + 复式账 + 一单一址）。
+      此前是「schema 按未批准的裁决改了形状」，现在**逻辑也是**。
 - [ ] ⏳ AML 链上风险筛查方案（MistTrack / TRM Labs / Chainalysis / Elliptic，均待评估）
-- [ ] 小地址池 + 金额唯一性匹配（冲突 +0.0001 递增，最多 100 次）
-- [ ] 幂等键 `(provider, external_id)` 建**唯一索引**，不是应用层 `SELECT ... IF NOT EXISTS`
-- [ ] 回调不可信 → 收到回调后反向查单；`POST /orders/{trade_no}/recheck` 是同一逻辑的用户侧入口
-- [ ] **过期订单的收款地址继续监听 ≥ 24 小时**，到账入账为余额不直接开通
-- [ ] D6「手工标记订单已支付」的独立权限位 —— **从第一天就存在，即使团队只有一个角色**
+- [ ] ~~小地址池 + 金额唯一性匹配（冲突 +0.0001 递增，最多 100 次）~~
+      🔴 **2026-08-30 二次复核：本条被 [ADR 0012](../05-adr/0012-payment-gateway.md) §3.6 推翻，
+      不是「做完了」也不是「还没做」，划掉的理由要写清楚**：
+      裁决改为「**订单与收款地址一一对应且地址永不复用；归属只看 `to_address`，
+      金额只用于判定 `paid` / `underpaid`**」。
+      「小地址池 + 金额尾数唯一」整套机制**被取消**，`+0.0001 递增重试最多 100 次` 一并作废。
+      数据库侧的强制已经在库：`pay_addresses.assigned_order_id` 是 `UNIQUE`（`0014_payments.up.sql:42`），
+      `UNIQUE (chain, address)` 与 `UNIQUE (chain, derivation_index)` 各一条。
+      ⚠️ **本条不勾成 `[x]`**：勾表示「这件事做到了」，而这件事**被裁掉了**。
+      **替代它的那件事**（一单一址 + 按地址归属）已随 `92b65e0d5f9` / `3e18dd8b269` 实现。
+      🔴 但 ADR 0012 **提案未批准**，所以这条推翻本身也还没生效 —— 两边都悬着。
+- [x] ~~幂等键 `(provider, external_id)` 建**唯一索引**，不是应用层 `SELECT ... IF NOT EXISTS`~~
+      **✅ 2026-08-30 二次复核勾上**（迁移 `0014_payments.up.sql:125`，随 commit `2c0c6b69bde` 入库）：
+      `payments` 表上 `UNIQUE (provider, external_id)`。
+      迁移注释逐字给了理由：应用层 `SELECT … IF NOT EXISTS` 在两个 Cloud Run 实例并发处理
+      同一次重投时会**双双通过**，结果是**同一笔钱入账两次、开通两次**，
+      而 `--max-instances=8` 之下这不是小概率。
+- [x] ~~回调不可信 → 收到回调后反向查单；`POST /orders/{trade_no}/recheck` 是同一逻辑的用户侧入口~~
+      **✅ 2026-08-30 二次复核勾上**（commit `92b65e0d5f9`）：
+      `HandlePaymentNotify` 的默认验签实现对**一切**回调返回 401
+      （`api/internal/handler/order.go:2066`，第一阶段没接任何网关，所以没有任何回调可能是真的；
+      默认放行意味着任何人 POST 一个 JSON 就能触发入账路径）；
+      `RecheckOrderPayment` 已实现（`order.go:1942`），是同一逻辑的用户侧入口。
+      有一条专门的用例把这条纪律钉死：`TestProcessDepositUsesChainAmountNotCallbackClaim` ——
+      回调声称全额到账、链上只有 0.5 USDT → **落库金额与状态判定只能来自链上**，订单停在 `underpaid`。
+      **任何一天有人把回调载荷里的数字接进计算，这条测试就会炸。**
+- [x] ~~**过期订单的收款地址继续监听 ≥ 24 小时**，到账入账为余额不直接开通~~
+      **✅ 2026-08-30 二次复核勾上**（commit `92b65e0d5f9` / `6ed53d5a8bc`）：
+      `api/internal/handler/order.go:80` 的 `addressWatchAfterExpiry = 7 * 24 * time.Hour`
+      —— **取 7 天不是 24 小时**，注释写明契约里的「≥ 24 小时」是下限不是上限，
+      且一单一址之下「第 8 天、第 800 天到账的钱归属仍然唯一确定」。
+      `ExpireTimedOutOrders` 用 `greatest(...)` 把 `address_watch_until` 顶到至少 24 小时之后
+      （`task.go:469`），chain-scan 的扫描范围就是 `address_watch_until > now()`。
+      ⚠️ **勾的是「这条规则在代码里成立」** —— 而 chain-scan 的扫描器是「未配置」的默认实现，
+      **这套监听至今一次都没有真的运行过**。
+- [x] ~~D6「手工标记订单已支付」的独立权限位 —— **从第一天就存在，即使团队只有一个角色**~~
+      **✅ 2026-08-30 二次复核勾上**：`admin_users.perm_mark_order_paid`
+      **从迁移 `0002_foundation.up.sql:62` 就存在且 `DEFAULT false`**（「必须显式授予」写在列注释里），
+      契约侧对应枚举值 `admin.order.mark_paid`（`AdminPermission`），
+      服务端强制在 `api/internal/handler/admin_orders.go:1132` 的 `guardAdminPermission`。
+      **四层强制齐了**（见 §6.2 的对应条目），D6 的凭证还配了一个专用科目
+      `asset:manual_reconcile` —— 它的余额长期非零就意味着「有人标了已支付但钱没进来」。
+      🔴 **顺带登记一条本轮查出的同族缺口，它不影响 D6 但影响 D7/D10**：
+      `perm_refund`(D7) 与 `perm_adjust_balance`(D10) 这两个直接动钱的权限位
+      **在 `AdminPermission` 枚举里没有对应值**，所以它们在 API 上既看不见也授不了。见 §9 **B52**。
 
 **2.C · 邮件（⏳）**
 
+> 🔴 **2026-08-30：本组一条都不勾，而它是全项目最安静的一个洞。**
+> ESP 未选型、**发信一行都没接通**（`api/internal/handler/auth.go` 的 `TODO(P1)`，
+> `email_log.status` 恒为 `queued`）。后果不只是「邮件没做」：
+> [ADR 0002](../05-adr/0002-notification-channels.md) 裁决**邮件是唯一的失联恢复通道**，
+> 而 §11-R5 / R3 的全部「切换类」应对都靠邮件广播推动用户重新拉订阅。
+> 也就是说：**今天发生一次域名封锁，我们没有任何一条能通知到用户的路径。**
+>
+> **2026-08-30 二次复核：本组仍然一条都不勾，而它现在是全项目最刺眼的一个洞。**
+> 前后两端都做好了、只差 ESP：注册 / 找回 / 重置**三页前端已完整**（commit `d5400165fc3`）、
+> `CreateEmailLog` 在发码时真的写行（`auth.go:1299`）、`MarkEmailProbeRedeemed` 会回填 `redeemed_at`、
+> `runMailSendTask` 已实现、`MailSender` 是可注入接口。
+> 🔴 **而 `MailSender` 的默认实现叫 `unconfiguredMailSender`，`Name()` 返回 `"unconfigured"`**
+> （`task.go:140`），`auth.go:1293` 的 `TODO(P1): 接 ESP 真正发信` 原封不动，
+> `email_log.status` 恒为 `queued`，只有 dev 环境把验证码明文打进日志。
+> **一个真人现在注册，收不到那封信。**
+
 - [ ] ⏳ 选两家 ESP 互为备份（密钥、模板、退信回调都要做两套）
-- [ ] 每次发验证码写 `email_log`（收件域名 / ESP / bounce 码 / 回填时刻）—— 这是
+- [ ] 🔶 每次发验证码写 `email_log`（收件域名 / ESP / bounce 码 / 回填时刻）—— 这是
       ADR 0002 §7 要求的送达率数据源，**不是附带功能**
+      **2026-08-30 二次复核：四项里做了三项，所以记 🔶 不勾。**
+      ✅ 收件域名（`email_log.to_domain`，`0011_ops.up.sql:71` 冗余列 + `email_log_domain_idx`）、
+      ✅ ESP 字段（`esp` 列，写的是 `MailSender.Name()`）、
+      ✅ 回填时刻（`MarkEmailProbeRedeemed` 写 `redeemed_at`，`sent_at → redeemed_at` 的差值就是
+      真实端到端送达时延）。
+      🔴 **bounce 码没有写入路径** —— `bounce_code` / `bounce_type` 两列在库里，
+      但 128 个 operation 里**没有任何一条是 ESP 的退信回调端点**，没有东西会去填它们。
+      🔴 **更根本的一条：`esp` 现在恒为 `"unconfigured"`、`status` 恒为 `queued`。**
+      **一张所有行都是「已入队、未发出」的表不是送达率数据源。**
+      本条的形状是「代码写好了，等 ESP」——按本文口径 **写了代码 ≠ 上线**。
 - [ ] 注册成功页与找回密码成功页引导用户把发信域名加进 QQ 邮箱白名单
 
 **2.D · 灰度**
+
+> **2026-08-30：整组不勾，且前置为零** —— 灰度要有节点，而 `bp-node-*` 现有 0 台。
 
 - [ ] ADR 0007 阶段 4：3–5 人灰度 **7 天**，用户必须被明确告知「你手里有两套配置，旧的是安全绳」
 - [ ] ADR 0007 阶段 5：全量 + 建 `bp-node-jp1` 做同条件 A/B（`region-ab-*` 由此产出）
@@ -314,17 +678,117 @@
 
 ### 6.2 任务清单
 
-- [ ] 后台 17 个模块（P1 档 11 个），16 条危险操作 D1–D16 全部落审计日志（含改前/改后值）
-- [ ] 危险操作四层强制：L1 确认串（**必须在 API 层，前端弹窗对 curl 是零**）、
-      L2 必填 reason ≥ 8 字符、L3 TOTP step-up、L4 独立权限位
-- [ ] 审计写入与业务写入**同一事务**，审计写失败则整个操作回滚
-- [ ] 工单系统 + 排障决策树叶子节点上的工单入口 + 建单时服务端重新采集 context 快照
-- [ ] monitoring 的 17 条告警策略全部创建，每条同时挂 Pub/Sub 与 email 两个通道
+> **2026-08-30 勾选复核：一条都不勾，两条有半成品。**
+> （**2026-08-30 二次复核后本组勾了 3 条**：四层强制、审计同事务、工单系统。详见下方各条与本注末尾。）
+> 后台侧的根本障碍不是前端也不是审计，是**鉴权没接线** ——
+> 61 个 `/admin/*` operation 在 `api/cmd/server/authmap.go` 里被中间件**硬性 501 fail-closed**
+> （见 §9 B48；两支中间件 `AuthenticateAdmin` / `AuthenticateInternal` 已写在
+> `api/internal/middleware/` 下，但 HEAD `a4604c9396f` 的 `authmap.go` 还没接上它们，
+> 也没有对应测试；**同日未提交的工作树里已经接上了，逐条见 B48**）。
+> ⚠️ **即便接线提交了，本组也一条都勾不上** —— 接线只把「无凭据」从 501 变成 403，
+> **61 个 admin handler 绝大多数仍是 `Unimplemented` 的 501**，17 个模块照样打不开。
+> 在它接通之前，后台 17 个模块**一页都接不了线**。
+>
+> 🔴 **2026-08-30 二次复核：上面整段的前提全部翻掉了，本组勾了 3 条，而障碍换了一个层面。**
+> 鉴权接线**已提交**（`01350425ef1`，80 个新测试 / 3,176 行；`authwiring_test.go` 遍历全部
+> **61 + 9 = 70** 个 operationID，每个各跑 7/8 种伪造或缺失凭据，逐个断言 handler spy 一次都没被调用）；
+> 61 个 admin operation **实现了 56 个**（`bdc4437d0fe`），9 个内部任务端点**全部实现**；
+> 后台 23 页**接线 21 页**（`b6e7603e7f9`）。
+> 🔴 **新的障碍是基础设施与裁决，不是代码，两条**：
+> ① **生产 `bp-api` 上没有配 `BP_ADMIN_IAP_AUDIENCE`**（`gcloud run services describe` 实查，
+>    10 个环境变量逐个列过，没有任何 `BP_ADMIN_*` / `BP_INTERNAL_*`）——
+>    按 fail-closed 设计，**管理面在线上整体拒绝**；
+> ② **管理面根本没有登录端点**（45 条 admin 路径里没有 login/session/me，
+>    `AuthenticateAdmin` 从不读 `Authorization`），而它要的 IAP audience 形态
+>    `/projects/<数字>/global/backendServices/<数字>` **只能来自一个挂 IAP 的 GCLB 后端服务** ——
+>    **那套东西一件都没建**。见 §9 **B51** 与 B19。
+> **一句话：后台的 21 页现在打得开，但没有人进得去。**
+
+- [ ] 🔶 后台 17 个模块（P1 档 11 个），16 条危险操作 D1–D16 全部落审计日志（含改前/改后值）
+      **2026-08-30 二次复核：后半句做完了，前半句差一个模块，所以记 🔶 不勾。**
+      ✅ **D1–D16（含 D11b，共 17 个编号）全部落审计**，改前/改后值用**一条语句里两个 CTE**
+      （`before` + `upd`）取快照 —— 同一语句内数据修改型 CTE 互相看不到对方的效果，
+      所以 `before` 必然是这次 `UPDATE` 之前的快照，**中间不存在任何时刻能让第三方插进来**；
+      换成「先 SELECT 再 UPDATE」即使同事务也会被并发写插进来，
+      结果是审计记下一个**从未紧接着 after 出现过的 before**。
+      🔴 **一处刻意的例外**：`ResetAdminAccountTotp` 的 before/after **只有时间戳，没有 secret**
+      （明文密文都不行）—— `audit_logs` 是 append-only 永不删除的表，
+      **一份写进去的凭据是永久写进去的**。有专门用例断言序列化后不含明文与密文。
+      🔴 **前半句不勾**：模块 17「域名池与可达性」的三个端点全是 501（`domains` 表不存在 +
+      ADR 0010/0011 未批准 + 字段模型有两套），`DomainsPage` 因此**刻意不接线**、
+      显示「尚未开放」并说明缺什么；邮件模板两条同理（`mail_templates` 表不存在）。
+      ⚠️ 另有三处审计偏差原样登记：`request_id` 没落库（openapi 标了 required）、
+      `admin_email_snapshot` 无字段可放、`action` 带 D 编号前缀所以过滤**必须是包含匹配**
+      （等值匹配一条都查不到**且不报错**）。
+- [x] ~~危险操作四层强制：L1 确认串（**必须在 API 层，前端弹窗对 curl 是零**）、
+      L2 必填 reason ≥ 8 字符、L3 TOTP step-up、L4 独立权限位~~
+      **✅ 2026-08-30 二次复核勾上**（服务端 `bdc4437d0fe`，前端 `23061d4be34` / `b6e7603e7f9`）：
+      L1 确认串**在服务端比对**（前端弹窗对 curl 是零）；L2 reason ≥ 8 **按码位不按 `String.length`**
+      （后端用的是 rune，前端测试里钉了 `'🔴🔴🔴🔴'`——`length === 8` 但只有 4 个码位——必须被挡）；
+      L3 走 `mw.RequireStepUp`（18 处调用，含 `used_totp` 防重放，同一 code 第二次使用必须失败）；
+      L4 独立权限位（`guardAdminPermission`）。
+      测试里「不许提交」不是靠断言计数器，是**靠物理上不存在可提交的对象**表达的：
+      夹具的 `Server.db` 是 `nil`，被测分支多走一步碰数据库就 panic 而不是失败。
+      前端 `DangerousAction.tsx`（742 行）按 api-contract §6.2 收齐四层参数，
+      且**前端零校验语义** —— 所有变灰只是省一次注定失败的往返。
+      🔴 **勾上之后仍要记住的两条**：
+      ① **L4 有一个契约层的洞**：`perm_refund`(D7) 与 `perm_adjust_balance`(D10)
+         在 `AdminPermission` 枚举里没有值，**授不了**（§9 **B52**）。强制是在的，授权路径是断的。
+      ② §6.3 出口标准 3 要的是「用 `curl` 直接打 API 尝试绕过前端确认框，16 条各失败一次」——
+         **那是一次真机演练，至今零次**。勾的是实现，不是那条出口标准。
+- [x] ~~审计写入与业务写入**同一事务**，审计写失败则整个操作回滚~~
+      **✅ 2026-08-30 二次复核勾上**（commit `bdc4437d0fe`）：`internal/audit` 的 `InTx`，
+      handler 侧 46 处调用。**有真用例，不是靠读代码断言的**：
+      真 `audit.InTx` + 真 sqlc 生成代码 + 假 `pgx.Tx`，
+      断言审计写失败时 `Commit` **一次都没发生**、`Rollback` 发生、且业务写入确实**先**发生过；
+      另配一条**反向用例**证明夹具在正常路径确实提交 —— 否则前一条可能是假通过
+      （一个永远不提交的夹具会让第一条恒绿）。
+- [x] ~~工单系统 + 排障决策树叶子节点上的工单入口 + 建单时服务端重新采集 context 快照~~
+      **✅ 2026-08-30 二次复核勾上**（后端 `92b65e0d5f9`，前端 `d5400165fc3` / `b6e7603e7f9`）：
+      用户侧 5 条工单 operation + 管理侧工单模块已实现；
+      **context 快照由服务端采集**，客户端那份只能进 `client_reported` 子对象
+      （`api/internal/handler/ticket.go:34` 写明这条纪律）；
+      排障决策树在 `web/user/src/routes/DiagnosePage.tsx`，**每个叶子都带诊断码跳工单**
+      （`/ticket?from=diagnose&code=<诊断码>&category=<类>`），
+      诊断码刻意不是 JSON 也不是 base64 —— 它要被用户抄进工单、被客服念出来。
+      ⚠️ **一处 TODO 原样留着**：`ticket-common.tsx` 的分类只写「排障区里的哪一片」，
+      **不拼具体文章 URL** —— tutorials-spec 只定了信息架构没定任何 slug，
+      **编一个出来就是把用户导到 404**。文档站落地后才换成深链。
+      ⚠️ **附件上传未做**：契约里 `CreateTicketMessageRequest` 只有 `message` 一个字段。
+- [ ] 🔴 monitoring 的 17 条告警策略全部创建，每条同时挂 Pub/Sub 与 email 两个通道
+      **2026-08-30：一条都没建。** `infra/scripts/setup-alerts.sh`（1,191 行）与
+      `setup-metrics.sh`（951 行）已写好并过 shellcheck（`-x`、不降级、0.9.0 与 0.11.0 两个版本），
+      **但从未执行**。日志指标侧 11 条建了 7 条（[monitoring §3.2](../04-ops/monitoring.md)）。
+      **2026-08-30 二次复核，第一次用 `gcloud` 把这两个数坐实了**：
+      `gcloud alpha monitoring policies list --project=oratis-491316` 返回 **3 条，
+      全部是 `lisa-cloud` 的**（`lisa-cloud 5xx` / `lisa-cloud uptime failing` / `lisa-cloud billing anomaly`）——
+      **`bp-` 告警策略 0 条**；`gcloud logging metrics list` 返回 **7 条，全部 `bp_`**。
+      `gcloud monitoring uptime list-configs` 返回 **1 条（`lisa-cloud-health`）——`bp-` uptime check 0 条**。
+      **此前这三个数是转述，现在是实测，结论完全一致。**
+      ⚠️ 建之前必须先改一处：脚本自己在注释里点名了 ——
+      matcher 内容原写 `'"ok":true'`，而 `/-/healthz` 返回的是**三个字节的纯文本 `ok`**，
+      照原文建出来会从第一天永久报红。**该错误已于 2026-08-30 在
+      [monitoring §6.2 / §7](../04-ops/monitoring.md) 与 [deploy.md §5.3](../04-ops/deploy.md) 改正。**
 - [ ] `metric-absence` 告警必须 `groupByFields=node_id`；新节点首次上报后**人工确认
       time series 已出现，告警才算 armed**（在监控眼里从未上报过的节点不存在）
 - [ ] ⏳ 带外 Uptime Kuma（第三方 VPS，约 $5/月）
-- [ ] ⏳ 计费账号权限 → Cloud Billing budget 告警；所有 `bp-` 资源打 label `app=babel-plus`
-- [ ] 证书签发者每日核对（必须是 Let's Encrypt，不是 GTS）
+- [ ] 🔶 ~~⏳ 计费账号权限 →~~ Cloud Billing budget 告警；所有 `bp-` 资源打 label `app=babel-plus`
+      **2026-08-30：「⏳ 计费账号权限」这个前置划掉了，而且它的前提本来就是错的**（B32）——
+      计费账号是 `0130C2-FA2146-786074`，当前身份**本来就有** budget 读写权限，**不需要申请**；
+      账户上早就有一条项目级预算。真正的缺口是**口径**：它原是 `INCLUDE_ALL_CREDITS`，
+      被账户级推广抵扣全额冲平，**在抵扣用完之前永远不会触发**；
+      已于 2026-08-21 改为 `EXCLUDE_ALL_CREDITS` / $500 月 / 加 forecasted 100%。
+      🔴 **本条仍不勾，两个遗留**：① `notificationsRule` 为空 ——
+      **没有接 `bp-alerts` Pub/Sub topic**，只走默认账单管理员邮箱；
+      ② **从未端到端触发过**，按 §6.1 的口径应当默认视为不工作。
+      `--filter-labels=app=babel-plus` 的确切行为仍**待核实**。
+- [ ] 🔶 证书签发者每日核对（必须是 Let's Encrypt，不是 GTS）
+      **2026-08-30：信号源有了，调度器没有。** `infra/scripts/check-cert-issuer.sh`（435 行，
+      随 PR #16 于 2026-08-23 合并）每日核对签发者、不符就写结构化日志，
+      空清单时优雅退出（**因为镜像域名还没买**）。
+      🔴 **不勾的三条**：① `bp_cert_issuer_bad` 这条 log-based metric **仍要人工建一次**，
+      且必须在作业挂上去**之前**建（不追溯）；② **「每日」的调度器未裁决、无脚本**；
+      ③ 域名池为空时它实际上没有东西可核对（承 B4）。
 - [ ] 域名池管理与镜像切换（依赖 P0 的第三份 ADR）
 - [ ] ADR 0007 阶段 6：旧节点冻结观察 **30 天零回滚事件**
 
@@ -358,10 +822,53 @@
 
 ### 7.2 任务清单
 
+> **2026-08-30 勾选复核：一条都不勾。** 唯一有实质进展的是「CI / 契约测试」那一条的**第三个分号**，
+> 见下。
+> **2026-08-30 二次复核：仍然一条都不勾。** 测试从 195 涨到 **573 个顶层函数**，
+> 但**全部仍是进程内单元测试**（假 `Querier` / `httptest`）——
+> 数量翻了三倍，而本组要的「真实 Postgres」与「真实 v2node 容器」**依旧各是 0**。
+> 🔴 **这是本文口径最干净的一次演示**：`测试数` 是工作量指标，`测试形态` 才是这一阶段的完成度指标。
+
 - [ ] IaC（Terraform / Pulumi）—— **前置是 CF 侧资产清点完成**，
       导入一份不完整的 state 比没有 state 更危险（`terraform destroy` 会按 state 走）
-- [ ] CI / 契约测试：testcontainers-go 起真实 Postgres；**UniProxy 契约测试起真实 v2node 容器**
+      **2026-08-30：未起步，且是刻意后置**（卡 CF 资产清点 B33）。
+      ⚠️ 但要注意现状比「无 IaC」更差一点：**部署路径本身也没有被 CI 验证过** ——
+      `deploy.yml` 从未运行，35 次 workflow run 全是 `ci`（新登记为 §9 **B47**）。
+      🔴 **2026-08-30 二次复核，又差一点**：`gh run list --limit 200` 仍是 **35 次全 `ci`**，
+      而生产 `bp-api` 的 serving revision 是 **`bp-api-618bf1c`**
+      （`gcloud run services describe` 实查），对应 commit `618bf1cc89b3`（2026-08-23，PR #16）。
+      `git merge-base --is-ancestor 618bf1c HEAD` 为真、`git rev-list --count 618bf1c..HEAD` = **14**。
+      **也就是说：生产跑的是 14 个提交之前的代码，在那个 commit 上 operation 实现数是 18/128，
+      而 HEAD 是 120/128。今天做的 102 个 operation，生产上一个都没有。**
+      🟢 **好消息只有一条，但它关掉了一笔欠了九天的账**：镜像 tag 可溯源、commit 仍被 `master` 引用，
+      B41 那种「对应关系断掉」的事故没有重演。
+- [ ] 🔶 CI / 契约测试：testcontainers-go 起真实 Postgres；**UniProxy 契约测试起真实 v2node 容器**
       （唯一能证明「抄对了」的测试）；`git diff --exit-code` 卡 OpenAPI 漂移
+      **2026-08-30：三件里第三件早已做完，前两件一件都没做，所以本条不勾。**
+      ✅ **生成物漂移**：CI 的 `contract-drift` 作业用 `git diff --exit-code` 卡四处生成物
+      （`api/internal/gen/`、`api/db/gen/`、`handler/unimplemented.gen.go`、`web/shared/api/`）。
+      🔴 **真实 Postgres 的集成测试不存在**：`api/` 下 **20 个 `_test.go` / 195 个顶层 `Test` 函数**
+      （2026-08-30 实数）**全部是进程内单元测试**（假 `Querier` / `httptest`），
+      一条真实数据库连接都没有。
+      **2026-08-30 二次复核：数改为 37 个 `_test.go` / 573 个顶层 `Test` 函数，
+      而「全部是进程内单元测试」这半句一个字都不用改。**
+      ⚠️ 这 573 是 `grep` 的**静态计数**，不是一次绿灯 —— 本机无 Go 工具链、
+      Docker daemon 未运行，本轮 `make check` / `make db-explain` / `make migrate-verify` **都没跑**。
+      最后一次真跑的记录在 commit `bdc4437d0fe` 的信息里（573 个顶层函数 / 1,263 个用例 / 0 失败 0 跳过）。
+      🔶 唯一贴近真库的是 `migrations` 作业里 2026-08-30 新增的两步
+      （`db_explain.py` 对 **194 条**生成 SQL 跑 `EXPLAIN (GENERIC_PLAN)`、
+      `ci_post_rollback_write.sql` 的回滚后写探针，见 §9 **B49**）——
+      它们打的是真 Postgres，但**测的是 schema 与 SQL 而不是 handler**，不构成集成测试。
+      **2026-08-30 二次复核：`db_explain.py` 现在抽出 343 条语句、其中 172 条写语句**
+      （`python3 api/scripts/db_explain.py | head -2` 的生成头，本次实跑抽取这一步；
+      **`EXPLAIN` 本身没有对真库跑过**，Docker daemon 未运行）。
+      🔴 **真实 v2node 容器的契约测试仍然不存在**，而 ADR 0006 §12 称它是
+      「唯一能证明 UniProxy 抄对了的测试」。CI 现共 **9 个作业**
+      （`changes` / `go` / `contract-drift` / `migrations` / `openapi-lint` / `web` /
+      `shellcheck` / `docker-build` / `ci-ok`，2026-08-30 从 `ci.yml` 实数）；
+      **另有 `deploy.yml` 的 6 个作业**（`plan` / `isolation-before` / `deploy-api` / `deploy-web` /
+      `isolation-after` / `mark-deployed`，二次复核补记 —— 上一轮只数了 `ci.yml` 那一半），
+      **而那 6 个一次都没有运行过**。
 - [ ] 节点自动换 IP 脚本化（开机 → 三网探测 → 不合格自动释放重开）
 - [ ] 备用域名带外推送
 - [ ] 审计日志外送（Cloud Logging append-only sink 或 GCS 对象锁）——
@@ -512,15 +1019,20 @@ flowchart TD
 遍历全部 ADR 与设计文档的「这次没有解决的」尾节。**按「卡住了什么」分四层排序**，
 层内按登记处数量降序（登记处越多说明它挡的路越多）。
 
+> **2026-08-30 二次复核（基线 `b6e7603e7f9`）：本表现有 B1–B52。**
+> 这一天落了 10 个提交、API 从 18/128 做到 120/128，**而 ✅ 那一栏一条都没多**
+> —— 新增的三条（B50/B51/B52）全部是 🔴，两条（B19/B37）从 🔴 转 🔶。
+> 逐条追加块都标着「2026-08-30 二次复核」，**第一次复核的原文一律保留，不抹掉**。
+
 ### 9.1 T1 · 卡住全局（不解决则后面所有事情都是悬空的）
 
 | # | 阻塞项 | 卡住了什么 | 归属 | 登记处 | 解锁于 |
 |---|---|---|---|---|---|
-| B1 | **ADR 0001 未获批准** | 拓扑与成本模型，进而定价、ADR 0004 的层级复审、CF 应急通道的存在与否 | **需用户决策** | README §7、ADR 0001 §7 | P0 |
+| B1 | ~~**ADR 0001 未获批准**~~ ✅ **2026-08-30：批准记录早已在 master，本条彻底关闭。** 批准发生在 2026-08-17；[launch-readiness-review-20260821](launch-readiness-review-20260821.md) §8 当时把它记为「**记录在未合并分支**」，那是 2026-08-21 的实况。该记录随 commit `a70a9621298` 进入 master（`git merge-base --is-ancestor a70a9621298 HEAD` 为真，2026-08-30 实查），现文 `0001-cloudflare-tos-risk.md:3` 写「**已批准，待实施**（2026-08-17 用户批准）」。⚠️ **仍是「待实施」不是「已实施」**：CF 侧资产清点（B33）与应急通道都没动 | 拓扑与成本模型，进而定价、ADR 0004 的层级复审、CF 应急通道的存在与否 | ✅ 已批准 / 待实施 | README §7、ADR 0001 §7 | P0 |
 | B2 | ~~GCP 出口到中国大陆的准确单价未核实~~ **✅ 2026-08-17 已解决** —— Cloud Billing Catalog API 权威价目：Standard **$0.11/GiB + 每源区域每月 200 GiB 免费**（不区分目的地）；Premium **$0.23/GiB**（中国是香港出口最贵的目的地）。证据 [evidence/gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/) | 定价可以定稿了；但**用量分布仍无数据**，总成本预测仍是猜的 | ✅ 已解决（单价）/ 仍需用量基线 | pricing §2 |
 | B3 | **v2node 是否发 `If-None-Match`** | 整套 ETag、`node_rev` 表、ADR 0006 §3.3 的 Cloud Run 免费额度算术（10 节点 = 86%）、data-model §12.1 的「1.33 次索引查找/秒」 | **可直接做**（起容器） | ADR 0006 §15 🔴、data-model §16 🔴、api-contract §14 🔴、node-provisioning §10 🔴 | P0 |
-| B4 | ~~域名一个都没注册~~ **✅ 2026-08-25 订正**：`babel.plus` 是项目所有者自己的域名（此前文档漏记，生产 `BP_ALLOWED_ORIGINS` 一直指向它）；域名**策略已裁决**（[ADR 0010](../05-adr/0010-domain-strategy.md)，提案未批）。**仍未做**：镜像域名池尚未采购（0010 定 5 个中性域名）、Hysteria2 的 LE 证书链未搭 | 镜像池、备用域名切换仍等采购落地 | ✅ 归属+策略已定 / 采购与证书待做 | [ADR 0010](../05-adr/0010-domain-strategy.md) | P0→P1 |
-| B5 | **「域名被封」的自动检测机制不存在** | product-brief §8 承诺的「域名失联恢复 ≤ 30 分钟」**零机制支撑**；域名池表存什么列是猜的；管理面模块 17 无法设计 | 待裁决（需一份合并 ADR） | ADR 0002 §7、ADR 0003 §7、system-design §9、user-journey §16 🔴、api-contract §14、data-model §16、runbook §7 —— **七处** | P0 设计 / P3 实现 |
+| B4 | ~~域名一个都没注册~~ **✅ 2026-08-25 订正**：`babel.plus` 是项目所有者自己的域名（此前文档漏记，生产 `BP_ALLOWED_ORIGINS` 一直指向它）；域名**策略已裁决**（[ADR 0010](../05-adr/0010-domain-strategy.md)，提案未批）。**仍未做**：镜像域名池尚未采购（0010 定 5 个中性域名）、Hysteria2 的 LE 证书链未搭。<br>🔴 **2026-08-30 一手实查，把「域名一个都没注册」这个前提彻底判死**：`dig +short NS babel.plus` → `dns13.hichina.com.` / `dns14.hichina.com.`；`dig +short SOA babel.plus` → `dns13.hichina.com. hostmaster.hichina.com. 2026082617 …`。**即 `babel.plus` 是一个已注册、且 DNS 由我们可控的域名**（ADR 0010 §2.1 另记它 2023-01-11 注册、2027-01-11 到期、注册商 HiChina，2026-08-25 用户确认归属）。**「一个都没注册」这个前提是错的，而全仓多处据它论证** —— 仅 [ADR 0014](../05-adr/0014-slo-and-oncall.md) 就有三处。**§3.3 出口标准 7 因此是满足的**，见该行的 2026-08-30 订正。<br>🔶 **缺的是另一件事，不要混为一谈**：ADR 0010 规定的 **5 个中性镜像主域名，一个都没买**（仓库里不存在任何域名池清单；0010 §8.2 的暗池纪律要求它落在 `infra/.local/` 且进 `.gitignore`）。采购需用户本人付钱且**不可退**，是 [05-adr/README](../05-adr/README.md) 末段现在**唯一**一件「必须由用户本人做」的事 | 镜像池、备用域名切换仍等采购落地；**但 P1 的 LE / DNS-01 前置不再被「零域名」卡住** | 🔶 归属 + 策略 + 首个域名已有 / **5 个镜像域名未采购** | [ADR 0010](../05-adr/0010-domain-strategy.md) | P0→P1 |
+| B5 | **「域名被封」的自动检测机制不存在**。<br>🔶 **2026-08-30：合并裁决已经写出来了，但它没有被批准，更没有被实现。** [ADR 0011 · 域名失联的发现与恢复](../05-adr/0011-domain-blackout-detection.md)（2026-08-23 写，随 PR #18 于 2026-08-29 进 master）**一次性合并解决了这七处登记**：恢复责任交给客户端，发现责任交给客户端内核的直连探测腿，中心只负责补货、判决与广播。🔴 **状态是「提案，未批准」，所以本条不划掉** —— 按本文的诚实口径，**裁决落库 ≠ 已批准 ≠ 已实现**：代码里没有域名池表、没有判决逻辑、没有广播通道；`product-brief §8` 的「≤ 30 分钟恢复」**今天仍然零机制支撑** | product-brief §8 承诺的「域名失联恢复 ≤ 30 分钟」**零机制支撑**；域名池表存什么列是猜的；管理面模块 17 无法设计 | 🔶 **已有裁决草案（ADR 0011，提案未批）** / 未批准、未实现 | ADR 0002 §7、ADR 0003 §7、system-design §9、user-journey §16 🔴、api-contract §14、data-model §16、runbook §7 —— **七处** | P0 设计 / P3 实现 |
 
 ### 9.2 T2 · 卡住 P1（技术链）
 
@@ -531,15 +1043,16 @@ flowchart TD
 | B8 | **v2node 承载哪些协议（是否内置 HY2 core）** | 节点装机工作量；若不内置，HY2 要单独装一套并自己解决用户同步 | **可直接做**（读源码） | node-provisioning §10 🔴、ADR 0007 §10 |
 | B9 | ~~`*.run.app` 的证书签发者未实测~~ **✅ 2026-08-21 解决** —— 签发者是 **Google Trust Services `CN=WR2`**（→ GTS Root R1 → GlobalSign），**不是 LE**。证据 [evidence/gcp-inventory-20260821 §2](../evidence/gcp-inventory-20260821/) | deploy §15 的「**若是 GTS**」分支成立：`*.run.app` 直连**不能**作为面向中国用户的 API 入口，必须过一个能钉 LE 的代理（CF 橙云 $0 或 GCLB 约 $18/月**仍待核实**） | ✅ 已解决（签发者）/ 代理选型未定 | deploy §15 🔴 |
 | B10 | **`/config` 如何下发 LE 证书没有契约位置** | 「换证书」是配置下发还是运维操作 —— 两者 runbook 完全不同 | 需核实（Xboard hysteria 分支是否有证书字段） | api-contract §14 |
-| B11 | **迁移工具未选**（golang-migrate / atlas / goose / dbmate） | 「谁保证 CI 里的 schema 和生产一致」 | **可直接做** | ADR 0005 §12、ADR 0006 §15、data-model §16、deploy §15 |
+| B11 | ~~**迁移工具未选**（golang-migrate / atlas / goose / dbmate）~~ ✅ **2026-08-30：选定 `golang-migrate` 并已在生产使用。** `infra/migrate/Dockerfile:28` 从源码构建 `github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}`（**版本钉死**），走独立 Cloud Run Job `bp-migrate`；`infra/migrate/entrypoint.sh:22` 依赖它 postgres driver 自带的 `pg_advisory_lock`（**驱动提供的，不是我们加的，升级 golang-migrate 时要复核**），并对 dirty 状态拒绝自动 `force`。`api/db/migrations/` 现有 **17 组 up/down** 按它的命名约定落库。⚠️ **「谁保证 CI 里的 schema 和生产一致」这半句仍未解决** —— CI 的 `migrations` 作业灌的是同一批文件，但**从未与生产实例做过一次 schema diff** | 「谁保证 CI 里的 schema 和生产一致」**仍未解决** | 🔶 工具已选并在用 / 一致性保证未做 | ADR 0005 §12、ADR 0006 §15、data-model §16、deploy §15 |
 | B12 | **Cloud SQL 四个配置细节** —— **2026-08-21 解决 3/4**：存储 **10 GB PD_SSD**（ADR 成本基础成立）、自动备份**保留 14 份**、PITR 事务日志 **7 天**；**第四问「删实例时自动备份是否一并删」仍开放**（`describe` 里没有这个字段）。🔴 顺带查到三条本来没在问的：**`deletionProtection: false`**（一条命令就能删掉实例）、`storageAutoResize` 开且**无上限**（存储成本没有天花板）、公网 IP 存在且 `sslMode: ALLOW_UNENCRYPTED_AND_ENCRYPTED`（`authorizedNetworks` 为空所以现在连不进来，是待收紧项）。证据 [evidence/gcp-inventory-20260821 §3](../evidence/gcp-inventory-20260821/) | 恢复方案的必要性；**`deletionProtection` 比第四问更要紧** | 🔶 部分解决 | ADR 0005 §12 |
-| B13 | **现有节点网络层级未查** | ADR 0004 §3.7 无法复审；reference-repos §1.5 的吞吐实测没有层级归属 | **可直接做** | ADR 0007 §11、ADR 0004 §6 |
+| B13 | ~~**现有节点网络层级未查**~~ ✅ **2026-08-20 已查，2026-08-30 把答案搬进表内**（此前它只活在本节末尾那个「7 条成本以分钟计」的表外补丁块里，读这张表的人看不到）：`vpn-us`（us-west1-a）与 `vpn-jp`（asia-northeast1-a）**两台实例与两个静态 IP 全部是 `PREMIUM`**，证据 [network-tier-implementation-20260820 §2](../evidence/network-tier-implementation-20260820/)。附带查明两条：**Premium 是 GCP 的默认值**（不显式指定就是它），且当时 `create-node.sh` / `rotate-ip.sh` 里**显式硬编码 `--network-tier=PREMIUM` 共 7 处** —— 不是疏忽，是写死的。本条同时解开 ADR 0004 §3.7 的复审前提 | ADR 0004 §3.7 无法复审；reference-repos §1.5 的吞吐实测没有层级归属 | ✅ 已解决 | ADR 0007 §11、ADR 0004 §6 |
 | B14 | **旧节点是否有人在用** | ADR 0007 裁决第 4 条（回滚落点是否真实存在） | **需用户决策** | ADR 0007 §11 🔴 |
 | B15 | **mux 与 XTLS-Vision 是否互斥** | 可能推翻 ADR 0004 §3.3 或 system-design §3.1 之一 | **可直接做**（实验） | node-provisioning §10 |
-| B16 | ~~`alivelist` 的设备计数口径~~ **✅ 部分解决** —— **按 IP**：节点上报 `{uid:["ip1","ip2"]}`，面板回 `{"alive":{uid:count}}`。`user_device_state` 以 IP 为主键是对的。🔴 另发现 **`alivelist` 失败时 v2node 静默降级为「零在线设备」**，即设备数限制会静默失效 —— 它只能是软限制，不能作为计费或防滥用的强保证 | 主键设计已验证；限制强度需在产品文案中说明 | ✅ 已解决（口径）/ 需产品决策（软限制如何表述） | page-inventory §8、data-model §16、api-contract §14、user-journey §16 |
+| B16 | ~~`alivelist` 的设备计数口径~~ **✅ 部分解决** —— **按 IP**：节点上报 `{uid:["ip1","ip2"]}`，面板回 `{"alive":{uid:count}}`。`user_device_state` 以 IP 为主键是对的。🔴 另发现 **`alivelist` 失败时 v2node 静默降级为「零在线设备」**，即设备数限制会静默失效 —— 它只能是软限制，不能作为计费或防滥用的强保证 | 主键设计已验证；限制强度需在产品文案中说明。<br>🔶 **2026-08-30：「软限制如何表述」这后半条有裁决了，但没批准。** [ADR 0015 · 客户端策略](../05-adr/0015-client-strategy.md) 把「设备数软限制口径」列进裁决范围（见 [05-adr/README](../05-adr/README.md) 该行）。**状态「提案，未批准」，因此不划掉。** 而同一件事已经从产品文案渗进了钱的模型：[pricing §3.5.9 条件 9](../03-product/pricing-and-plans.md) 把「`/alivelist` 可用率跌破阈值 = 设备数阶梯失效」列为定价失效条件（阶梯一塌，「轻量 ¥72 + 60 GiB 加油包 ¥72 = ¥144 / 90 GiB」与「标准 ¥159 / 100 GiB」只差 ¥15）。**该告警至今未设计** | ✅ 已解决（口径）/ 🔶 表述有裁决草案（ADR 0015，提案未批） | page-inventory §8、data-model §16、api-contract §14、user-journey §16 |
 | B17 | **各客户端真实 UA 字符串未抓取** | 订阅分发表错一行，对应客户端拿到错格式 | **可直接做** | api-contract §14 |
 | B18 | ~~两个 base_config 字段语义未知~~ **✅ 2026-08-17 解决** —— `device_online_min_traffic` **单位是 KB**（代码里 `devicemin*1000` 转字节），作用是把本轮流量低于此值的用户**排除出在线设备统计**（防止空闲客户端吃掉设备名额）；`node_report_min_traffic` 是流量上报的下限过滤。建议初值 `device_online_min_traffic=1000`（1 MB），**仍需真实用量调参** | 设备数杠杆可以落地了 | ✅ 已解决（语义）/ 需调参 | api-contract §14 |
 | B19 | **`bp-admin` 是否独立 Cloud Run 服务未定** | 它会再吃一份 max-instances 与连接数预算，ADR 0005 §6.2 的公式要重算 | **可直接做** | deploy §15 |
+| | 🔶 **2026-08-30 二次复核（B19 续）：问题的形状被代码改写了，从「可直接做」变成「需先裁决 + 需先建基础设施」。** 本轮打开管理面鉴权时，`api/internal/config` 的 `parseAdminIAPAudience` 在**启动期**把 `BP_ADMIN_IAP_AUDIENCE` 钉死成 `/projects/<纯数字项目编号>/global/backendServices/<纯数字后端服务 id>`，并**显式拒绝**写成 Cloud Run 服务 URL（`internal/config/admin_test.go` 逐条钉住：项目 ID 写成项目编号、后端服务名写成 id、尾斜杠、缺前导斜杠、缺 `/global/backendServices/` 分段 —— 每一条都有用例，因为 aud 是**逐字节比对**的，多一个字符就永远匹配不上）。🔴 **`backendServices` 这个形态只能来自一个外部 HTTPS 负载均衡器的后端服务** —— 「管理面坐在 IAP 后面」已经被代码钉了一半，而**那套 GCLB + IAP 一件都没建**。**要拍的板因此从「`bp-admin` 要不要独立」变成「这套 GCLB + IAP 建不建（钱，与 B9 的代理选型是同一笔，GCLB 约 $18/月**仍待核实**），以及 `bp-admin` 是否顺带独立成第二个 Cloud Run 服务」** —— 后者才是本条原来问的那件事，它没被回答，只是前面多了一道更贵的门。⚠️ **在这一条落地之前，56 个已实现的管理面 operation 一个都进不去**：生产 `bp-api` 上没有 `BP_ADMIN_IAP_AUDIENCE`（`gcloud run services describe` 实查，10 个环境变量逐个列过），fail-closed 整体拒绝。承 **B51**。 | 承上 | 🔶 **从 🔴 转 🔶** —— 不是解决了，是**问题被换成了一个更清楚也更贵的问题** | deploy §15、`api/internal/config/admin.go` |
 
 ### 9.3 T3 · 卡住 P2（商业链）
 
@@ -547,41 +1060,102 @@ flowchart TD
 |---|---|---|---|
 | B20 | **Premium vs Standard 未做 A/B**（ADR 0004 §3.7 自陈论据最弱）；且被 **IPv6 参数名与 stack-type 能否事后变更未核实** 二次卡住 | 出口单价翻不翻倍 → 全部定价 | **需实测** |
 > **2026-08-17 更新（B20）**：成本侧已定量 —— Premium 相对 Standard 是 **2.09× 单价 + 完全失去 200 GiB/区域/月免费额度**，小规模下差距是「$0 vs $23/人/月」。性能侧仍需 A/B 实测，但现在知道了要用多大的性能优势才值回这个价差。
-| B21 | **支付网关未选型**（自托管 EPUSDT vs 托管 OxaPay）+ 尽调 + AML 筛查方案 | 收款闭环 | **需申请与尽调** |
+| B21 | **支付网关未选型**（自托管 EPUSDT vs 托管 OxaPay）+ 尽调 + AML 筛查方案。<br>🔶 **2026-08-30：形态有裁决了 —— [ADR 0012 · 收款：一单一址、自扫链、不归集](../05-adr/0012-payment-gateway.md)**（2026-08-23 写，随 PR #18 于 2026-08-29 进 master）。它把「选哪个网关」这个问题整个换掉了：**不部署 EPUSDT、不接易支付、`bp-api` 自己扫链，第一阶段一次都不归集**。🔴 **状态「提案，未批准」，不许写成已解决** —— **裁决落库 ≠ 已批准 ≠ 已实现**，代码里 9 个支付相关 operation 全是 501。**AML 筛查方案仍完全未定**（MistTrack / TRM Labs / Chainalysis / Elliptic 均待评估），而 [pricing §4](../03-product/pricing-and-plans.md) 明记入账前筛查在法律上非可选 | 收款闭环 | 🔶 形态有裁决草案（ADR 0012，提案未批）/ AML 未定 / 未实现 |
 | B22 | **邮件 ESP 未选 + 送达率零数据** | ADR 0002 的**整个前提**；找回密码成功率 = 邮件送达率 | **需实测** + 需申请 |
 | B23 | **文档站大陆可达性未实测** | 「删掉面板内 `#/knowledge`」这个决定的前提；整个自助排障体系的单点 | **需实测**（连续一周） |
-| B24 | **退款政策未定** | 法务页不能空着上线 —— **上线前置条件不是待办事项** | **需用户决策** |
-| B25 | **升级折抵算法未设计** | `POST /orders` 的 `surplus_amount` 现在没有契约 | **需用户决策** |
-| B26 | **流量包与 `reset_traffic_method` 未对齐** | `transfer_enable` 要不要拆成 `_plan` + `_pack` 两列 | **需用户决策** |
-| B27 | **前端框架 / 后台框架未定** | `admin-api.yaml` 不能冻结（框架会反过来改 admin API 形状） | **可直接做** |
+| B24 | **退款政策未定**。<br>🔶 **2026-08-30：[ADR 0013 · 计费与退款规则](../05-adr/0013-billing-and-refund-rules.md)** 给了完整方案 —— 退款一律进**不可提现余额**、按「已消费时间 + 已消费流量」扣减；数据库侧已经有落地物（迁移 `0016` 的 `refunds_cooling_off_once` 让「冷静期退款一生一次」成为**数据库拒绝**而不是应用代码的自觉，见 commit `a4604c9396f`）。🔴 **仍不许写成已解决**：ADR 0013 是**提案，未批准**，而这一条的实质是**用户拍板**不是技术方案 —— 法务页要写的是对用户的承诺。[pricing §7](../03-product/pricing-and-plans.md) 另记它与退坡准备金耦合：**必须先定退款政策才能给退坡准备金定实际可用额度** | 法务页不能空着上线 —— **上线前置条件不是待办事项** | 🔶 有裁决草案（ADR 0013，提案未批）/ **仍需用户决策** |
+| B25 | **升级折抵算法未设计**。<br>🔶 **2026-08-30：[ADR 0013](../05-adr/0013-billing-and-refund-rules.md) 裁决「升级只按剩余天数折抵」**，数据库侧 `GetRefundBasis` 的 `WITH RECURSIVE` 升级链已随 commit `a4604c9396f` 落库并在真库上对过算例（V_window=9300 / consumed_time=3300 / refund_B=6000，与 ADR §3.3 手算逐分相等）。🔴 **不许写成已解决**：ADR 0013 **提案，未批准**；且 [pricing §3.5.10](../03-product/pricing-and-plans.md) 明记**降档、周期内多次升档、加油包余量三种情形都还没有算式**；`POST /orders` 的 `surplus_amount` 契约仍未定 | `POST /orders` 的 `surplus_amount` 现在没有契约 | 🔶 主路径有裁决草案 + SQL（ADR 0013，提案未批）/ 三种情形无算式 |
+| B26 | ~~**流量包与 `reset_traffic_method` 未对齐**~~ 🔶 **2026-08-30：schema 那一半已经做完了，产品口径那一半还是提案。** [ADR 0013](../05-adr/0013-billing-and-refund-rules.md) 裁决「加油包**跨周期结转**并拆列」，迁移 `0016` 已把 `users.transfer_enable` 变成 **GENERATED STORED 列** = `transfer_enable_plan + transfer_enable_pack` 两个分量之和，`pack_expire_at` 顺延 12 个月（真库实测两条写语句通过且合计自动相等，commit `a4604c9396f`）。🔴 **不许写成已解决**：ADR 0013 **提案，未批准** —— 也就是说**数据库已经按一份未获批准的裁决改了形状**。这次改形状还顺带炸过一次主干（8 条查询仍在写生成列，`sqlc generate` 与 `go build` 都 exit 0，**第一次暴露是在用户付款成功、订单进 paid、开通权利那一刻返 500**），修复与两步 CI 检查见 **B49** | `transfer_enable` 要不要拆成 `_plan` + `_pack` 两列 | 🔶 schema 已拆列并在库 / 裁决**提案未批**、产品口径未定 |
+| B27 | ~~**前端框架未定**~~ 🔶 **2026-08-30：前端框架已落地并有测试，后台框架与组件库仍未定。** 已定并已在跑（`web/*/package.json` 2026-08-30 实读）：**React `19.2.8` + react-router `7.18.2` + Vite `8.2.1` + Tailwind `4.3.3`**，测试 **vitest `4.1.11`，108 个用例 / 7 个文件全绿**（`pnpm -r test` 2026-08-30 复跑：shared 67 + user 33 + admin 8）；登录态、`RequireAuth` 三态守卫与 16 条受保护路由都在守卫之下。🔴 **仍未定的两件，本条因此不划掉**：① **组件库未选型** —— 后台 16 条危险操作全都需要一个真正可用的确认对话框（焦点管理 + 键盘 + 屏幕阅读器），`web/README.md §7` 代价 5 明记「**那个组件现在不存在**」；② **后台 admin 框架未定**（Refine 之类），所以 `admin-api.yaml` **仍不能冻结** —— 这正是本条最初登记的那个理由，它一个字都没被解决 | `admin-api.yaml` 不能冻结（框架会反过来改 admin API 形状）**—— 未解除** | 🔶 前端栈已落地 + 108 测试 / 组件库与 admin 框架未定<br>🔶 **2026-08-30 二次复核：前端那一半做完了，组件库这一半一个字都没解决，本条仍不划掉。** ✅ **测试 108 → 623 个用例 / 48 个文件全绿**（`pnpm test` 本次真跑：shared 67/3 + user 189/20 + admin 367/25）；用户面板 **20 条业务路由全部接线**（另两条 `path=` 是 `/` 重定向与 `*` 的静态 `NotFoundPage`）；后台 23 页**接线 21 页**；后台侧另有 `RequireAdmin` 守卫与 `admin/src/App.routes.test.tsx` 对真实路由表逐条核对。🔴 **组件库仍未选型，而本轮给出了它的第一个具体证物**：后台 16 条危险操作用的 `components/DangerousAction.tsx`（742 行）**是行内确认块不是 modal** —— 在该文件里按 `role="dialog"` / `aria-modal` / `<dialog` 三个模式各 grep 一次，**三次都无命中**。这不是疏忽：`web/README §7` 代价 5 明记「可访问的确认对话框在本仓不存在」，而**做不对焦点管理的 modal 对键盘与读屏用户就是死路**，所以刻意退回行内块。🔴 **后台 admin 框架（Refine 之类）仍未定，`admin-api.yaml` 仍不能冻结** —— 这正是本条最初登记的那个理由，**它一个字都没被解决**。 |
 | B28 | **人机验证方案未定** | P1 决定不上 captcha，但依赖「邀请制足以防刷」这个未验证假设；hCaptcha 大陆可达性无数据 | 需实测 |
-| B29 | **iOS 首推客户端分歧**（Karing vs Shadowrocket） | 教程与旅程步数 | **需用户决策** |
+| B29 | **iOS 首推客户端分歧**（Karing vs Shadowrocket）。<br>🔶 **2026-08-30：[ADR 0015 · 客户端策略](../05-adr/0015-client-strategy.md)** 把它连同「sing-box profile 形态、分流规则一致性、设备数软限制口径」一并裁决（2026-08-23 写，随 PR #18 于 2026-08-29 进 master）。🔴 **状态「提案，未批准」，不许写成已解决** —— 它决定的是教程体系与旅程步数（Shadowrocket 要带一整段注册外区 Apple ID 的子旅程），**在用户批准之前 tutorials-spec 与 user-journey 都不该按它改** | 教程与旅程步数 | 🔶 有裁决草案（ADR 0015，提案未批）/ **仍需用户批准** |
 | B30 | **订阅 token 存哈希后怎么给用户看明文** | `/subscribe` 页可用性 | ⚠️ **已被 data-model §5 裁决**（`token_enc` 可逆加密），api-contract §14 的登记**可撤销** |
 
 ### 9.4 T4 · 卡住 P3 / P4，或不卡任何东西但需记录
+
+> ⚠️ **B47–B49（2026-08-30 新增）与 B50–B52（2026-08-30 二次复核新增）按编号顺序追加在本表末尾，
+> 但它们的分层归属并不都在 T4：**
+> **B51（管理面没有登录端点）与 B52（两个动钱权限位无枚举值）实质属 T2/T3** ——
+> 前者卡住全部 56 个已实现的管理面 operation，后者卡住 D7/D10 两条危险操作的授权路径；
+> **B50（ADR 0012 报价公式）属 T3**（它是收款链路的一部分，只是已经被实现绕过去了）。
+> **B48（管理面与内部面鉴权）实质属 T2** —— 它直接卡 P1 出口标准 6（封禁 / 配额耗尽 / 到期
+> 三态生效依赖 9 个 `RunXxxTask` 端点）；**B47（deploy.yml 从未运行）跨 T2 与 T4**。
+> 没有把它们插进 §9.2 是因为本节的编号是**只增不减、按登记顺序**的
+> （与 [docs/README §3](../README.md) 对 ADR 序号的要求同源），
+> 插队会让所有既有的「B4x」外部引用错位。**读分层请以本注与统计表为准，不要以它们所在的小节为准。**
 
 | # | 阻塞项 | 卡住了什么 | 归属 |
 |---|---|---|---|
 | B31 | **境内探针机不存在** | 全部可达性实测、QUIC/HY2 探活、监控最大缺口；runbook §2 的分诊依赖「HY2 失败但 REALITY 正常」这个对照 | **需申请**（采购决策 + 法律敞口评估） |
 | B32 | ~~计费账号与月度支出未查~~ **✅ 2026-08-21 解决，且前提是错的** —— 计费账号 `0130C2-FA2146-786074`，当前身份**有** budget 读写权限，**不需要申请**；账户上本来就有一条项目级预算。🔴 真正的缺口是**口径**：它是 `INCLUDE_ALL_CREDITS`，而项目 gross 被账户级推广抵扣全额冲平，**在抵扣用完之前永远不会触发**。已于 2026-08-21 改为 `EXCLUDE_ALL_CREDITS` / $500 月 / 加 forecasted 100%。证据 [evidence/gcp-inventory-20260821 §4](../evidence/gcp-inventory-20260821/) | ✅ 已解决；**遗留**：`notificationsRule` 为空（只走默认账单管理员邮箱，未接 Pub/Sub），且从未端到端触发过 |
 | B33 | **CF 账号资产未清点 + cloudflared 隧道账号归属未确认** | IaC 起步（不完整 state 比无 state 更危险）；ADR 0001 落地约束第 4 条 —— **这可能是当前就存在的暴露** | **需申请**（CF 后台访问） |
-| B34 | **SLO / error budget 未定义** | 「该不该进下一阶段」除出口标准外无连续量化依据 | **需用户决策** |
-| B35 | **on-call 轮值、升级路径、告警静默未定义** | 告警「发给谁、多久没人应答怎么办」 | **需用户决策** |
+| B34 | **SLO / error budget 未定义**。<br>🔶 **2026-08-30：[ADR 0014 · SLO、on-call 与告警分级](../05-adr/0014-slo-and-oncall.md)** 给了完整定义：三个按**分钟**计的 SLI（`DP-a` 节点可服务性 / `DP-b` 有效承载 / `CP` 控制面），**P1 期只发一个数字 —— `CP` = 98%/月**，`DP-a`/`DP-b` 只记账不承诺；error budget 改**滚动 30 天**、约束从四档改两档 + 一个事件触发。[monitoring §14](../04-ops/monitoring.md) 已补登这条落点。🔴 **不许写成已解决，两条理由**：① ADR 0014 是**提案，未批准**；② **即便批准了，0014 §4.1 也明说 `DP-a` 在 P1 期故意没有 SLO** —— 「定义了」不等于「都有承诺」。台账文件 `docs/04-ops/slo-ledger.md` **尚不存在** | 「该不该进下一阶段」除出口标准外无连续量化依据 | 🔶 有裁决草案（ADR 0014，提案未批）/ 台账文件不存在 |
+| B35 | **on-call 轮值、升级路径、告警静默未定义**。<br>🔶 **2026-08-30：[ADR 0014 §6–§8](../05-adr/0014-slo-and-oncall.md)** 裁决了，且**它诚实地不假装有轮值**（§6.1 先承认约束：运维就是一个人）。升级路径三段，**没有一段是「找另一个人」**：自动降级 → 显式延迟承诺 → 把内部用户变成 19:00–01:00 这 6 小时的第二告警通道；「多久没人应答」由 GCP `renotifyInterval` + Kuma 5 分钟重发**双层**提供；响应承诺 10:00–19:00 Asia/Shanghai，A 级 30 分钟确认 / B 级 4 小时；静默一律走 Snooze 且 ≤ 7 天带理由。🔴 **不许写成已解决**：ADR 0014 **提案，未批准**，且它要求的 `docs/04-ops/alert-drill-ledger.md` **尚不存在**，17 条告警策略**一条都还没建**（[monitoring §5](../04-ops/monitoring.md)），演练零次 | 告警「发给谁、多久没人应答怎么办」 | 🔶 有裁决草案（ADR 0014，提案未批）/ 告警与台账都不存在 |
 | B36 | **恢复演练一次都没做**（DB 恢复 + 告警端到端） | deploy §12 的「秒级/分钟级/小时级」没有一个是实测的 | 可直接做（需 P1 存在） |
-| B37 | **佣金结算状态机端点未设计**；**邮件群发 D11b 的收件人筛选表达式未设计** | P3 的两个模块 | 可直接做 |
+| B37 | **佣金结算状态机端点未设计**；**邮件群发 D11b 的收件人筛选表达式未设计**<br>🔶 **2026-08-30 二次复核：两半都实现了一个「在当前契约下唯一确定」的版本，而两半各自暴露出一处契约与 schema 不兼容 —— 所以本条从 🔴 转 🔶，不转 ✅。**<br>**（一）佣金 —— 两处不兼容，都在 `api/internal/handler/wallet.go` 里就地登记了。**<br>① 🔴 **`commissions` 没有 `amount_transferred` 列**（`0007_ledger.up.sql:70` 只有 `amount bigint NOT NULL CHECK (amount >= 0)`），**一条佣金要么整条 `transferred` 要么不动**；而契约的 `CommissionTransferRequest` 只有一个自由 `amount`（`minimum: 1`）、**没有 id 列表**，服务端无从知道用户勾选了哪几条。本轮只能取「按 `(confirmed_at, id)` 排序的前 k 条前缀和恰好等于 `amount`」这一个解释（`pickCommissionsForAmount`）——**任何「凑出这个金额的任意子集」的实现都是在发明语义**：同一个金额可能有多个子集能凑出来，而选哪一个是用户看得见的差别。**裁决前不加列**：加了会让一条佣金同时处在两个状态。<br>② 🔴 **状态机差一格，而缺的那一格是「这笔钱没了」**：契约 `Commission.status` 是 `[pending, confirmed, settled]`，DB 的 CHECK 是 `('pending','confirmed','transferred','voided')`（`0007_ledger.up.sql:73`）。`transferred → settled` 显然，**`voided` 在契约里没有对应值**，而两个候选都是谎话 —— 映射成 `settled` = 告诉用户「这笔已经到账了」而它永远不会到；映射成 `pending` = 让他一直等一笔永远不会来的钱。本轮选了伤害较小的 `pending`，并保证 `voided` **一分都不进「可划转」合计**。**根治要么给契约加一个枚举值，要么在用户面把它过滤掉（后者会让「我明明看到过一笔佣金」变成悬案）。**<br>③ 顺带修掉一个缺科目导致的 500：`0018` 补 `expense:commission`（`0015` 的 seed 来自 ADR 0012 §17.6(c)，只覆盖收款链路；佣金是 ADR 0013 §3.5 的事，两份 ADR 同批合并但 seed 只跟了前者）。**缺它的现象不是启动失败，是用户点「划转佣金」时 500。** 科目仍缺时返 **503 + `Retry-After: 300`** 而不是 500 —— 这个失败**不是偶发**，前端可以直接把按钮置灰。<br>**（二）群发 D11b —— 契约自己写着未裁决，实现只能做一半。** `MailBroadcastRequest` 只有粗粒度 `audience` 枚举（`all` / `active` / `expired` / `expiring_soon` / `by_plan`）+ 可选 `plan_ids`，schema 的 description 原文就是「**收件人筛选表达式怎么表示是个独立的设计问题，尚未裁决**」。🔴 **`broadcastAdminMail` 的自定义正文那一半必须 501** —— `email_log` 有 `template` 键与 `subject`、**没有正文列**，`ClaimQueuedMail` 也取不到正文；模板键驱动的那一半可用。🔴 另：契约的 202 响应描述写着「走 `mail_queue` + `/internal/tasks/mail-send`」，而 **`mail_queue` 这张表在 19 支迁移里不存在**（`traffic_batch` 同理，两者都已在代码注释里逐条登记）。 | P3 的两个模块 | 🔶 **从 🔴 转 🔶** —— 两半都实现了，**两半都卡在同一类东西上：契约与 schema 不兼容，而修哪一边都是裁决**（加列 / 加枚举值 / 加表，三者都不属于「实现一个已在契约里的端点」） |
 | B38 | **节点退役方案未定** | ADR 0007 阶段 6 之后 | 待裁决（需另写 ADR） |
 | B39 | **河南省级审查影响未评估**（自 2023-08 起省内自建 TLS-SNI/HTTP-Host 审查，累计封锁 420 万域名，**超过 GFW 累计量 5 倍**） | 河南用户的实际体验 | 需调研 + 需实测 |
 | B40 | ~~`evidence/README.md` 的 `region-ab-*` 条目已过期~~ **✅ 2026-08-21 已改** —— 改为 asia-east2 vs asia-northeast1 | — | ✅ 已解决 |
 | B41 | 🔴 **镜像 tag 用短 sha，分支被 force-push 之后镜像与源码的对应关系就断了** —— 这**已经发生**：生产 `bp-api-2fbf49d` 对应的 commit `2fbf49d3d2b6` 不被任何分支引用（`pr7/p1-core-and-deploy` 被改写过）。取回来比对确认与 PR #9 head 只差 4 个文件、`api/` 侧全是注释，**这次运气好**。证据 [evidence/gcp-inventory-20260821 §5.2](../evidence/gcp-inventory-20260821/) | 「线上跑的到底是哪份源码」不可回答 = 无法回滚到已知good、无法审计。要么禁止已部署分支 force-push，要么把完整 sha + 分支名写进镜像 label | 🔶 **2026-08-23 做了后一条** —— `deploy-api.sh` 往镜像写六个 label（完整 40 位 sha / tag / 构建时间 / 分支 / 工作树是否干净 / 构建路径），两条构建路径同源；Cloud Build 侧因 `builds submit --tag=` 传不了 `--label`，改成运行时生成构建配置。工作树脏时**默认拒绝构建**（`--allow-dirty` 才放行，且 tag 变 `<短sha>-dirty`）。反查：新增 `infra/scripts/image-provenance.sh`，一条命令查出完整 sha 并判断该 commit 是否仍被分支引用。**剩下的**：① 「禁止已部署分支 force-push」未做（仓库托管方未定）；② label / `--update-labels` 的真实行为**待核实**（本次未执行任何 gcloud 变更）；③ `-X main.version` 打的符号在 `main.go` 里不存在，`/healthz` 至今回报不了版本 |
-| B42 | 🔴 **10 条 log-based metrics 里 3 条建不了** —— `bp_mail_bounce`（ESP 未接通）、`bp_cert_issuer_bad`（每日证书核对作业不存在）、`bp_node_alive`（需应用主动写带 `node_id` 的结构化日志）。另 7 条已于 2026-08-21 补建，但 **2026-08-17 → 08-21 这 4 天的数据因「不追溯」永久缺失** | monitoring §5 的 metric-absence 告警**依赖 `bp_node_alive`**，节点上线前必须先有它 | 🔶 **2026-08-23 解开一条的一半** —— `bp_cert_issuer_bad` 的信号源有了：新增 `infra/scripts/check-cert-issuer.sh`（每日核对签发者，不符就写结构化日志；空清单优雅退出，因为域名还没注册）。**但指标本身仍要人工建一次，且「每日」的调度器未裁决、无脚本**。`bp_mail_bounce`（ESP 未接通）与 `bp_node_alive`（要应用写一行带 `node_id` 的日志）**原地不动** |
-| B43 | **推广抵扣的余额与到期日未查** —— 账户级 GFS 抵扣按预算名推断为 $100k / 2026-06-16→2027-06-15，至 08-20 已用 $39,107（39.1%），本项目只占 3.3%。近 14 天全账户日均 $200.6，按此速率大致够用满一年 | 「什么时候开始真的花钱」不可预测；**跑道由同账户的其它项目消耗决定，不在本项目控制内**（2026-07 一个月就吃掉全年额度的四分之一） | **可直接做**（Billing 控制台抵扣余额页） |
-| B44 | 🔴 **PR 栈代码审查确认的 13 条缺陷未修，且已在生产运行** —— 最重四条：`ClientIP` 取 `X-Forwarded-For` **最左**段（调用方可伪造，污染账号共享检测的唯一数据源）、Clash 订阅缺 `rules:` 段（**导入后一点流量都不走代理**）、`/push` 同事务混了容错 UPDATE 与带外键 INSERT（一个未知 user_id 让整批流量入账回滚且节点不重发）、`migrate/entrypoint.sh` 的 dirty 闸门让它自己指定的 `force` 恢复路径不可达 | P1 出口的 72 小时验证；Clash 那条直接卡住任何真实用户 | **进行中** —— 6 条 High 在 PR #13、4 条 Medium 在 PR #14；剩 1 条转 B45 |
+| B42 | 🔴 **10 条 log-based metrics 里 3 条建不了** —— `bp_mail_bounce`（ESP 未接通）、`bp_cert_issuer_bad`（每日证书核对作业不存在）、`bp_node_alive`（需应用主动写带 `node_id` 的结构化日志）。另 7 条已于 2026-08-21 补建，但 **2026-08-17 → 08-21 这 4 天的数据因「不追溯」永久缺失** | monitoring §5 的 metric-absence 告警**依赖 `bp_node_alive`**，节点上线前必须先有它 | 🔶 **2026-08-23 解开一条的一半** —— `bp_cert_issuer_bad` 的信号源有了：新增 `infra/scripts/check-cert-issuer.sh`（每日核对签发者，不符就写结构化日志；空清单优雅退出，因为域名还没注册）。**但指标本身仍要人工建一次，且「每日」的调度器未裁决、无脚本**。`bp_mail_bounce`（ESP 未接通）与 `bp_node_alive`（要应用写一行带 `node_id` 的日志）**原地不动**。<br>🔶 **2026-08-30 再解开半条：`bp_node_alive` 的信号源已经有了**（随 PR #15 于 2026-08-23 合并）。`api/internal/handler/nodealive.go` 已在写这行结构化日志，两条与 [monitoring §3.2](../04-ops/monitoring.md) 强耦合的约定也写进了代码注释：**日志文案就是指标名 `bp_node_alive`**（过滤器匹配 `jsonPayload.message` 即可，不会因为谁改了一句中文措辞而静默失配）、`node_id` 写成**字符串**；心跳记在「鉴权 + `node_id` 校验通过之后、业务逻辑之前」，降频每节点每 60 秒最多一条。附带一条依赖已被钉住：`jsonPayload.message` 这个字段名来自 `cmd/server/main.go` 的 `ReplaceAttr`（slog 默认是 `msg`），删掉那几行**不会有任何编译或运行时报错，但本页每一条 log-based metric 会同时停止匹配** —— `cmd/server/logger_test.go` 已实测钉住。🔴 **另外半条仍然欠着：指标本身没建**，`gcloud logging metrics create bp_node_alive --label-extractors=...` **一次都没执行过**，且 `--label-extractors` 的确切写法**需实测**。§5 的 metric-absence 告警依赖它，**节点上线前必须先有**。<br>🔴 **本轮新增第 11 条 `bp_ratelimit_degraded` 也未建** —— 限流器**失败开放**（DB 不可用时放行并写一条 ERROR），没有这条指标，「本该限流却没限」在监控上**完全静默**，因为它不产生任何 429 |
+| B43 | 🔴 **2026-08-30 复核：仍未做，一次控制台查询就能关掉。** **推广抵扣的余额与到期日未查** —— 账户级 GFS 抵扣按预算名推断为 $100k / 2026-06-16→2027-06-15，至 08-20 已用 $39,107（39.1%），本项目只占 3.3%。近 14 天全账户日均 $200.6，按此速率大致够用满一年 | 「什么时候开始真的花钱」不可预测；**跑道由同账户的其它项目消耗决定，不在本项目控制内**（2026-07 一个月就吃掉全年额度的四分之一） | **可直接做**（Billing 控制台抵扣余额页） |
+| B44 | 🔴 **PR 栈代码审查确认的 13 条缺陷未修，且已在生产运行** —— 最重四条：`ClientIP` 取 `X-Forwarded-For` **最左**段（调用方可伪造，污染账号共享检测的唯一数据源）、Clash 订阅缺 `rules:` 段（**导入后一点流量都不走代理**）、`/push` 同事务混了容错 UPDATE 与带外键 INSERT（一个未知 user_id 让整批流量入账回滚且节点不重发）、`migrate/entrypoint.sh` 的 dirty 闸门让它自己指定的 `force` 恢复路径不可达 | P1 出口的 72 小时验证；Clash 那条直接卡住任何真实用户 | ✅ **2026-08-30：已解决。** PR [#13](https://github.com/oratis/babelplus/pull/13)（6 条 High）与 [#14](https://github.com/oratis/babelplus/pull/14)（4 条 Medium）**均已于 2026-08-23 合并进 master**（`gh pr view` 实查：#13 `2026-08-23T08:56:59Z`、#14 `2026-08-23T08:57:24Z`），CI 全绿。13 条里剩下的那 1 条转 **B45**（sing-box 缺 `inbounds`/`route.rules`，需真机），另有 1 条转 **B46**（`GEOIP,CN` 拒载）。⚠️ **「已修」不等于「已验证」**：这些修复至今**没有在一台真实节点或一个真实客户端上跑过** —— `bp-node-*` 现有 0 台。<br>🔴 **2026-08-30 二次复核：这句警告现在有一次只读实查做背书，而且它比原来更该被读到。** `gcloud compute instances list --project=oratis-491316` 返回的**只有 `vpn-us`（us-west1-a，RUNNING）与 `vpn-jp`（asia-northeast1-a，RUNNING）** —— `bp-node-*` **仍是 0 台**。此前这一条是转述 2026-08-20 的 as-built，**现在是实测**。<br>⚠️ **另一层，本次才查清楚**：生产 `bp-api` 的 serving revision 是 `bp-api-618bf1c` = commit `618bf1cc89b3`（2026-08-23，PR #16 的合并提交，`git merge-base --is-ancestor` 实查为真），距 HEAD **14 个提交**。#13 / #14 是同日（2026-08-23）合并的，**它们是否都在 `618bf1c` 之前，本次没有逐条核对** —— 所以「已修」与「线上已修」在本条上仍不能划等号。**「已修」→「已部署」→「已验证」是三件事，本条现在只能保证第一件。** |
 | B45 | **sing-box 订阅没有 `inbounds`，也没有 `route.rules`** —— ① 官方图形客户端（SFI / SFA / SFM / SFT）把 profile 当**完整配置**加载，隧道由 `tun` inbound 声明，缺它时进程能起、节点列表正常，但没有入口捕获流量（现象：开关打开却一点流量不走）。Karing / Hiddify 不受影响，它们把订阅当节点清单自己生成完整配置。② Clash 侧已补「私有网段 + `GEOIP,CN` 直连」，sing-box 侧没有 —— **同一用户在两种客户端上的分流行为不一致**。⚠️ `sing-box check` 对缺 `inbounds` 的配置是**通过**的，ADR 0006 §5.1 那条「加分做法」抓不到它 | sing-box 官方客户端的用户可用性；两种客户端的行为一致性 | **需实测**（真机；`tun` 与 `rule_set` 的参数写错会让整份 profile 加载失败，比现状更糟，所以不能靠猜） |
 | B46 | **首推客户端是否自带 `geoip.metadb` 未知** —— 实测（mihomo v1.19.30，全新配置目录 + 断网）：规则表里带 `GEOIP,CN` 时**整份配置被拒绝加载**（不是「该规则不匹配」），因为要去 `github.com/MetaCubeX/meta-rules-dat/releases` 下 8.6 MB 的 MMDB，而需要它的人正是「人在大陆、刚装客户端、还没有可用代理」的那一刻。已据此把 `GEOIP,CN,DIRECT` 从下发的规则表里去掉 | **国内流量现在也走节点** —— 体感更慢，且出口账单按 100% 流量计（出口是当前最大成本项，见 `evidence/egress-billing-20260820/`）。要拿回国内直连必须先回答这一条。另：tutorials-spec 排障表「GEOIP,CN 的位置问题」目前对不上实现 | **可直接做**（装一次 Clash Verge Rev 看它带不带 geo 文件） |
+| B47 | 🔴 **`deploy.yml` 从未运行过一次，而它是仓库里唯一一条声称存在的部署路径**（2026-08-30 新增）。实查：`gh run list --limit 200` 返回 **35 次 workflow run，全部是 `ci`，`deploy` 一次都没有**（`gh run list --workflow=deploy.yml` 返回空）。仓库设置里 **0 个 environment、0 个 variable、0 个 secret**（`gh api repos/oratis/babelplus/{environments,actions/variables,actions/secrets}` 三条实查，`total_count` 全为 0），而 `deploy.yml` 顶部登记的**四项 TODO 一项都没填**：`vars.GCP_WIF_PROVIDER`、`vars.GCP_DEPLOY_SA`、`vars.BP_WEB_DEPLOY_CMD`（ADR 0003 托管选型未裁决，所以它是空的）、staging 环境的资源命名（**用不用独立 GCP 项目、`bp-db` 要不要第二个实例都还没裁决**，现在的 `-staging` 后缀是占位）。工作流自己写着「缺失时**直接失败**而不是跳过认证」，所以现状不是「配了一半能跑」，是**根本没跑过** | 「怎么部署」这件事在仓库里有两份不一致的答案：写下来的是 `deploy.yml`（从未执行），实际用的是 `infra/deploy/deploy-api.sh` + Cloud Build 手动跑。**没有一条被 CI 验证过的部署路径**，也就没有可回滚、可审计的发布。它同时卡着 B41 的遗留第 ① 条（禁止已部署分支 force-push） | **可直接做**（配 WIF + 填四项）/ 其中 `BP_WEB_DEPLOY_CMD` 与 staging 命名**需先裁决**。登记处：[CONTRIBUTING §8](../../CONTRIBUTING.md)、[deploy.md](../04-ops/deploy.md)、`.github/workflows/deploy.yml:21` |
+| B48 | 🔴 **管理面与内部面的鉴权此前完全没有实现，70 个 operation 靠中间件硬 501 顶着**（2026-08-30 新增）。`api/cmd/server/authmap.go` 的 `authMiddleware` 对 `adminOperations`（**61 个** `/admin/*`）与 `internalTaskOperations`（**9 个** `/internal/tasks/*`）**一律返回 `handler.ErrNotImplemented`**，注释写明这是**刻意的 fail-closed**：上一版这里是原样放行，于是任何人实现某个 admin handler 的那一刻，就等于上线了一个无鉴权的管理端点，而**代码 diff 里看不出任何异常**。走 error 通道而不是自己写 500，是为了不让 70 个端点长期把 5xx 告警刷红（告警规则正是按「排除 501」建的）。<br>🔶 **2026-08-30 现状（先看 `git log` 与该文件再写，本行就是这么写的）**：`2c0c6b69bde` 已经加了两支中间件 —— `api/internal/middleware/admin.go:295` 的 `AuthenticateAdmin` 与 `internal.go:184` 的 `AuthenticateInternal`。**但 HEAD `a4604c9396f` 的 `authmap.go` 还没有接上它们**，那个 `case adminOperations[...], internalTaskOperations[...]` 分支仍然原样返回 501，且 `middleware/` 下**没有 `admin_test.go` / `internal_test.go`**。所以在 HEAD 这个基线上，准确表述是「**中间件已写、尚未接线、无测试**」，不是「已实现」。<br>🔶 **2026-08-30 收尾时的现场更新（同一天内，本审查进行期间）**：另一条并行工作流已经在 **未提交的工作树**里把这条接线做完了 —— `authmap.go` 的 `case adminOperations[...]` 与 `case internalTaskOperations[...]` 已拆成两个独立分支，分别调 `mw.AuthenticateAdmin` 与 `mw.AuthenticateInternal`，并新增 5 个测试文件（`middleware/admin_test.go`、 `middleware/internal_test.go`、`cmd/server/authwiring_test.go`、`internal/audit/audit_test.go`、 `internal/config/admin_test.go`），Go 测试从 **20 文件 / 195 函数** 涨到 **25 文件 / 275 函数**。 拆分买下的正是那条注释担心的东西：**从此「实现某个 admin handler」不再等于「上线一个无鉴权端点」** （鉴权不过 → 403 进不了 handler；凭据对了但 handler 没写 → 仍然 501）， 且 `BP_ADMIN_IAP_AUDIENCE` 未配置时 `AuthenticateAdmin` **整体拒绝**（fail-closed）， 「配置漏了」的现象是「管理面进不去」而不是「谁都进得去」。 🔴 **但本条仍记 🔶 不记 ✅，两条理由**：① **这些改动尚未提交**， 本文的事实基线是 master `a4604c9396f`，按本仓口径 **未提交 ≠ 已落库**； ② **接线 ≠ 端点可用** —— 61 个 admin handler 绝大多数仍是 `Unimplemented` 的 501， `BP_ADMIN_IAP_AUDIENCE` 也还没有在生产 `bp-api` 上配置过。<br>🔶 **2026-08-30 二次复核：接线已提交，「卡住了什么」那一栏整栏作废，而本条仍记 🔶。**<br>✅ **接线落在 commit `01350425ef1`**：`authmap.go` 的 `case adminOperations[...]` 与 `case internalTaskOperations[...]` 已拆成两个独立分支，分别调 `mw.AuthenticateAdmin` / `mw.AuthenticateInternal`。**80 个新顶层 Test / 3,176 行测试**；安全红线由 `cmd/server/authwiring_test.go` 承担 —— 它不抽查代表端点，而是**遍历全部 61 + 9 = 70 个 operationID**，每个各跑 7/8 种伪造或缺失凭据，逐个断言 ① handler spy 一次都没被调用 ② 403 ③ 信封里 `error.code` 是 `AUTH_PERMISSION_DENIED`，末尾再断言这 70×7 次尝试**一次都没触碰 `admin_users` 查询**。两条配套用例堵住「假绿」：拿**完全合法**的凭据打未配置实例仍须 403；拿正确凭据必须放行（否则「无条件 403」也能全绿，那不是鉴权，是把 70 个端点关掉）。agent 另做了变异验证：摘掉 authmap 的管理面鉴权 → 立刻红；把 `internal.go` 的 `email_verified` 检查改成 `if false` → 同一条 wiring 测试红，两次均已还原。<br>✅ **「卡住了什么」那一栏已经不成立**：后台 23 页**接线 21 页**（`b6e7603e7f9`），9 个 `RunXxxTask` **全部实现**（`6ed53d5a8bc`），61 个 admin operation **实现了 56 个**（`bdc4437d0fe`）。<br>🔴 **仍记 🔶 不记 ✅，理由换了两条全新的，而它们都不是代码**：① **生产 `bp-api` 上没有配 `BP_ADMIN_IAP_AUDIENCE`**（`gcloud run services describe bp-api --region=us-central1` 实查，10 个环境变量逐个列过，没有任何 `BP_ADMIN_*` / `BP_INTERNAL_*`）—— 按 fail-closed 设计，**管理面与内部面在线上整体拒绝**，56 个已实现的 operation 一个都进不去；② **管理面根本没有登录端点**，而它要的 IAP audience 形态只能来自一个挂 IAP 的 GCLB 后端服务，**那套东西一件都没建** —— 见新增的 **B51** 与 B19。<br>⚠️ **一条本轮顺带修掉的真缺陷值得留在这里**：迁移 `0019` 把 `admin_users_email_uk` 改成 `WHERE disabled_at IS NULL` 的部分索引（软停用后邮箱不再被永久占住，「离职再入职」能进来），但 `LookupAdminByIAPEmail` 是不带条件的 `QueryRow`，**会静默取到先插入的停用行并 403** —— 于是 0019 想放行的那件事在登录路径上变成稳定 403。**在真库上复现过。** 修法用 `ORDER BY (disabled_at IS NULL) DESC, id DESC LIMIT 1` 而不是迁移注释建议的 `AND disabled_at IS NULL`：后者同样能修好登录，但会让「已停用的管理员来敲门」与「这邮箱压根不是管理员」塌成同一条日志，**而前者是一条安全相关的记录，值得有人看见**。 | ~~后台 17 个模块一页都接不了线；9 个 `RunXxxTask` 端点全 501~~ **两条都已不成立（见左）。现在卡住的是**：管理面在生产上整体关闭，且没有可用的准入路径（无登录端点 + 无 GCLB/IAP） | 🔶 **接线与测试已完成并提交；卡口移到基础设施与裁决**。登记处：`authmap.go` 两张表的注释、[web/README §8](../../web/README.md)、本表 **B51** / **B19** |
+| B49 | ~~**`sqlc` 检查不到「写生成列」这类错误，而 CI 对它全盲**~~ ✅ **2026-08-30 解决（本轮新增两步 CI 检查，commit `a4604c9396f`）。** 根因：`api/sqlc.yaml` **没有 `database:` 段**，内置引擎只做语法与列名解析，所以迁移 `0016` 把 `users.transfer_enable` 变成 GENERATED STORED 之后，仍有 8 条查询在写它，而 `sqlc generate` 与 `go build` **都 exit 0**；`migrations` 作业当时只灌 up/down 再数对象个数、**一行数据都不写**，整类「语法对、列名对、运行时才炸」的缺陷全在盲区里。**第一次暴露是在用户付款成功、订单进 paid、开通权利那一刻返 500。**<br>两步补法（都在 CI `migrations` 作业里）：① **EXPLAIN 全量写语句** —— `api/scripts/db_explain.py` 从 `db/gen/*.sql.go` 抽出 **194 条**常量 SQL（读 gen 而不是 `queries/`，因为后者的 `sqlc.narg()` / `@name` 不是合法 SQL），逐条 `EXPLAIN (GENERIC_PLAN)`；自证是把 `ApplyUserEntitlement` 改回旧写法后这一步 exit 3 并**指名是哪条 query**。② **回滚后写探针** —— `api/scripts/ci_post_rollback_write.sql` 插在 `0016.down` 之后（再往下一步 `0012.down` 第一句就 `DROP FUNCTION`，证物被销毁）。🔴 值得单独记一笔：ADR 0013 §6.4 原本提议的 `UPDATE users SET updated_at = now() WHERE false` **抓不到它要抓的东西** —— 影响 0 行 ⇒ ROW 触发器不执行 ⇒ plpgsql 永不解析字段名，实测在故意写坏的 schema 上返回 `UPDATE 0`、exit 0。所以探针改成**先 INSERT 一行真实数据再打到那一行上**并断言 `ROW_COUNT=1`（打不到行 = 这一步是空跑的），在同一份坏 schema 上它 exit 3 并报出 `record "old" has no field "transfer_enable_plan"` | 「生成列 / 触发器 / plpgsql 字段名」这一整类缺陷此前**只在生产的付款链上暴露**。⚠️ **仍未解决的是根因本身**：`sqlc.yaml` 依旧没有 `database:` 段，我们是**在下游加了两道网**，不是让 sqlc 自己看得见 | ✅ 已解决（两步 CI 检查）/ 根因未消除。登记处：commit `a4604c9396f`、`api/sqlc.yaml`、`.github/workflows/ci.yml` 的 `migrations` 作业 |
+| **B50** | 🔴 **[ADR 0012](../05-adr/0012-payment-gateway.md) §5.3 的报价公式漏了汇率的 1e4 定点基数**（2026-08-30 二次复核新增）。原文（`0012-payment-gateway.md:295`）：`amount_usdt6 = ceil( amount_due_cents × 1e6 × (1 + fx_buffer) / (cny_per_usdt_e4 × 100) )`。分母里的 `cny_per_usdt_e4` **已经是 ×1e4 的定点整数**，公式里没有抵掉这个基数。**照它算 ¥100.00 @ 7.15、缓冲 1%**：`10000 × 1e6 × 1.01 / (71500 × 100) = 1412.6` → **0.0014 USDT，小 10000 倍**。正确量纲是 `cents × 1e10 × (10000 + bps) / (e4 × 100 × 10000)` → **14.13 USDT**。**怎么被抓到的**：agent 第一版照抄 ADR，**测试当场炸出来**；已按正确形式实现在 `api/internal/handler/order.go:571` 的 `quoteUSDT6`，`:578` 的注释逐项对齐四个基数。 | 🔴 **ADR 原文至今未改**，任何照它写第二份实现的人会再踩一次同一个坑；而 ADR 0012 是**已合并的裁决**，改它要按 [docs/README §4](../README.md) 逐条交代落点，**属独立一次修订** | 🔴 **可直接做**（一次文档修订）/ 需按推翻登记的规矩写。登记处：`0012-payment-gateway.md:295`、`api/internal/handler/order.go:578` |
+| **B51** | 🔴 **管理面根本没有登录端点：`adminSession` 在冻结契约里有声明、无实现**（2026-08-30 二次复核新增）。逐条实查：① **45 条 `/api/v1/admin/*` 路径里没有一条是 login / session / me**（把 `openapi.yaml` 里 45 条 `^  /api/v1/admin/*` 路径全部取出来，再按 `login` / `session` / 结尾的 `me` 三个词各筛一次，**命中数 0**）；② `adminSession` 定义在 `openapi.yaml:4379`（`http` / `bearer` / JWT），被 **61 个** operation 引用；③ **`AuthenticateAdmin` 从不读 `Authorization`**（`grep -c Authorization api/internal/middleware/admin.go` = **0**）—— 它验 `x-goog-iap-jwt-assertion` 的签名，再用断言里的 email 查 `admin_users`；④ 它用的 `AdminRecord` **刻意不含 `password_hash`**，注释原话「管理面走 IAP，根本不该有任何代码路径能读到密码哈希」；⑤ L3 的 TOTP **不是登录第二因子**，是每个危险操作的 `X-TOTP-Code` step-up。<br>**原本以为的解法是错的**：`login` 在 openapi 里 `tags: [user]` / `security: []`，handler 查的是 **users 表**，发的是管理面根本不读的用户面 token —— 接上去的结果是「提示登录成功 → 每一页照样 403」。<br>**本轮的处置是诚实降级而不是发明**：`web/admin` 的 `LoginPage` 改成**准入状态页**（三个 input 受控但保持 disabled 并写清上面五条，禁用而不隐藏）；守卫改成**准入探测**（探 `GET /api/v1/admin/audit?limit=1`，最便宜、不挑角色、不挑权限位、且已实现），**结论不缓存** —— 缓存的「你是管理员」在管理员刚被禁用那一刻正好是错的。 | **管理面的准入路径整条不存在**：56 个已实现的 admin operation 谁都进不去；且它决定了部署形态（IAP audience 必须是 GCLB 后端服务 → 承 **B19**） | 🔴 **需裁决 + 需建基础设施**（不是写代码）：要么建 GCLB + IAP 并配 `BP_ADMIN_IAP_AUDIENCE`，要么给契约补一套管理面会话端点（那是改冻结契约）。登记处：`openapi.yaml:4379`、`api/internal/middleware/admin.go`、`web/admin/src/routes/LoginPage.tsx` |
+| **B52** | 🔴 **两个直接动钱的权限位在 API 上看不见也授不了**（2026-08-30 二次复核新增）。`admin_users` 有 **4 个** `perm_` boolean 列（`0002_foundation.up.sql:62-65`）：`perm_mark_order_paid`(D6) · **`perm_refund`(D7)** · **`perm_adjust_balance`(D10)** · `perm_export_csv`(D14)，另有 `role`。而契约的 `AdminPermission` 枚举**只有 7 个值**：`admin.order.mark_paid` `admin.user.export` `admin.user.write` `admin.node.write` `admin.plan.write` `admin.ticket.write` `admin.settings.write` —— **`perm_refund` 与 `perm_adjust_balance` 没有任何对应枚举值**。本轮的处置：写侧只接受那两个对得上的，其余一律 **422 并说明「由角色决定」——绝不假装成功**（静默忽略会让「我给他授了退款权限」与「他有退款权限」变成两件事，而这个差值只会在有人退了一笔不该退的钱之后才被发现）。<br>**同族的两条一并登记在此**：① 🔴 **`createAdmin` 造出来的管理员登不进去** —— `totp_confirmed_at` 是 NOT NULL（库里不存在「待绑 2FA」状态），而 `createAdmin` 的 201 响应是 `AdminAccount`、**没有 `TotpEnrollment`**，明文 secret 无处可去；**正确开户是两步：`createAdmin` → 立刻 `resetAdminTotp`**，不写进后台操作文档的话现场唯一的「解法」是直接改库。本轮给 201 多带了一个 `X-Next-Step` 头指向 reset-totp，**那是补丁不是修复**。② 佣金状态机差一格，见 **B37**。 | D7 / D10 两条危险操作的 L4 强制在服务端是有的，**授权路径却是断的**；以及一条无法从 API 完成的开户流程 | 🔴 **需裁决**（给契约加枚举值 = 改冻结契约；或裁定这两个权限位只由 `role` 决定并把列去掉）。登记处：`openapi.yaml` 的 `AdminPermission`、`api/db/migrations/0002_foundation.up.sql:62`、`api/internal/handler/admin_users.go:223` |
+| **B53** | 🔴 **链上入账完全不看 `Solidified`，未固化的转账立刻把订单置为 `paid`**（2026-08-31 新增，PR #19 审查）。`settleDeposit` 的付清判定用 `SumAddressReceipts`，而那条 SQL 只排除 `aml_verdict = 'blacklisted'`，**不按 `payments.state` 过滤** —— 一笔 `state = 'confirming'`（即 `Solidified = false`）的到账会照样计入分子，于是 `shortfall <= 0` 成立、订单直接 `paying → paid`。`processDeposit` 自己是知道固化与否的（它据此决定 `state` 写 `paid` 还是 `confirming`），但那个事实在付清判定里**一次都没被读过**。TRON 的最终性是固化而不是 N 个确认（[ADR 0012](../05-adr/0012-payment-gateway.md) §10.5，代码注释也逐字写着「拿 `Confirmations >= 19` 当判据，在链重组时会开通一个没付钱的订阅」）—— 现在的实现比那还宽一档 | 链重组时会开通一个**没付钱**的订阅，且没有任何告警：订单已 `paid`，`payments` 行停在 `confirming`，两者不再有人比对 | 🔴 **不是一处小改，别照着「加个 `AND pm.state = 'paid'`」直接动手。** 现状下 `InsertPaymentIfNew` 是 `ON CONFLICT DO NOTHING`，重扫同一笔 tx **不会**把 `confirming` 升成 `paid`（`AttributePayment` 只在新插入的分支上跑）。所以只加过滤条件会把订单**永久卡在未付清** —— 用户真金白银付了却永远开通不了，比现状更糟。正确顺序是：先给扫描器补一条「重访 `confirming` 且已固化 → 升级 state」的路径，**再**收紧付清判定。两者必须同一个 PR |
+| **B54** | 🔴 **订单 `paid` 之后到达的补足款被静默吞掉**（2026-08-31 新增，PR #19 审查）。`settleDeposit` 的 `case OrderStatusPaid, OrderStatusCompleted` 分支里，`shortfall >= 0` 时直接 `return nil` —— 既不入余额，也不记日志、不打指标。触发形态很具体：C 档少付（`shortfall > ReviewUsdt6`）的用户按提示**向同一地址补足**，而在补足款到账之前，另一条路径（A 档写销、或 D6 手工标记）已经把订单推成了 `paid`；此时补足款落进这个分支，钱在我们的地址上，**没有任何记录指向那个用户** | 与「订单过期后到账入余额」是同一类风险，而那一条在同一个函数里被郑重处理过（「**不做这一条，用户第一次付款的钱就真的进黑洞**」）—— 这一条是同一个黑洞的另一个入口，只是没人注意到 | 🔴 需要「本单已认领额」的口径才能算准该退多少。`amount_paid` 现在**已经会涨了**（PR #19 审查时修的另一条），所以这条的前置条件已经具备：`credit = min(本笔到账, max(0, 累计到账 − 已认领))`，`credit > 0` 入余额；写销过的订单要先冲销 `expense:payment_shortfall`。**在补齐之前至少不许静默** —— `credit == 0` 也要打一条 ERROR + `bp_pay_unclaimed_topup` |
 
 > **统计**（按主归属计，跨类的取第一归属）：初版 40 条时是
 > **需用户决策 9 条、需实测 9 条、需申请 4 条、可直接做 15 条、待裁决 2 条、已可撤销 1 条**。
 > 2026-08-21 之后为 **46 条**（新增 B41–B46；B41/B42/B44/B46 可直接做，B43 查一下控制台，B45 需真机实测）。
+>
+> **2026-08-30 复核后为 49 条**（新增 **B47** deploy.yml 从未运行 / **B48** 管理面与内部面鉴权 /
+> **B49** sqlc 看不见生成列）。**按解决状态计：✅ 已解决 13 · 🔶 部分 18 · 🔴 开放 18。**
+>
+> **2026-08-30 二次复核后为 52 条**（新增 **B50** ADR 0012 §5.3 报价公式漏 1e4 定点基数 /
+> **B51** 管理面没有登录端点 / **B52** 两个动钱权限位在契约里没有枚举值）。
+>
+> **2026-08-31（PR #19 审查后）为 54 条**（新增 **B53** 入账不看 `Solidified` /
+> **B54** 订单 paid 之后的补足款被静默吞掉）。两条都动钱，且**都不是能顺手改一行的**：
+> B53 直接照抄「加一个 state 过滤」会让订单永久卡在未付清，比现状更糟。
+> **按解决状态计：✅ 已解决 13 · 🔶 部分 20 · 🔴 开放 19。**
+> **算式**：上一轮 49 = 13 + 18 + 18；本轮 **B19 与 B37 由 🔴 转 🔶**（18 → 20 部分，18 → 16 开放），
+> **新增 B50 / B51 / B52 三条一律记 🔴**（16 → 19 开放）。13 + 20 + 19 = 52。
+>
+> 🔴 **这一轮的三条新增全部来自「有人真去实现它」这个动作，而不是来自又一次审查。**
+> B50 / B51 / B52 的共同形状是**冻结契约与数据库 schema 各自成立、合起来不成立** ——
+> 这类缺口**编译器抓不到、CI 抓不到、`contract-drift` 也抓不到**（生成物两边都对得上），
+> 只有在有人真去写那个 handler 的时候才会撞上。
+> **它们不是本轮才产生的，是本轮才被发现的。**
+> ⚠️ **由此得到一条应当记住的规律**：本仓的「契约冻结」防的是**前后端类型漂移**，
+> **防不了契约与 schema 的语义不兼容**。后者至今没有任何自动化手段，
+> 而它一次比一次贵 —— B52 那两条是**直接动钱的权限位**。
+>
+> | 状态 | 条目 |
+> |---|---|
+> | ✅ **已解决（13）** | B1 ADR 0001 已批准（记录在 master）· B2 出口单价 · B6 密钥形态裁决为 query · B7 v2node 401 不清空用户列表 · B9 run.app 证书是 GTS · B11 golang-migrate 已选并在生产用 · B13 既有节点全 Premium · B16 设备计数按 IP · B18 字段语义（KB 单位）· B30 `token_enc` 已被 data-model §5 裁决 · B32 计费账号与预算口径 · B40 region-ab 条目已改 · B44 PR #13/#14 已合并 · B49 生成列的两步 CI 检查 |
+> | 🔶 **部分（18）** | B3 ETag（源码确认，真机未验）· B4 域名（**首个域名已注册且 DNS 可控**，5 个镜像域名未采购）· B5 → ADR 0011 · B8 协议覆盖（结论未落 evidence）· B11 一致性保证未做 · B12 Cloud SQL 3/4 · B16 软限制表述 → ADR 0015 · B20 nettier（成本已定量，性能零数据）· B21 → ADR 0012 · B24/B25/B26 → ADR 0013 · B27 前端栈已落地、组件库与 admin 框架未定 · B29 → ADR 0015 · B34/B35 → ADR 0014 · B41 镜像溯源（label 已写，force-push 禁令未做）· B42 log-based metrics（信号源有了，指标未建）· B48 管理面鉴权（中间件已写，未接线） |
+> | 🔴 **开放（18）** | B10 `/config` 下发 LE 证书的契约位 · B14 旧节点是否有人用 · B15 mux×XTLS 互斥 · B17 客户端 UA · B19 `bp-admin` 是否独立服务 · B22 ESP + 送达率 · B23 文档站可达性 · B28 人机验证 · B31 境内探针 · B33 CF 清点 + 隧道归属 · B36 恢复演练 · B37 佣金状态机 / 群发筛选 · B38 退役 ADR（0009 未写）· B39 河南审查影响 · B43 抵扣余额与到期日 · B45 sing-box 缺 `inbounds` · B46 客户端是否自带 geoip · B47 deploy.yml 从未运行 |
+>
+> **2026-08-30 二次复核后的三行（上表原文不动，本表是它的当前值）：**
+>
+> | 状态 | 条目 |
+> |---|---|
+> | ✅ **已解决（13）** | **与上表逐字相同 —— 这一天 25,000 行代码没有让任何一条阻塞项从 🔶/🔴 变成 ✅。** |
+> | 🔶 **部分（20）** | 上表 18 条**全部保留**（B48 的内容整个换了但状态不变，见该行）+ **B19**（`bp-admin` 独立性：问题被 IAP audience 形态改写，从 🔴 转入）+ **B37**（佣金状态机 / 群发筛选：两半都实现了，两半都卡在契约与 schema 不兼容，从 🔴 转入） |
+> | 🔴 **开放（19）** | 上表 18 条**去掉 B19 与 B37**（转 🔶）= 16 条，**加上新增的 B50 / B51 / B52** = 19 条 |
+>
+> 🔴 **B5 / B16 / B21 / B24 / B25 / B26 / B29 / B34 / B35 这九条一律记 🔶 而不是 ✅，只有一个理由：
+> 它们对应的 ADR 0011–0015 全部是「提案，未批准」。**
+> 本文的口径是 **写了代码 ≠ 上线，写了脚本 ≠ 执行过，裁决落库 ≠ 已批准**。
+> 把「写了一份裁决」记成「解决了一个阻塞项」，正是这张表最容易被用错的方式 ——
+> 因为它读起来像进度，实际只是**把同一个问题写得更清楚了**。
 >
 > **2026-08-21 更新 —— 那「7 条成本以分钟计」的清单现在是这样：**
 >
@@ -709,7 +1283,7 @@ flowchart TD
 | **已知固定成本** | Cloud SQL `db-f1-micro` **$9.53/月**（核实）；告警策略 2027-09-01 起约 **$5.95/月**（17 条 × $0.35，待核实）；带外 Uptime Kuma VPS 约 **$5/月**；旧节点保留约 **$15/月**（待核实）；`bp-node-hk1` e2-small（us-central1 二手源 $12.23/月，**asia-east2 溢价未核实**）。合计粗估 **$47–55/月**，其中 asia-east2 溢价与告警计费两项待核实 |
 | **可能性** | **高。** 三个具体失控点：(a) Premium 单价翻倍且放弃 200 GiB 免费额度（B20 未测）；(b) 节点轮询逼近 Cloud Run 免费额度 —— **10 节点 = 1,728,000 请求/月 = 免费额度的 86%，20 节点超出 173%**，而 **ETag 不是优化是让这笔账算得平的前提**，且 ETag 是否生效未验证（B3）；(c) `/push` 在 HTTP 层不可能幂等，最坏 3 倍计费 |
 | **缓解** | 所有 `bp-` 资源打 label `app=babel-plus`（否则项目级 budget 会混进 anthropic-relay / lisa-* / vpn-* 的支出）；`--max-instances=8` 是硬上限；`min-instances=0`（min-instances=1 = 免费额度的 **14.6 倍**，约 $63/月）；不买 Redis（Memorystore $35.77/月 比整个数据库贵 3.7 倍） |
-| **⚠️ 缓解链断点** | **Cloud Billing budget 告警现在建不了** —— 计费账号与 `BILLING_ACCOUNT_ID` 都没查（B32） |
+| **⚠️ 缓解链断点** | ~~**Cloud Billing budget 告警现在建不了** —— 计费账号与 `BILLING_ACCOUNT_ID` 都没查（B32）~~ **2026-08-30 订正：这个断点的诊断从一开始就是错的。** 计费账号是 `0130C2-FA2146-786074`，当前身份**本来就有** budget 读写权限，**不需要申请**，账户上早就有一条项目级预算（B32，证据 [gcp-inventory-20260821 §4](../evidence/gcp-inventory-20260821/)）。真正的断点是**口径**：那条预算原为 `INCLUDE_ALL_CREDITS`，而项目 gross 被账户级推广抵扣全额冲平，**在抵扣用完之前它永远不会触发** —— 一条永远不会响的告警比没有告警更糟，因为它在清单里显示存在。已于 2026-08-21 改为 `EXCLUDE_ALL_CREDITS` / $500 月 / 加 forecasted 100%。🔴 **仍然断着的两截**：`notificationsRule` 为空（**没接 `bp-alerts` Pub/Sub topic**，只走默认账单管理员邮箱），且**从未端到端触发过** |
 
 ### R7 · GCP 项目共享导致的爆炸半径
 
@@ -781,7 +1355,12 @@ flowchart TD
 >    （即达到 HY2 实测 1700 KB/s 的约 47%）。**这个阈值是设定值，无实测依据。**
 >
 > 5. **风险登记表里有三条的缓解措施本身不成立**：R3（域名被封）的「≤ 30 分钟恢复」
->    没有任何机制、R6（成本超预算）的 budget 告警建不了、R9（单人运维）的缓解是「接受」。
+>    没有任何机制、~~R6（成本超预算）的 budget 告警建不了~~、R9（单人运维）的缓解是「接受」。
+>    **2026-08-30 订正中间那条**：budget 告警**建得了，2026-08-21 已改好口径**
+>    （`EXCLUDE_ALL_CREDITS` / $500 月，B32）—— 原文「建不了」的诊断是错的。
+>    **但「三条不成立」这个计数不变，只是第二条换了内容**：
+>    该预算的 `notificationsRule` 为空、**没接 `bp-alerts`**、且从未端到端触发过，
+>    按 §6.1 的口径仍应默认视为不工作。R3 与 R9 一个字没变。
 >    **一张有三条缓解不成立的风险表，其价值主要在于把这三条标出来，
 >    而不在于它列全了风险。** 不要因为「已经登记」就以为已经被管理。
 >

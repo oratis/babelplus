@@ -11,7 +11,12 @@
 #     导致容器内 go mod 下载失败。所以下面显式**清空**代理变量。
 
 GO_IMAGE  ?= golang:1.25-alpine
-SQLC_IMAGE ?= sqlc/sqlc:latest
+# 🔴 与 .github/workflows/ci.yml 的 SQLC_IMAGE **必须一起改**。
+# 这里曾经是 `sqlc/sqlc:latest`，而 CI 钉的是具体版本 —— 那是一颗定时炸弹：
+# sqlc 发新版的那一天，本地 `make gen-db` 生成的代码与 CI 重新生成的不再逐字节相同，
+# contract-drift 门禁会在一个谁都没改过生成器的 PR 上无故变红，
+# 而现象（「生成物漂移」）指向的是改动本身，不是指向版本差异。
+SQLC_IMAGE ?= sqlc/sqlc:1.31.1
 REPO_ROOT  := $(shell cd .. && pwd)
 
 # 清空代理 + 指定 GOPROXY + 挂载缓存目录（避免每次重新下载依赖）
@@ -96,6 +101,25 @@ migrate-down: ## 逆序回滚全部 migration
 		echo "  → $$(basename $$f)"; \
 		docker exec -i bp-dev-pg psql -v ON_ERROR_STOP=1 -q -U postgres -d babelplus < "$$f" || exit 1; \
 	done
+
+# 语义校验：对 db/gen/*.sql.go 里每一条真正会发到 Postgres 的 SQL 跑一次 EXPLAIN。
+#
+# 为什么需要它：sqlc.yaml 没有 `database:` 段，内置引擎只做语法与列名解析，
+# 所以「往 GENERATED ALWAYS 列上写值」这种错误 sqlc generate 与 go build 都是 exit 0
+# （ADR 0013 §6.3 实测），要到线上第一笔付款开通权利时才炸成 500。
+# CI 的 migrations 作业跑的就是这一条；本目标是它的本地复现入口。
+#
+# ⚠️ EXPLAIN 不执行语句，抓不到 NOT NULL / CHECK / 外键这类运行期约束。
+#    「0016.down 之后真的写一行」那个探针（scripts/ci_post_rollback_write.sql）只在 CI 跑，
+#    因为它必须夹在 0016.down 与 0012.down 之间的那个瞬间。
+.PHONY: db-explain
+db-explain: ## 起库 → 灌 up → 对每条生成的 SQL 跑 EXPLAIN → 拆库
+	@$(MAKE) pg-up
+	@sleep 4
+	@$(MAKE) migrate-up
+	@python3 scripts/db_explain.py > /tmp/bp_db_explain.sql
+	@docker exec -i bp-dev-pg psql -v ON_ERROR_STOP=1 -U postgres -d babelplus < /tmp/bp_db_explain.sql
+	@$(MAKE) pg-down
 
 .PHONY: migrate-verify
 migrate-verify: pg-up ## 起库 → 灌全部 up → 全部 down → 确认归零 → 拆库

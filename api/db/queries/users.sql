@@ -67,11 +67,19 @@ WHERE u.id = $1 AND u.deleted_at IS NULL;
 
 -- 开通 / 续费 / 升级后写权利。subscription_anchor_at 首次开通才写，续费与升级都不改
 -- —— 从固定锚点乘算重置日才不会月末漂移（data-model §6.2）。
+--
+-- 🔴 写的是 transfer_enable_plan，**不是 transfer_enable**（ADR 0013 §6.5）。
+--    0016 之后 transfer_enable 是 GENERATED ALWAYS AS (_plan + _pack) STORED，
+--    PostgreSQL 拒绝对它赋值（`column ... can only be updated to DEFAULT`），
+--    而 sqlc generate 与 go build **都不会报错** —— 写错了要到「用户付款成功、
+--    订单进 paid、开通权利」那一刻才炸成 500（ADR 0013 §6.3 实测）。
+--    语义上这里本来就只该写套餐配额：开通/续费/升级卖的是套餐，
+--    加油包分量归 AddUserTransferQuota 管，两者相加由数据库自己算。
 -- name: ApplyUserEntitlement :one
 UPDATE users SET
   plan_id                = $2,
   group_id               = $3,
-  transfer_enable        = $4,
+  transfer_enable_plan   = $4,
   expired_at             = $5,
   speed_limit_mbps       = $6,
   device_limit           = $7,
@@ -82,14 +90,24 @@ UPDATE users SET
 WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
 
--- 流量包：只叠加配额。
--- ⚠️ 已知缺口（data-model §16）：当前 transfer_enable 是单列，周期重置时会被套餐值整个覆盖，
---    所以流量包在重置时**保不住**。修复需要拆成 transfer_enable_plan + transfer_enable_pack
---    两列，而那依赖一条尚未裁决的产品规则（user-journey §10.1 标为待裁决）。
+-- 流量包：只叠加**加油包**分量（trigger_source = 'pack'）。
+--
+-- 加油包会跨周期结转，套餐配额每个周期被覆写清零 —— 两者语义不同，所以必须落在不同的列上。
+-- 加在 _pack 上，AdvanceUserResetCycle 才碰不到它；加在 _plan 上就会在下一次重置时被套餐值抹掉，
+-- 而那是**静默的**：用户买的包凭空消失，没有任何报错（ADR 0013 §5.1 第 2 条，这也是本仓库
+-- 此前三处独立登记的同一个缺口，§5.1 的裁决把它关掉了）。
+--
+-- pack_expire_at 顺延到 12 个月后（ADR 0013 §5.4）：结转本身是一笔无限期负债，
+-- 这一列是它唯一的封口。取 greatest 而不是直接赋值，是为了让「已经买过一个更晚到期的包」
+-- 不会被一次新购买**缩短**有效期。12 个月的出处是最长售卖周期（年付），
+-- 这样「买年付时顺手买的包」在整个订阅期内都有效。
 -- name: AddUserTransferQuota :one
-UPDATE users SET transfer_enable = transfer_enable + $2, updated_at = now()
+UPDATE users SET
+  transfer_enable_pack = transfer_enable_pack + $2,
+  pack_expire_at       = greatest(coalesce(pack_expire_at, now()), now() + interval '12 months'),
+  updated_at           = now()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, transfer_enable;
+RETURNING id, transfer_enable_plan, transfer_enable_pack, transfer_enable;
 
 -- banned 与 banned_at 由 users_banned_consistency 绑死：「什么时候被封的」永远可查
 -- name: BanUser :one

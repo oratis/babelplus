@@ -55,6 +55,26 @@ func (q *Queries) AddUserTraffic(ctx context.Context, arg AddUserTrafficParams) 
 }
 
 const advanceUserResetCycle = `-- name: AdvanceUserResetCycle :one
+WITH cur AS (
+  SELECT ut.user_id, ut.u, ut.d
+  FROM user_traffic ut
+  WHERE ut.user_id = $1
+    -- 🔴 这个 EXISTS 不是多余的过滤，它是**归零与推进周期的原子性**本身。
+    -- 数据修改型 CTE 无论外层 UPDATE 匹配几行都会执行：少了它，一个 plan_id 为 NULL
+    -- （或指向已删套餐）的用户会被清空 u/d 却**不推进 reset_seq / 不恢复配额** ——
+    -- 用户凭空拿到一个免费的流量重置，而调用方拿到 ErrNoRows 只会以为「什么都没发生」。
+    AND EXISTS (
+      SELECT 1 FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = ut.user_id
+    )
+  FOR UPDATE
+), zeroed AS (
+  UPDATE user_traffic ut
+  SET u_lifetime = ut.u_lifetime + cur.u,
+      d_lifetime = ut.d_lifetime + cur.d,
+      u = 0, d = 0, updated_at = now()
+  FROM cur WHERE ut.user_id = cur.user_id
+  RETURNING ut.user_id
+)
 UPDATE users u SET
   reset_seq = u.reset_seq + 1,
   reset_at = CASE p.reset_traffic_method
@@ -65,34 +85,68 @@ UPDATE users u SET
     WHEN 'yearly_on_order_day'  THEN u.subscription_anchor_at + (u.reset_seq + 1) * interval '1 year'
     ELSE u.subscription_anchor_at + (u.reset_seq + 1) * interval '1 month'  -- follow_system
   END,
-  transfer_enable = p.transfer_enable,
+  transfer_enable_plan = p.transfer_enable,                        -- 只覆盖套餐分量
+  transfer_enable_pack = greatest(0, u.transfer_enable_pack
+                          - greatest(0, (cur.u + cur.d) - u.transfer_enable_plan)),   -- carry_pack
   updated_at = now()
-FROM plans p
-WHERE p.id = u.plan_id AND u.id = $1
-RETURNING u.id, u.reset_seq, u.reset_at, u.transfer_enable
+FROM plans p, cur
+WHERE p.id = u.plan_id AND u.id = cur.user_id
+RETURNING u.id, u.reset_seq, u.reset_at,
+          u.transfer_enable_plan, u.transfer_enable_pack, u.transfer_enable,
+          cur.u AS old_u, cur.d AS old_d
 `
 
 type AdvanceUserResetCycleRow struct {
-	ID             int64              `json:"id"`
-	ResetSeq       int32              `json:"reset_seq"`
-	ResetAt        pgtype.Timestamptz `json:"reset_at"`
-	TransferEnable int64              `json:"transfer_enable"`
+	ID                 int64              `json:"id"`
+	ResetSeq           int32              `json:"reset_seq"`
+	ResetAt            pgtype.Timestamptz `json:"reset_at"`
+	TransferEnablePlan int64              `json:"transfer_enable_plan"`
+	TransferEnablePack int64              `json:"transfer_enable_pack"`
+	TransferEnable     int64              `json:"transfer_enable"`
+	OldU               int64              `json:"old_u"`
+	OldD               int64              `json:"old_d"`
 }
 
-// 下一次重置时刻：从固定锚点乘算，避免月末漂移（data-model §6.2）。
-// 2026-01-31 + 1month + 1month = 2026-03-28（漂移）；anchor + 2*1month = 2026-03-31（不漂移）。
-// ⚠️ 本语句会触发 users_bump_user_rev_trg，但只改 reset_seq/reset_at 这两列，
+// 周期重置：归零当期用量 + 推进重置时刻 + 重发套餐配额 + 结转加油包，**一条语句做完**。
 //
-//	不在触发器的监视列表里 —— 所以配额恢复**不会**自动传播到节点，
-//	调用方必须显式 BumpUserRevForUser（data-model §6.2 的 ⚠️）。
-func (q *Queries) AdvanceUserResetCycle(ctx context.Context, id int64) (AdvanceUserResetCycleRow, error) {
-	row := q.db.QueryRow(ctx, advanceUserResetCycle, id)
+// 下一次重置时刻从固定锚点乘算，避免月末漂移（data-model §6.2）：
+// 2026-01-31 + 1month + 1month = 2026-03-28（漂移）；anchor + 2*1month = 2026-03-31（不漂移）。
+//
+// 🔴 **为什么归零必须并进来，而不是让调用方先跑 ResetUserTraffic**（ADR 0013 §5.3）：
+//
+//	carry_pack 要用「本周期已用量」算，而 ResetUserTraffic 会把它清成 0。
+//	两条语句放在 Querier 上就是两个互不相干的方法，**先跑哪条无从表达**；
+//	先跑归零的那个顺序会让 carry_pack 恒等于 transfer_enable_pack，
+//	于是加油包只增不减 —— 而且**完全静默**，没有报错、没有告警，只有账对不上。
+//	合并成一条 CTE 之后，「顺序」这件事在类型层面不存在了。
+//	cur 上的 FOR UPDATE 取的是同一个快照，同时挡住并发的节点上报把 u/d 改到中途。
+//
+// 消耗顺序是先套餐后加油包（ADR 0013 §5.3）：套餐配额**会过期**（本语句就在清它），
+// 加油包**会结转**。先消耗会过期的那份，对用户永远不亏。所以
+//
+//	pack_used  = greatest(0, (u + d) - transfer_enable_plan)
+//	carry_pack = greatest(0, transfer_enable_pack - pack_used)
+//
+// 外层那个 greatest(0, …) 不是防御性代码：v2node 每 60 秒才上报一次，
+// u+d 会**越过** transfer_enable 若干字节才被判定耗尽，pack_used 因此可能大于 transfer_enable_pack。
+//
+// ⚠️ transfer_enable_plan 与 transfer_enable_pack 都在 users_bump_user_rev_trg 的监视列表里，
+//
+//	所以本语句自己就会 bump user_rev，配额恢复会自动传播到节点 ——
+//	调用方**不需要**再显式 BumpUserRevForUser（0016 之前需要，那条要求已随本语句作废）。
+//	唯一的例外是 reset_traffic_method = 'never'：两列都不变时不 bump，而那种用户本来也不需要。
+func (q *Queries) AdvanceUserResetCycle(ctx context.Context, userID int64) (AdvanceUserResetCycleRow, error) {
+	row := q.db.QueryRow(ctx, advanceUserResetCycle, userID)
 	var i AdvanceUserResetCycleRow
 	err := row.Scan(
 		&i.ID,
 		&i.ResetSeq,
 		&i.ResetAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
 		&i.TransferEnable,
+		&i.OldU,
+		&i.OldD,
 	)
 	return i, err
 }
@@ -454,22 +508,28 @@ func (q *Queries) GetUserTrafficByServer(ctx context.Context, arg GetUserTraffic
 
 const insertTrafficResetLog = `-- name: InsertTrafficResetLog :one
 INSERT INTO traffic_reset_log (
-  user_id, trigger_source, reset_method, old_u, old_d, new_transfer_enable, order_id, admin_user_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, user_id, trigger_source, reset_method, old_u, old_d, new_transfer_enable, order_id, admin_user_id, reset_at
+  user_id, trigger_source, reset_method, old_u, old_d,
+  new_transfer_enable, new_transfer_enable_pack, order_id, admin_user_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, user_id, trigger_source, reset_method, old_u, old_d, new_transfer_enable, order_id, admin_user_id, reset_at, new_transfer_enable_pack
 `
 
 type InsertTrafficResetLogParams struct {
-	UserID            int64        `json:"user_id"`
-	TriggerSource     string       `json:"trigger_source"`
-	ResetMethod       *ResetMethod `json:"reset_method"`
-	OldU              int64        `json:"old_u"`
-	OldD              int64        `json:"old_d"`
-	NewTransferEnable int64        `json:"new_transfer_enable"`
-	OrderID           *int64       `json:"order_id"`
-	AdminUserID       *int64       `json:"admin_user_id"`
+	UserID                int64        `json:"user_id"`
+	TriggerSource         string       `json:"trigger_source"`
+	ResetMethod           *ResetMethod `json:"reset_method"`
+	OldU                  int64        `json:"old_u"`
+	OldD                  int64        `json:"old_d"`
+	NewTransferEnable     int64        `json:"new_transfer_enable"`
+	NewTransferEnablePack int64        `json:"new_transfer_enable_pack"`
+	OrderID               *int64       `json:"order_id"`
+	AdminUserID           *int64       `json:"admin_user_id"`
 }
 
+// 重置审计。new_transfer_enable 是**总额**（_plan + _pack），new_transfer_enable_pack 是其中的结转分量。
+// 两个都要写：只留总额的话，「加油包被吃掉了还是结转了」正好落在总额里看不见 ——
+// 而那恰恰是 ADR 0013 ③ 要防的那个静默失败（§5.3：顺序错了会让加油包只增不减，且完全无报错）。
+// 事后要判断结转算没算对，只能靠这两个数配合 old_u/old_d 反推。
 func (q *Queries) InsertTrafficResetLog(ctx context.Context, arg InsertTrafficResetLogParams) (TrafficResetLog, error) {
 	row := q.db.QueryRow(ctx, insertTrafficResetLog,
 		arg.UserID,
@@ -478,6 +538,7 @@ func (q *Queries) InsertTrafficResetLog(ctx context.Context, arg InsertTrafficRe
 		arg.OldU,
 		arg.OldD,
 		arg.NewTransferEnable,
+		arg.NewTransferEnablePack,
 		arg.OrderID,
 		arg.AdminUserID,
 	)
@@ -493,6 +554,7 @@ func (q *Queries) InsertTrafficResetLog(ctx context.Context, arg InsertTrafficRe
 		&i.OrderID,
 		&i.AdminUserID,
 		&i.ResetAt,
+		&i.NewTransferEnablePack,
 	)
 	return i, err
 }
@@ -540,7 +602,8 @@ func (q *Queries) ListTopTrafficUsers(ctx context.Context, arg ListTopTrafficUse
 }
 
 const listTrafficResetLog = `-- name: ListTrafficResetLog :many
-SELECT id, user_id, trigger_source, reset_method, old_u, old_d, new_transfer_enable, order_id, admin_user_id, reset_at FROM traffic_reset_log
+
+SELECT id, user_id, trigger_source, reset_method, old_u, old_d, new_transfer_enable, order_id, admin_user_id, reset_at, new_transfer_enable_pack FROM traffic_reset_log
 WHERE user_id = $1
 ORDER BY reset_at DESC
 LIMIT $2 OFFSET $3
@@ -552,6 +615,7 @@ type ListTrafficResetLogParams struct {
 	Offset int32 `json:"offset"`
 }
 
+// 直接喂给 InsertTrafficResetLog，不用二次查询
 func (q *Queries) ListTrafficResetLog(ctx context.Context, arg ListTrafficResetLogParams) ([]TrafficResetLog, error) {
 	rows, err := q.db.Query(ctx, listTrafficResetLog, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -572,6 +636,7 @@ func (q *Queries) ListTrafficResetLog(ctx context.Context, arg ListTrafficResetL
 			&i.OrderID,
 			&i.AdminUserID,
 			&i.ResetAt,
+			&i.NewTransferEnablePack,
 		); err != nil {
 			return nil, err
 		}
@@ -643,50 +708,6 @@ func (q *Queries) ListUsersDueForReset(ctx context.Context, limit int32) ([]List
 	return items, nil
 }
 
-const markExpiredUsers = `-- name: MarkExpiredUsers :many
-
-UPDATE users
-SET expiry_applied_at = now(), updated_at = now()
-WHERE expired_at IS NOT NULL
-  AND expired_at <= now()
-  AND expiry_applied_at IS NULL
-  AND deleted_at IS NULL
-RETURNING id, email, expired_at
-`
-
-type MarkExpiredUsersRow struct {
-	ID        int64              `json:"id"`
-	Email     string             `json:"email"`
-	ExpiredAt pgtype.Timestamptz `json:"expired_at"`
-}
-
-// ============================================================
-// 到期扫描（Cloud Scheduler 每分钟，命中 users_expiry_due_idx，平时 0 行）
-// ============================================================
-// 🔴 到期本身不产生任何写操作 —— 没有写就没有触发点。
-//
-//	这条 UPDATE 把「时间流逝」变成一次写，expiry_applied_at 进了触发器的监视列表，
-//	因此它会自动 bump user_rev（data-model §8.4 补全 2）。
-func (q *Queries) MarkExpiredUsers(ctx context.Context) ([]MarkExpiredUsersRow, error) {
-	rows, err := q.db.Query(ctx, markExpiredUsers)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []MarkExpiredUsersRow{}
-	for rows.Next() {
-		var i MarkExpiredUsersRow
-		if err := rows.Scan(&i.ID, &i.Email, &i.ExpiredAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const resetUserTraffic = `-- name: ResetUserTraffic :one
 UPDATE user_traffic
 SET u_lifetime = u_lifetime + u,
@@ -696,7 +717,18 @@ WHERE user_id = $1
 RETURNING user_id, u, d, u_lifetime, d_lifetime, online_at, last_node_id, updated_at
 `
 
-// 归零本周期，lifetime 不清零
+// 归零本周期，lifetime 不清零。
+//
+// 🔴 **只用于管理员手工重置与 reset_pack（`plans.price_reset`）两条路径**（ADR 0013 §5.3 裁决）。
+//
+//	周期重置**不要**调它 —— 走 AdvanceUserResetCycle，那条已经把归零并进了同一条语句。
+//	原因不是洁癖：这两条语句曾经是 Querier 上两个互不相干的方法，**顺序没有定死**，
+//	而先跑本语句（u=0, d=0）会让 carry_pack 恒等于 transfer_enable_pack，
+//	于是**加油包永远不被消耗、只增不减，且完全静默**。合并之后那个错误不可表达，
+//	但前提是周期重置这条路径上不再有人单独调用本语句。
+//
+//	这两条路径的语义与周期重置也确实不同：它们只清当期用量、**不动配额、不推进 reset_seq**
+//	（reset_pack 卖的就是「把 u/d 清零」，不卖时间也不卖配额）。
 func (q *Queries) ResetUserTraffic(ctx context.Context, userID int64) (UserTraffic, error) {
 	row := q.db.QueryRow(ctx, resetUserTraffic, userID)
 	var i UserTraffic

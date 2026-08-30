@@ -5,7 +5,8 @@
 > 证据口径：OONI 聚合measurement + 同日 raw measurement = 高；GreatFire 单次测试 = 中；无数据 = **需实测**
 > 关联：[0001-cloudflare-tos-risk.md](0001-cloudflare-tos-risk.md)、
 > [admin-support-docs.md](../01-research/admin-support-docs.md)、
-> [competitor-conyss.md](../01-research/competitor-conyss.md) §2（竞品的防失联做法）
+> [competitor-conyss.md](../01-research/competitor-conyss.md) §2（竞品的防失联做法）、
+> [0011](0011-domain-blackout-detection.md)（承接本文 §7 的「域名被封自动检测」缺口，**提案，未批准**；落点见 §7）
 
 ---
 
@@ -203,4 +204,10 @@ flowchart TD
       需先用 GreatFire 的「Test now」补测。
 - [ ] 短信通道未评估（国内短信需要资质，境外短信到国内号码成本高且到达率待核实）。
 - [ ] 「域名被封」的**自动检测机制**未设计 —— 谁来判定、多快判定、判定后自动做什么。
+      > **2026-08-29 补登落点：这三问已有裁决，但裁决本身尚未批准。**
+      > [ADR 0011](0011-domain-blackout-detection.md) 逐问作答 —— 谁来判定见 §3（客户端内核的直连探测腿是境内主信号）、
+      > 多快判定见 §4（分池阈值 + §4.2 防误报四条硬规则）、判定后自动做什么见 §5
+      > （§5.1 **显式否掉**「自动切主域名」，只保留可逆动作）；与本文邮件广播的接线见 §11。
+      > 0011 文档头把本条列为它「合并解决 B5 的七处登记」之一。
+      > 🔴 **本条不划掉**：0011 的状态是**提案，未批准**（2026-08-23），批准前既无实现也无机制。
 - [ ] 微信公众号模板消息未评估（大概率因主体资质无法申请，但未核实）。

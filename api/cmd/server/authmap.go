@@ -89,14 +89,15 @@ var userSessionOperations = map[string]bool{
 
 // adminOperations 是管理面 operation 全集（adminSession 或 adminIap）。
 //
-// 🔴 管理面鉴权**尚未实现**，所以 authMiddleware 对这批 operation 直接返回
-// ErrNotImplemented（501）—— 与它们当前 handler 的行为逐字节一致，
-// 但把「放行」变成了「拒绝」。这是刻意的 fail-closed：
-// 上一版这里是原样放行，于是任何人实现某个 admin handler 的那一刻，
-// 就等于上线了一个无鉴权的管理端点，而代码 diff 里看不出任何异常。
+// 凭据是 IAP 断言 + admin_users 查身份（mw.AuthenticateAdmin）。
+// 危险操作（api-contract §6.2 L3）额外要一次当次 TOTP —— 那一层是**按操作**的，
+// 由 handler 自己调 cfg.RequireStepUp，不在这张表里。
 //
-// 实现管理面时：加一个 adminAuth 中间件，把下面 case 里的 501 换成它，
-// **不要**只改 handler。
+// 🔴 这批端点里有 D6（手工标记订单已支付）—— api-contract 称之为
+// 「全系统最大的内部欺诈面」。它们此前一律返 501（fail-closed），
+// 因为鉴权还没实现；把 501 换成真鉴权的那一刻，这张表就成了
+// 「谁能碰这 61 个端点」的唯一声明。新增 admin operation 时必须同时加进这里，
+// 漏了会落到 default 分支 —— 仍然是 501，但 TestOperationAuthCoverage 会先在 CI 里报错。
 //
 // 共 61 个。
 var adminOperations = map[string]bool{
@@ -164,11 +165,12 @@ var adminOperations = map[string]bool{
 }
 
 // internalTaskOperations 是 Cloud Scheduler / Cloud Tasks 调用的内部任务端点
-// （internalOidc：Google 签发的 OIDC ID token）。
+// （internalOidc：Google 签发的 OIDC ID token，见 mw.AuthenticateInternal）。
 //
-// 与 adminOperations 同样处理：鉴权未实现 → 501 fail-closed。
 // 这批端点比管理面更危险 —— 它们没有人类界面，路径也不出现在前端代码里，
-// 一个无鉴权的 POST /internal/tasks/traffic-reset 可以被任何人用来清空全站流量计数。
+// 而**保护它们的是 OIDC 校验，不是路径保密**：/internal/tasks/* 与公网端点
+// 跑在同一个 Cloud Run service 上，一个无鉴权的 POST /internal/tasks/traffic-reset
+// 可以被任何人用来清空全站流量计数。
 //
 // 共 9 个。
 var internalTaskOperations = map[string]bool{
@@ -189,7 +191,17 @@ var internalTaskOperations = map[string]bool{
 // 五个分支覆盖全部 128 个 operation，default 分支**不可达** ——
 // 但它仍然存在且 fail-closed：新增 operation 而忘了分类时，
 // 运行时会 501 而不是无鉴权放行（测试会先一步在 CI 里报错）。
-func authMiddleware(nodeCfg mw.NodeAuthConfig, userCfg mw.UserAuthConfig) gen.StrictMiddlewareFunc {
+//
+// 🔴 四套凭据配置刻意作为**四个独立参数**传进来，而不是打包成一个结构体。
+// ADR 0006 §10.3 第 1 条把「一个全局 auth 中间件 + 身份类型 if 分支」列为禁止事项：
+// 打包之后，「把 adminCfg 的 DB 塞给节点分支」这类改动在编译期看不出任何异常。
+// 分开传意味着每个分支只能拿到它那一套。
+func authMiddleware(
+	nodeCfg mw.NodeAuthConfig,
+	userCfg mw.UserAuthConfig,
+	adminCfg mw.AdminAuthConfig,
+	internalCfg mw.InternalAuthConfig,
+) gen.StrictMiddlewareFunc {
 	return func(f gen.StrictHandlerFunc, operationID string) gen.StrictHandlerFunc {
 		switch {
 		case handler.PublicOperations[operationID]:
@@ -218,13 +230,46 @@ func authMiddleware(nodeCfg mw.NodeAuthConfig, userCfg mw.UserAuthConfig) gen.St
 				return f(mw.WithUser(ctx, auth), w, r, request)
 			}
 
-		case adminOperations[operationID], internalTaskOperations[operationID]:
-			// 见两张表的注释：鉴权未实现，一律 501。
-			// 走 error 通道而不是直接写响应，是为了复用 responseErrorHandler 的
-			// ErrNotImplemented → 501 映射 —— 监控的 5xx 告警规则正是按「排除 501」建的，
-			// 这里若自己写一个 500 会让 70 个端点长期把告警刷红。
-			return func(context.Context, http.ResponseWriter, *http.Request, any) (any, error) {
-				return nil, handler.ErrNotImplemented
+		case adminOperations[operationID]:
+			// 🔴 **两道闸的语义在这里彻底分开了。**
+			//
+			// 这个分支从前是「鉴权未实现，一律 501」——
+			// 一条把「没凭据」与「handler 没写」压成同一个响应的捷径。
+			// 现在两件事各归各：
+			//
+			//	鉴权（这里）      → 凭据不对就 403，请求根本进不了 handler；
+			//	实现（Unimplemented）→ 凭据对了但 handler 还没写，仍然落到 501。
+			//
+			// 所以「61 个 admin 端点大多还没实现」这件事**不再**是它们的防线；
+			// 防线是 mw.AuthenticateAdmin。反过来说也成立：从今天起，
+			// 实现某个 admin handler 不再等于上线一个无鉴权端点 ——
+			// 那正是这次拆分要买下的东西。
+			//
+			// 未配置 BP_ADMIN_IAP_AUDIENCE 时 AuthenticateAdmin 整体拒绝（fail-closed，
+			// 见 admin.go），所以「配置漏了」的现象是「管理面进不去」而不是「谁都进得去」。
+			return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+				auth, authErr := mw.AuthenticateAdmin(ctx, adminCfg, r)
+				if authErr != nil {
+					mw.WriteAuthError(w, r, authErr)
+					// 返回 nil,nil：响应已经写完，生成代码不应再写一次。
+					return nil, nil
+				}
+				return f(mw.WithAdmin(ctx, auth), w, r, request)
+			}
+
+		case internalTaskOperations[operationID]:
+			// 与管理面同一次拆分（见上）。凭据是 Google 签发的 OIDC ID token。
+			//
+			// 这条链**不与另外三套共用任何代码路径**，配置也各自独立：
+			// 内部面的 aud 是 Cloud Run 服务默认 URL，管理面的 aud 是 IAP 后端服务资源路径，
+			// 两者形态都不一样，混用只会永远匹配不上。
+			return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+				caller, authErr := mw.AuthenticateInternal(ctx, internalCfg, r)
+				if authErr != nil {
+					mw.WriteAuthError(w, r, authErr)
+					return nil, nil
+				}
+				return f(mw.WithInternalCaller(ctx, caller), w, r, request)
 			}
 
 		default:

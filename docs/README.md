@@ -1,8 +1,10 @@
 # babel.plus 文档体系
 
-> 日期：2026-08-16 · 性质：**机制说明** · 状态：**执行中**（v1，2026-08-16）
+> 日期：2026-08-16（2026-08-29 按仓库实况复核 §6 索引与 §7 阻塞项） · 性质：**机制说明** ·
+> 状态：**执行中**（v1，2026-08-16；索引复核于 2026-08-29）
 > 事实基线：约定吸收自 `DiogenesModel/Diogenes`，取舍理由见
-> [01-research/reference-repos.md](01-research/reference-repos.md) §3.2
+> [01-research/reference-repos.md](01-research/reference-repos.md) §3.2；
+> §6 与 §7 的清单于 2026-08-29 对着 master `84e126563b3` 逐条核过
 > 读者：所有参与本项目的人与 Agent。**动笔写任何文档前先读本文。**
 
 ---
@@ -115,9 +117,10 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | 目录 | 文档 | 状态 |
 |---|---|---|
 | **00-overview** | [product-brief.md](00-overview/product-brief.md) — 产品定位与范围 | 设计稿 v1 |
-| | [roadmap.md](00-overview/roadmap.md) — 路线图与排期 | 设计稿 v1 |
+| | [roadmap.md](00-overview/roadmap.md) — 路线图与排期 | **执行中**（2026-08-30 复核 §3–§7 勾选与 §9 的 B1–B49 总账） |
 | | [glossary.md](00-overview/glossary.md) — 术语表 | 执行中 |
-| | [launch-readiness-review-20260821.md](00-overview/launch-readiness-review-20260821.md) — 上线审查（时点快照） | **As-Built**（2026-08-21，不回改） |
+| | [launch-readiness-review-20260830.md](00-overview/launch-readiness-review-20260830.md) — 上线审查（2026-08-30 时点快照，含与 08-21 那份的逐条对读） | **As-Built**（2026-08-30，不回改） |
+| | [launch-readiness-review-20260821.md](00-overview/launch-readiness-review-20260821.md) — 上线审查（2026-08-21 时点快照） | **As-Built**（2026-08-21，不回改） |
 | **01-research** | [competitor-conyss.md](01-research/competitor-conyss.md) — 竞品一手走查 | 已完成 |
 | | [reference-repos.md](01-research/reference-repos.md) — Proxy_Skill + Diogenes | 已完成 |
 | | [protocol-and-infra.md](01-research/protocol-and-infra.md) — 协议与基础设施 | 已完成 |
@@ -126,10 +129,10 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [admin-support-docs.md](01-research/admin-support-docs.md) — 后台/工单/通知/文档站 | 已完成 |
 | **02-architecture** | [as-built-gcp.md](02-architecture/as-built-gcp.md) — GCP 资产清点 | **As-Built**（§2–§6 为 2026-08-16；§10 为 2026-08-20） |
 | | [system-design.md](02-architecture/system-design.md) — 系统架构 | 设计稿 v1，未实施 |
-| | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | 设计稿 v1 |
-| | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | 设计稿 v1 |
-| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，出口成本已实测（Premium 层混合 $0.1005/GiB），价格仍待定 |
-| | [pricing-and-plans-revision-20260823.md](03-product/pricing-and-plans-revision-20260823.md) — 定价定稿的修订说明（含推导附录） | 设计方案（2026-08-23），**待并入活文档** |
+| | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | **执行中**（2026-08-30 订正）—— 17 组迁移、44 张表已在 `bp-db`；文档与 `migrations/` 是两份东西，无逐列一致校验 |
+| | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | **执行中**（2026-08-30 订正）—— 契约已冻结成 `openapi.yaml`（128 op），18 个已上 Cloud Run，110 个仍 501 |
+| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **设计稿 v1**（2026-08-30）—— 三档 ¥72 / ¥159 / ¥358 已定案（30/100/250 GiB，2/5/10 设备），推导见其 §3.5；**不给「设计冻结稿」**（`nettier-ab-*` 未做） |
+| | [pricing-and-plans-revision-20260823.md](03-product/pricing-and-plans-revision-20260823.md) — 定价定稿的修订说明（含推导附录） | **已归档**（2026-08-30）—— §3 的指令已执行并并入活文档。原写「设计方案」，那是 §2.1 的**性质**词不是 §2.2 的**状态**词 |
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
@@ -142,17 +145,18 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0002](05-adr/0002-notification-channels.md) — 邮件是唯一失联恢复通道 | 设计稿 v1 |
 | | [0003](05-adr/0003-web-hosting-and-reachability.md) — 托管按实测可达性选型 | 设计稿 v1 |
 | | [0004](05-adr/0004-transport-hardening.md) — 传输层按特征混同调参 | 设计稿 v1 |
-| | [0005](05-adr/0005-database-selection.md) — Cloud SQL Postgres 17 | 设计稿 v1 |
-| | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | 设计稿 v1 |
+| | [0005](05-adr/0005-database-selection.md) — Cloud SQL Postgres 17 | **执行中**（2026-08-30 订正）—— `bp-db` 自 2026-08-17 运行并计费；⚠️ 无用户显式批准记录。此前本行「设计稿 v1」、[05-adr/README](05-adr/README.md) 「设计稿 v1，待实施」、ADR 头部「提案，未批准」**三处各写一种**，见 0005 头部订正说明 |
+| | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | **执行中**（2026-08-30 订正）—— 整套栈已在 Cloud Run 上；⚠️ 128 个 operation 只实现 18 个 |
 | | [0007](05-adr/0007-node-migration.md) — 节点混合迁移 | 设计稿 v1 |
 | | [0008](05-adr/0008-network-tier-standard.md) — 网络层级改 Standard（**推翻 0004 §3.7**） | **已实施（仅新节点）** |
+| | *0009 —— 编号**刻意留空**，见下* | **未写**（等 bp 侧连续 30 天零回滚事件，[05-adr/README.md](05-adr/README.md) §待写） |
 | | [0010](05-adr/0010-domain-strategy.md) — 域名策略（按故障域买五个中性主域名） | **提案，未批准**（2026-08-23） |
 | | [0011](05-adr/0011-domain-blackout-detection.md) — 域名失联的发现与恢复 | **提案，未批准**（2026-08-23） |
 | | [0012](05-adr/0012-payment-gateway.md) — 收款：一单一址、自扫链、不归集 | **提案，未批准**（2026-08-23） |
 | | [0013](05-adr/0013-billing-and-refund-rules.md) — 计费与退款规则 | **提案，未批准**（2026-08-23） |
 | | [0014](05-adr/0014-slo-and-oncall.md) — SLO、on-call 与告警分级 | **提案，未批准**（2026-08-23） |
 | | [0015](05-adr/0015-client-strategy.md) — 客户端策略 | **提案，未批准**（2026-08-23） |
-| **evidence** | 6 个证据目录（出口单价 · v2node 契约 · healthz 拦截 · 网络层级落地 · 2026-08-21 的账单 SKU 拆分与 gcloud 实查 · 2026-08-22 的客户端配置校验） | 见 [evidence/README.md](evidence/README.md) |
+| **evidence** | **9 个证据目录**（出口单价 · IPv6 审查 · v2node 契约 · healthz 拦截 · 网络层级落地 · 账单 SKU 拆分 · v2node 401 行为 · gcloud 实查 · 客户端配置校验）。2026-08-29 `ls docs/evidence/*/` 实数，此前写「6 个」是漏计 | 见 [evidence/README.md](evidence/README.md) |
 
 ---
 
@@ -165,5 +169,5 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | 1 | ~~ADR 0001 未获批准~~ **✅ 2026-08-17 已批准** | 拓扑与成本模型已定：CF 只做控制面，数据面走 GCP 直连 | ✅ |
 | 2 | **零实测数据** | 协议选型、区域选型、托管选型仍全部悬空。**网络层级已裁决并落地**（[0008](05-adr/0008-network-tier-standard.md)，成本侧有 Billing API 权威价目），但 **Standard 的性能数据是零** —— 连 Premium 侧的基准都只是社区二手数据 | 需搭测试环境 |
 | 3 | ~~数据库选型未裁决~~ | **已解决** — [ADR 0005](05-adr/0005-database-selection.md) | ✅ |
-| 4 | 支付通道未落实 | 收款闭环 | 需申请与尽调 |
-| 5 | 邮件送达率未验证 | [ADR 0002](05-adr/0002-notification-channels.md) 的整个前提 | 需实测 |
+| 4 | 支付通道未落实 | 收款闭环 | 需申请与尽调。**2026-08-23 起形态已有裁决草案** —— [ADR 0012](05-adr/0012-payment-gateway.md)（一单一址、自扫链、不归集）与 [ADR 0013](05-adr/0013-billing-and-refund-rules.md)（计费与退款规则），两份都还是**提案，未批准** |
+| 5 | 邮件送达率未验证 | [ADR 0002](05-adr/0002-notification-channels.md) 的整个前提 | 需实测。ESP 仍未选型、发信未接通（`api/internal/handler/auth.go` 的 `TODO(P1)`，`email_log.status` 恒为 `queued`） |

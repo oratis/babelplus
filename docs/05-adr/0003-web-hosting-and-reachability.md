@@ -4,7 +4,8 @@
 > 事实基线：OONI aggregation API 实测（`probe_cc=CN`，2025-08-16 → 2026-08-16）+ 各厂商官方文档
 > 证据口径：OONI 大样本聚合 = 高；GreatFire 单次测试 = 低；厂商营销页 = 不采信
 > 关联：[0001 CF ToS 裁决](0001-cloudflare-tos-risk.md)、[0002 通知通道裁决](0002-notification-channels.md)、
-> [tutorials-spec.md](../03-product/tutorials-spec.md) §6
+> [tutorials-spec.md](../03-product/tutorials-spec.md) §6、
+> [0011](0011-domain-blackout-detection.md)（承接本文 §7 最后一条所说的「需合并处理」，**提案，未批准**；落点见 §7）
 > ⚠️ 本裁决**修正**了 [system-design.md](../02-architecture/system-design.md) §2 中
 > 「Web/教程站放 Cloudflare」的初始假设，理由见 §3.2。
 
@@ -270,3 +271,9 @@ Chinese 分词需注意：MiniSearch 支持 `Intl.Segmenter`，Pagefind 有 CJK 
 - [ ] 用户面板（动态 SPA + API 调用）与教程站（纯静态）是否应选同一平台，未裁决。
 - [ ] 人机验证方案未定（Turnstile 出局后的替代：hCaptcha？自建？邀请制是否已足够？）。
 - [ ] 未评估「域名被封」的自动检测与镜像切换机制（与 [system-design.md](../02-architecture/system-design.md) §9 重复，需合并处理）。
+      > **2026-08-29 补登落点：本条要求的「合并处理」已经有人做了 —— [ADR 0011](0011-domain-blackout-detection.md)。**
+      > 检测见 0011 §3，镜像切换见 §5.2（按「可逆性 × 分池」划线）与 §8（客户端 fallback 的三处必改）；
+      > 域名池规模与布局由同批 [ADR 0010](0010-domain-strategy.md) 裁决，0011 §6 沿用不重复。
+      > ⚠️ 本文 §3.2 的修订块（「教程站与面板可以用 CF Pages，但必须钉 LE」）另由 0010 §11 判定为
+      > 「条件在 CF Pages 上不可满足」，**不推翻**。
+      > 🔴 **本条不划掉**：0011 与 0010 的状态都是**提案，未批准**（2026-08-23）。

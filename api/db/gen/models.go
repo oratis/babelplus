@@ -157,6 +157,51 @@ func (ns NullOrderType) Value() (driver.Value, error) {
 	return string(ns.OrderType), nil
 }
 
+type PaymentState string
+
+const (
+	PaymentStateWaiting    PaymentState = "waiting"
+	PaymentStateConfirming PaymentState = "confirming"
+	PaymentStateUnderpaid  PaymentState = "underpaid"
+	PaymentStatePaid       PaymentState = "paid"
+	PaymentStateExpired    PaymentState = "expired"
+)
+
+func (e *PaymentState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PaymentState(s)
+	case string:
+		*e = PaymentState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PaymentState: %T", src)
+	}
+	return nil
+}
+
+type NullPaymentState struct {
+	PaymentState PaymentState `json:"payment_state"`
+	Valid        bool         `json:"valid"` // Valid is true if PaymentState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPaymentState) Scan(value interface{}) error {
+	if value == nil {
+		ns.PaymentState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PaymentState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPaymentState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PaymentState), nil
+}
+
 type ResetMethod string
 
 const (
@@ -674,20 +719,21 @@ type Notice struct {
 }
 
 type Order struct {
-	ID                int64              `json:"id"`
-	TradeNo           string             `json:"trade_no"`
-	UserID            int64              `json:"user_id"`
-	Type              OrderType          `json:"type"`
-	PlanID            *int64             `json:"plan_id"`
-	Period            *OrderPeriod       `json:"period"`
-	Status            OrderStatus        `json:"status"`
-	Currency          string             `json:"currency"`
-	AmountGross       int64              `json:"amount_gross"`
-	AmountDiscount    int64              `json:"amount_discount"`
-	SurplusAmount     int64              `json:"surplus_amount"`
-	AmountBalance     int64              `json:"amount_balance"`
-	AmountDue         int64              `json:"amount_due"`
-	AmountPaid        int64              `json:"amount_paid"`
+	ID             int64        `json:"id"`
+	TradeNo        string       `json:"trade_no"`
+	UserID         int64        `json:"user_id"`
+	Type           OrderType    `json:"type"`
+	PlanID         *int64       `json:"plan_id"`
+	Period         *OrderPeriod `json:"period"`
+	Status         OrderStatus  `json:"status"`
+	Currency       string       `json:"currency"`
+	AmountGross    int64        `json:"amount_gross"`
+	AmountDiscount int64        `json:"amount_discount"`
+	SurplusAmount  int64        `json:"surplus_amount"`
+	AmountBalance  int64        `json:"amount_balance"`
+	AmountDue      int64        `json:"amount_due"`
+	AmountPaid     int64        `json:"amount_paid"`
+	// 只记真的退出去的现金（destination=original）。退到余额时恒为 0；退款总额的唯一真相源是 refunds.amount。
 	AmountRefunded    int64              `json:"amount_refunded"`
 	SurplusOrderIds   []int64            `json:"surplus_order_ids"`
 	CouponID          *int64             `json:"coupon_id"`
@@ -707,6 +753,21 @@ type Order struct {
 	CancelledAt       pgtype.Timestamptz `json:"cancelled_at"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	// 本单应收，1e-6 USDT 整数。🔴 paid / underpaid / 写销的判定**只读这一列**（ADR 0012 §17.3）。
+	//    pay_amount_raw 保留为链上等值比对与记录证据，按 0006 的量纲铁律「不参与任何货币再计算」。
+	PayAmountUsdt6 *int64 `json:"pay_amount_usdt6"`
+	// 本单买到的服务生效时刻。new/upgrade = paid_at；renew = greatest(paid_at, 旧 covers_to)。ADR 0013 §2.1
+	CoversFrom pgtype.Timestamptz `json:"covers_from"`
+	// 本单服务结束时刻；NULL = 不限时（onetime）。upgrade 继承被折抵单的值。ADR 0013 §2.1
+	CoversTo pgtype.Timestamptz `json:"covers_to"`
+	// 本单接续/替换的上一单。订阅窗口 = 从 source 沿这一列回溯到 NULL 的全部订单 ——
+	//    让「窗口」成为一条可以递归走完的链表，而不是靠时间区间猜连续性。ADR 0013 §2.1 第 3 条
+	PrevOrderID *int64 `json:"prev_order_id"`
+	// 下单时 plans.price_monthly 的快照（分）。退款扣减必须用它，不能读活列 —— 否则涨价后退款额变小，
+	//    用户会认为我们改价来少退钱（user-journey §10.2 硬要求 1）。ADR 0013 §3.2
+	PriceMonthlyAtOrder *int64 `json:"price_monthly_at_order"`
+	// 链上付款方地址，归集时按 txid 回填。ADR 0013 §9 的失效条件靠它执行。
+	PayFromAddress *string `json:"pay_from_address"`
 }
 
 type OrderTransition struct {
@@ -717,6 +778,43 @@ type OrderTransition struct {
 	Reason     *string            `json:"reason"`
 	Actor      string             `json:"actor"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type PayAddress struct {
+	ID                 int64              `json:"id"`
+	Chain              string             `json:"chain"`
+	Address            string             `json:"address"`
+	DerivationIndex    int32              `json:"derivation_index"`
+	AssignedOrderID    *int64             `json:"assigned_order_id"`
+	Enabled            bool               `json:"enabled"`
+	IsBlacklisted      bool               `json:"is_blacklisted"`
+	BlacklistCheckedAt pgtype.Timestamptz `json:"blacklist_checked_at"`
+	LastScannedAt      pgtype.Timestamptz `json:"last_scanned_at"`
+	CursorTs           *int64             `json:"cursor_ts"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+}
+
+type Payment struct {
+	ID             int64              `json:"id"`
+	Provider       string             `json:"provider"`
+	ExternalID     string             `json:"external_id"`
+	EnteredBy      string             `json:"entered_by"`
+	OrderID        *int64             `json:"order_id"`
+	UserID         *int64             `json:"user_id"`
+	Chain          *string            `json:"chain"`
+	Txid           *string            `json:"txid"`
+	LogIndex       *int32             `json:"log_index"`
+	FromAddress    *string            `json:"from_address"`
+	ToAddress      *string            `json:"to_address"`
+	AmountUsdt6    *int64             `json:"amount_usdt6"`
+	AmountCnyCents *int64             `json:"amount_cny_cents"`
+	State          PaymentState       `json:"state"`
+	Confirmations  int32              `json:"confirmations"`
+	AmlCheckedAt   pgtype.Timestamptz `json:"aml_checked_at"`
+	AmlVerdict     *string            `json:"aml_verdict"`
+	LedgerEntryID  *int64             `json:"ledger_entry_id"`
+	Raw            []byte             `json:"raw"`
+	ReceivedAt     pgtype.Timestamptz `json:"received_at"`
 }
 
 type Plan struct {
@@ -742,6 +840,9 @@ type Plan struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
+	// 'cycle' = 周期套餐（买时间）；'pack' = 加油包（买流量，不动时间）。
+	//    orders.type 的服务端推导读这一列；刻意无 DEFAULT，见 ADR 0013 §4.6。
+	Kind string `json:"kind"`
 }
 
 type RateLimit struct {
@@ -753,8 +854,9 @@ type RateLimit struct {
 }
 
 type Refund struct {
-	ID          int64              `json:"id"`
-	OrderID     int64              `json:"order_id"`
+	ID      int64 `json:"id"`
+	OrderID int64 `json:"order_id"`
+	// 本次退款**进到余额的总额**（分）。与 orders.amount_refunded 只有 destination='original' 时相等。ADR 0013 §3.5
 	Amount      int64              `json:"amount"`
 	Destination string             `json:"destination"`
 	Status      string             `json:"status"`
@@ -762,6 +864,12 @@ type Refund struct {
 	Reason      *string            `json:"reason"`
 	OperatorID  *int64             `json:"operator_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	// 本次退款适用的规则档：cooling_off（冷静期全额，一生一次）/ prorated（按剩余价值）/
+	//    service_terminated（我方终止服务）/ manual（人工裁量）。ADR 0013 §3.2
+	Rule string `json:"rule"`
+	// 退款归属的用户。冗余自 orders.user_id，存在的唯一理由是让下面那条部分唯一索引成立 ——
+	//    「冷静期退款一生一次」因此是数据库拒绝，而不是应用代码的自觉。ADR 0013 §6.1
+	UserID int64 `json:"user_id"`
 }
 
 type Server struct {
@@ -880,6 +988,13 @@ type SubscriptionFetchLog struct {
 	Format     *string            `json:"format"`
 	NodeCount  *int16             `json:"node_count"`
 	RequestAt  pgtype.Timestamptz `json:"request_at"`
+	// 本次订阅拉取的国内分流模式：'direct'（缺省 / ?cn=direct，下发国内直连白名单）
+	//    / 'proxy'（?cn=proxy，不下发任何 cnDirect* 规则，回到全局代理）；NULL = 该列存在之前的历史行。
+	//    🔴 分母按**人**不按次（两者差 5 倍，ADR 0015 §5.7 明确）：
+	//      count(DISTINCT user_id) FILTER (WHERE cn_mode = 'proxy') / NULLIF(count(DISTINCT user_id), 0)
+	//      FROM subscription_fetch_log WHERE request_at > now() - interval '7 days'
+	//    > 20% ⇒ 白名单本身错了，整体回退而不是继续打补丁（ADR 0015 §5.7 的失效条件）。
+	CnMode *string `json:"cn_mode"`
 }
 
 type SubscriptionToken struct {
@@ -1000,16 +1115,25 @@ type TicketSlaBreach struct {
 }
 
 type TrafficResetLog struct {
-	ID                int64              `json:"id"`
-	UserID            int64              `json:"user_id"`
-	TriggerSource     string             `json:"trigger_source"`
-	ResetMethod       *ResetMethod       `json:"reset_method"`
-	OldU              int64              `json:"old_u"`
-	OldD              int64              `json:"old_d"`
+	ID            int64        `json:"id"`
+	UserID        int64        `json:"user_id"`
+	TriggerSource string       `json:"trigger_source"`
+	ResetMethod   *ResetMethod `json:"reset_method"`
+	OldU          int64        `json:"old_u"`
+	OldD          int64        `json:"old_d"`
+	// 重置后的**总额**（_plan + _pack），不是 plan 分量
 	NewTransferEnable int64              `json:"new_transfer_enable"`
 	OrderID           *int64             `json:"order_id"`
 	AdminUserID       *int64             `json:"admin_user_id"`
 	ResetAt           pgtype.Timestamptz `json:"reset_at"`
+	// 重置后的加油包分量（结转值）。与 new_transfer_enable（总额）配合，才能事后判断结转是否算对。ADR 0013 §6.1
+	NewTransferEnablePack int64 `json:"new_transfer_enable_pack"`
+}
+
+type UsedTotp struct {
+	AdminUserID int64              `json:"admin_user_id"`
+	CodeHash    []byte             `json:"code_hash"`
+	UsedAt      pgtype.Timestamptz `json:"used_at"`
 }
 
 type User struct {
@@ -1021,7 +1145,6 @@ type User struct {
 	Uuid                 pgtype.UUID        `json:"uuid"`
 	PlanID               *int64             `json:"plan_id"`
 	GroupID              int64              `json:"group_id"`
-	TransferEnable       int64              `json:"transfer_enable"`
 	ExpiredAt            pgtype.Timestamptz `json:"expired_at"`
 	SpeedLimitMbps       *int32             `json:"speed_limit_mbps"`
 	DeviceLimit          *int32             `json:"device_limit"`
@@ -1043,6 +1166,16 @@ type User struct {
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt            pgtype.Timestamptz `json:"deleted_at"`
+	// 套餐配额（字节）。**会过期**：每个周期重置时被 plans.transfer_enable 覆写清零。
+	//    退款终止订阅时只清这一列（ADR 0013 §3.5）。
+	TransferEnablePlan int64 `json:"transfer_enable_plan"`
+	// 加油包配额（字节）。**会结转**：跨周期保留，由 pack_expire_at 封顶。
+	//    消耗顺序是先套餐后加油包 —— 先消耗会过期的那份，对用户永远不亏（ADR 0013 §5.3）。
+	TransferEnablePack int64 `json:"transfer_enable_pack"`
+	// 加油包配额的兜底过期时刻（12 个月）。结转是无限期负债，这一列是它唯一的封口（ADR 0013 §5.1 第 3 条）。
+	PackExpireAt pgtype.Timestamptz `json:"pack_expire_at"`
+	// 生成列（STORED）：= _plan + _pack。不可赋值；对外与 subscription-userinfo 的 total= 保持单一口径。
+	TransferEnable int64 `json:"transfer_enable"`
 }
 
 type UserDeviceState struct {

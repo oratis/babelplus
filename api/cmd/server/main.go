@@ -135,6 +135,42 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 		// 当前 web 客户端只用 Authorization: Bearer，没有任何东西依赖 cookie 形态。
 	}
 
+	// 管理面：IAP 断言 → admin_users 查身份；危险操作再加一次 TOTP（handler 侧调 RequireStepUp）。
+	//
+	// AdminDirectory 与 TOTPReplayGuard 由同一个 PgAdminStore 实现，共用连接池。
+	// 它刻意**不**复用 *store.Store：管理面走 IAP，根本不该有任何代码路径能读到
+	// admin_users.password_hash，所以那份收窄过的手写查询就是它全部的数据库能力。
+	//
+	// 🔴 cfg.AdminIAPAudience 为空时 AuthenticateAdmin **整体拒绝**管理面，不是跳过校验。
+	// 这不是防御性洁癖：`x-goog-iap-jwt-assertion` 在没有 IAP 的部署形态下是
+	// 任何人都能设的普通请求头（bp-api 目前 --ingress=all 直接暴露在 *.run.app 上），
+	// 「没配就跳过」等于让一次漏配静默地把整个后台开放给公网。
+	adminStore := &mw.PgAdminStore{DB: db.Pool}
+	adminAuth := mw.AdminAuthConfig{
+		IAPAudience: cfg.AdminIAPAudience,
+		// NewIAPKeySet 用的是 IAP 那一套独立的 ES256 公钥（gstatic），
+		// **不是**普通 Google OIDC 的 RS256 JWKS（下面 internalAuth 用的那个）。
+		// 拿错一套的现象是「签名永远验不过」。
+		Keys:    mw.NewIAPKeySet(),
+		DB:      adminStore,
+		Replay:  adminStore,
+		TOTPKey: cfg.AdminTOTPEncKey,
+		Logger:  logger,
+	}
+
+	// 内部面：/internal/tasks/* 的 Google OIDC（六条 Cloud Scheduler + 一条 Cloud Tasks 队列）。
+	//
+	// 🔴 aud 为空 or 白名单为空时 AuthenticateInternal 拒掉**整条**内部面。
+	// 反过来（空就放行）的后果不是「少一道校验」：任何人都能
+	// `gcloud auth print-identity-token --audiences=...` 拿到一个合法的 Google ID token，
+	// 于是清空全站流量计数的按钮就在公网上。
+	internalAuth := mw.InternalAuthConfig{
+		Audience:       cfg.InternalOIDCAudience,
+		AllowedCallers: cfg.InternalTaskCallers,
+		Keys:           mw.NewGoogleJWKS(nil),
+		Logger:         logger,
+	}
+
 	// 鉴权走 StrictMiddlewareFunc 而不是 chi 的按路由挂载。
 	//
 	// 理由：strict 中间件能拿到 **operationID**，于是「哪个 operation 需要哪种凭据」
@@ -158,7 +194,10 @@ func buildRouter(cfg *config.Config, db *store.Store, logger *slog.Logger, srv g
 	// 即**切片里越靠后越靠外**。RequestBinding 放在后面 → 它最先执行，
 	// 于是鉴权中间件与 handler 都能从 ctx 里取到原始请求。
 	strict := gen.NewStrictHandlerWithOptions(srv,
-		[]gen.StrictMiddlewareFunc{authMiddleware(nodeAuth, userAuth), handler.RequestBinding()},
+		[]gen.StrictMiddlewareFunc{
+			authMiddleware(nodeAuth, userAuth, adminAuth, internalAuth),
+			handler.RequestBinding(),
+		},
 		gen.StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  requestErrorHandler(logger),
 			ResponseErrorHandlerFunc: responseErrorHandler(logger),

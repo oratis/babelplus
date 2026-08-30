@@ -3,7 +3,10 @@
 > 日期：2026-08-16 · 性质：**设计方案** · 状态：**设计稿 v1**（2026-08-16）
 > 事实基线：竞品教程结构见 [competitor-conyss.md](../01-research/competitor-conyss.md) §3.8；
 > 客户端现状与文档站选型见 [admin-support-docs.md](../01-research/admin-support-docs.md)
-> 关联：[product-brief.md](../00-overview/product-brief.md) §7（差异化第 2 条）
+> 关联：[product-brief.md](../00-overview/product-brief.md) §7（差异化第 2 条）、
+> [ADR 0015](../05-adr/0015-client-strategy.md) §3/§9（**裁决 §3 的 iOS 首推改 Karing**，提案，未批准）、
+> [user-journey.md](user-journey.md) §4.3（分歧的另一侧）
+> **2026-08-29 补登**：§3 加落点，选型表与固定结构未改。
 > 读者：写教程的人。本文定义**要写哪些页、每页写什么、以什么标准算写完**。
 
 ---
@@ -79,6 +82,25 @@ docs.babel.plus/
 > ⚠️ **iOS 是最大的摩擦点**：Shadowrocket 需要外区 Apple ID 且付费。
 > 「怎么注册外区 Apple ID」本身要单独成篇，否则这一步会吃掉大量工单。
 > Karing 作为免费替代必须给到同等篇幅。
+
+> **2026-08-29 补登落点：iOS 首推之争已裁决（roadmap B29）—— [ADR 0015](../05-adr/0015-client-strategy.md) §3（提案，未批准）。**
+>
+> **裁决：iOS 首推 Karing**，即本表这一格被推翻，[user-journey](user-journey.md) §4.3 那一侧胜出。
+> 0015 §3.1 把分歧的原文两侧并排列出，并指出**本文原文只写了「Karing 免费，Shadowrocket 需外区 Apple ID」**，
+> 「生态成熟、配置能力强」那句是 user-journey 对本文的**转述**，本文里没有 —— 登记以免以讹传讹。
+>
+> ⚠️ **两份文档共有的一个前提可能是错的**（0015 §3.2）：都把「外区 Apple ID」当成 Shadowrocket **独有**的成本。
+> 仓库里唯一的 App Store 链接是 `/us/` 路径（0015 引 [admin-support-docs](../01-research/admin-support-docs.md) L1441），
+> **没有任何证据说明 Karing 在中国区**。若它同样不在，外区 Apple ID 就是两条路径的**共同前缀**。
+> 这条核实**不是闸门**（无论结果如何都不改裁决，只改我们对外讲的理由），进 0015 §7.4 的 5 分钟清单。
+> 承重理由改为 0015 §3.3 的四条不对称，退路见 §3.4（三级，不是一级）。
+>
+> **0015 §9 给本节的具体改动清单**（篇目编号见 [admin-support-docs](../01-research/admin-support-docs.md) §4.6）：
+> Karing（`I4`）升为 iOS 首篇客户端教程 · 删 Stash（`I3`）· Shadowrocket（`I2`）降备选 ·
+> 去掉 `I1` 里的外区 Apple ID 教程 · 新增「**不支持的客户端：SFT**」（tvOS，0015 §4.10 正式列为不接收完整配置）。
+> Stage 2 另需写死「sing-box 官方客户端要求 ≥ vX.Y」（0015 §4.8，具体版本由闸门 A 实测确定）。
+> 🔴 **本表今天不改写**：0015 状态是**提案，未批准**（2026-08-23），
+> 且 §7.2 的闸门 B（Karing 真机验证）未过之前不许写进教程。
 
 每篇客户端教程的**固定结构**：
 
