@@ -528,16 +528,26 @@ deploy() {
   #    每加一个镜像域名都要同步进这里，否则那个域名下的面板调不通 API。
   local origins="${ALLOWED_ORIGINS:-https://web.babel.plus,https://admin.babel.plus}"
 
-  # ⚠️ 用 gcloud 的**自定义分隔符**语法 `^@^k=v@k=v`，不能用默认的逗号。
+  # ⚠️ 用 gcloud 的**自定义分隔符**语法 `^;;^k=v;;k=v`，不能用默认的逗号。
   # BP_ALLOWED_ORIGINS 的值本身就含逗号（多个 Origin），用默认分隔符会被切错：
   #   ERROR: argument --set-env-vars: Bad syntax for dict arg: [https://admin.babel.plus]
-  # 2026-08-17 首次部署实测踩到。选 @ 是因为它不会出现在 URL 与我们的任何值里。
-  local env_vars="^@^\
-BP_ENV=prod@\
-BP_GCP_PROJECT_ID=${PROJECT_ID}@\
-BP_DB_MAX_CONNS=2@\
-BP_LOG_LEVEL=info@\
-BP_TRUST_PROXY_HEADERS=true@\
+  # 2026-08-17 首次部署实测踩到。
+  #
+  # 🔴 分隔符曾经是 `@`，理由写的是「它不会出现在 URL 与我们的任何值里」——
+  #    那句话在 BP_INTERNAL_TASK_CALLERS 出现之前是对的，之后就不再成立了：
+  #    它的值是**服务账号 email**，形如 bp-tasks-sa@oratis-491316.iam.gserviceaccount.com，
+  #    正中分隔符。2026-08-30 实测踩到：
+  #      ERROR: Bad syntax for dict arg: [oratis-491316.iam.gserviceaccount.com]
+  #    失败发生在 gcloud 参数解析阶段，**没有产生任何修订版**，所以它只是一次响亮的失败。
+  #    改用 `;;`：分号不出现在 email 的本地部分与域名里，也不出现在我们下发的任何 URL 里，
+  #    而**两个连写**的分号进一步把「某个值里碰巧有一个分号」也排除掉了。
+  #    ⚠️ 今后往这张表里加变量时，先问一句新值里可不可能出现 `;;`。
+  local env_vars="^;;^\
+BP_ENV=prod;;\
+BP_GCP_PROJECT_ID=${PROJECT_ID};;\
+BP_DB_MAX_CONNS=2;;\
+BP_LOG_LEVEL=info;;\
+BP_TRUST_PROXY_HEADERS=true;;\
 BP_ALLOWED_ORIGINS=${origins}"
 
   # ---- 内部面（/internal/tasks/*，9 条 Cloud Scheduler 打进来的端点）----
@@ -553,8 +563,8 @@ BP_ALLOWED_ORIGINS=${origins}"
       die "BP_INTERNAL_OIDC_AUDIENCE 与 BP_INTERNAL_TASK_CALLERS 必须同时给或同时留空。
      只给一项时内部面仍然整体拒绝（与没配无异），但排查方向会被带偏 —— 见 config.go 的同名断言。"
     fi
-    env_vars="${env_vars}@BP_INTERNAL_OIDC_AUDIENCE=${BP_INTERNAL_OIDC_AUDIENCE}"
-    env_vars="${env_vars}@BP_INTERNAL_TASK_CALLERS=${BP_INTERNAL_TASK_CALLERS}"
+    env_vars="${env_vars};;BP_INTERNAL_OIDC_AUDIENCE=${BP_INTERNAL_OIDC_AUDIENCE}"
+    env_vars="${env_vars};;BP_INTERNAL_TASK_CALLERS=${BP_INTERNAL_TASK_CALLERS}"
   fi
 
   # ---- 管理面（/admin/*）----
@@ -567,8 +577,8 @@ BP_ALLOWED_ORIGINS=${origins}"
       die "BP_ADMIN_IAP_AUDIENCE 与 BP_ADMIN_TOTP_ENC_KEY 必须同时给或同时留空。
      只给 audience → 管理面能进但所有危险操作被拒；只给密钥 → 管理面整体进不去。两种现象都不指向配置本身。"
     fi
-    env_vars="${env_vars}@BP_ADMIN_IAP_AUDIENCE=${BP_ADMIN_IAP_AUDIENCE}"
-    env_vars="${env_vars}@BP_ADMIN_TOTP_ENC_KEY=${BP_ADMIN_TOTP_ENC_KEY}"
+    env_vars="${env_vars};;BP_ADMIN_IAP_AUDIENCE=${BP_ADMIN_IAP_AUDIENCE}"
+    env_vars="${env_vars};;BP_ADMIN_TOTP_ENC_KEY=${BP_ADMIN_TOTP_ENC_KEY}"
   fi
 
   local -a args=(
