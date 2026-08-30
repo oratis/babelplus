@@ -1031,10 +1031,33 @@ const adminSelectColumns = `id, email, role, coalesce(iap_subject, ''), totp_sec
 	       perm_mark_order_paid, perm_refund, perm_adjust_balance, perm_export_csv`
 
 func (s *PgAdminStore) LookupAdminByIAPEmail(ctx context.Context, email string) (AdminRecord, error) {
-	// 按 lower(email) 比，命中 admin_users_email_uk 这个函数索引。
-	// 直接写 `email = $1` 会全表扫，而且大小写不同就查不到。
+	// 按 lower(email) 比而不是 `email = $1`：后者会全表扫，而且大小写不同就查不到。
+	//
+	// 🔴 **ORDER BY 不是排版洁癖，它是 0019 的读侧配套。**
+	// 0019 把 `admin_users_email_uk` 改成了部分索引（`WHERE disabled_at IS NULL`），
+	// 目的是让软停用之后邮箱能被重新使用（「离职再入职」）。代价是**同一个邮箱
+	// 从此可以同时存在一条停用行和一条在职行** —— 于是这条查询从「最多一行」
+	// 变成「可能多行」，而 QueryRow 会静默丢弃多出来的那些。
+	//
+	// 0019 的作者在迁移注释里实测登记过这个后果：不带排序时返回顺序由物理顺序决定，
+	// 也就是**先插入的那条 —— 停用的旧行**；随后 checkAdminUsable 看到 Disabled 就 403。
+	// 净效果是「0019 想放行的离职再入职，在登录路径上变成一个稳定的 403」。
+	//
+	// **为什么是 ORDER BY 而不是迁移注释建议的 `AND disabled_at IS NULL`**：
+	// 那一句同样能修好登录，但会让「一个已停用的管理员来敲门」与「这个邮箱压根不是管理员」
+	// 塌成同一条日志（两条路径都走 pgx.ErrNoRows → 「IAP 身份不是管理员」）。
+	// 前者是一条安全相关的记录 —— 离职的人还在尝试进后台，值得有人看见。
+	// 排序保留了它：在职行存在就取在职行；一条都没有时才落到停用行，
+	// 于是 checkAdminUsable 仍然能打出「已禁用的管理员尝试访问」。
+	//
+	// `id DESC` 是同类行之间的定序（在职行按唯一索引至多一条，所以它只在
+	// 「全是停用行」时起作用：取最近一次停用的那条，也就是最能说明情况的那条）。
+	// 排序在这里不值得担心代价：admin_users 是个位数行的表。
 	return scanAdmin(s.DB.QueryRow(ctx,
-		`SELECT `+adminSelectColumns+` FROM admin_users WHERE lower(email) = lower($1)`, email))
+		`SELECT `+adminSelectColumns+` FROM admin_users
+		  WHERE lower(email) = lower($1)
+		  ORDER BY (disabled_at IS NULL) DESC, id DESC
+		  LIMIT 1`, email))
 }
 
 func (s *PgAdminStore) LookupAdminByID(ctx context.Context, id int64) (AdminRecord, error) {
