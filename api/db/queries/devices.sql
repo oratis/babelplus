@@ -83,7 +83,7 @@ WITH agg AS (
   GROUP BY d.device_ip
 )
 SELECT
-  (('x' || substr(md5(a.device_ip::text), 1, 15))::bit(60)::bigint + 1)::bigint AS id,
+  (('x' || substr(md5(a.device_ip::text), 1, 13))::bit(52)::bigint + 1)::bigint AS id,
   a.device_ip,
   a.last_seen_at,
   a.node_count,
@@ -127,7 +127,7 @@ ORDER BY a.last_seen_at DESC, a.device_ip;
 WITH removed AS (
   DELETE FROM user_device_state d
   WHERE d.user_id = sqlc.arg(user_id)::bigint
-    AND (('x' || substr(md5(d.device_ip::text), 1, 15))::bit(60)::bigint + 1)
+    AND (('x' || substr(md5(d.device_ip::text), 1, 13))::bit(52)::bigint + 1)
         = sqlc.arg(device_id)::bigint
   RETURNING d.device_ip
 )

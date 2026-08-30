@@ -235,7 +235,7 @@ upd AS (
   FROM due
   WHERE o.id = due.id
   RETURNING o.id, o.trade_no, o.user_id, due.status AS from_status,
-            o.pay_address, o.address_watch_until
+            o.pay_address, o.address_watch_until, o.amount_balance
 ),
 audited AS (
   INSERT INTO order_transitions (order_id, from_status, to_status, reason, actor)
@@ -246,7 +246,7 @@ audited AS (
   RETURNING order_id
 )
 SELECT upd.id, upd.trade_no, upd.user_id, upd.from_status,
-       upd.pay_address, upd.address_watch_until,
+       upd.pay_address, upd.address_watch_until, upd.amount_balance,
        (SELECT count(*) FROM audited)::bigint AS audited_rows
 FROM upd
 ORDER BY upd.id;

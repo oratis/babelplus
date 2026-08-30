@@ -217,7 +217,12 @@ function SubscriptionCard({ summary }: { summary: SubscriptionSummary }) {
   const hasQuota = summary.total_bytes > 0;
   const usedPercent = percent(used, summary.total_bytes);
   const remainingDays = daysUntil(summary.expired_at);
-  const expired = remainingDays !== null && remainingDays < 0;
+  // 🔴 过期判定必须比时刻，不能比取整后的天数。daysUntil 走 Math.ceil，
+  //    刚过期 0–24 小时的订阅算出来是 -0，而 `-0 < 0` 是 **false** ——
+  //    于是一个已经失效的订阅会显示成「生效中 / 还剩 0 天」，
+  //    「续费」也不会被置成主按钮。这恰好是用户最需要看到「已到期」的那一天。
+  const expiredAtMs = summary.expired_at ? Date.parse(summary.expired_at) : null;
+  const expired = expiredAtMs !== null && !Number.isNaN(expiredAtMs) && expiredAtMs <= Date.now();
   const exhausted = hasQuota && used >= summary.total_bytes;
   // user-journey §4.4 最后一行：到期 / 流量耗尽时「续费」置为主按钮。
   const renewIsPrimary = expired || exhausted;

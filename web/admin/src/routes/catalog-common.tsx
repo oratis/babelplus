@@ -634,7 +634,20 @@ export function bytesToGibText(bytes: number): string {
   return (bytes / GIB).toFixed(3);
 }
 
-/** 支持一位小数的 GiB 输入（如 0.5 GB 的试用包）。整数运算，不留浮点尾数。 */
+/**
+ * 支持最多三位小数的 GiB 输入（如 0.5 GB 的试用包）。
+ *
+ * 🔴 **不要写成 `(milli * GIB) / scale` 再判 `Number.isSafeInteger`。**
+ *    GIB = 2^30，scale = 1000，而 1000 = 2^3 × 5^3 —— 除得尽 2^30 的只有那个 2^3，
+ *    5^3 = 125 永远除不尽。于是 `milli` 不是 125 的倍数时商必然带小数，
+ *    `Number.isSafeInteger` 判 false，函数返回 null。
+ *    实际后果：`0.5` GB（milli = 500）碰巧过（500 / 125 = 4），而 `0.1`、`0.2`、`0.3`、
+ *    `1.1`…… 绝大多数一位小数**全部被拒**，套餐编辑器直接存不了，
+ *    而提示词还写着「填一个数字」—— 操作者完全无从得知自己错在哪。
+ *
+ *    改成四舍五入到最近的整字节：字节本来就是整数量纲，
+ *    0.1 GiB = 107374182.4 B 这种值在现实里不存在「精确表示」这一说。
+ */
 export function gibTextToBytes(raw: string): number | null {
   const s = raw.trim();
   if (s === '') return null;
@@ -643,7 +656,7 @@ export function gibTextToBytes(raw: string): number | null {
   const scale = 1000;
   const milli = Number(whole) * scale + Number((frac + '000').slice(0, 3));
   if (!Number.isSafeInteger(milli)) return null;
-  const bytes = (milli * GIB) / scale;
+  const bytes = Math.round((milli * GIB) / scale);
   return Number.isSafeInteger(bytes) ? bytes : null;
 }
 

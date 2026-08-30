@@ -937,8 +937,16 @@ export function writeCachedUrls(userId: number | null, urls: SubscriptionUrls): 
   }
 }
 
-export function clearCachedUrls(userId: number | null): void {
-  if (userId === null) return;
+/**
+ * 清掉订阅 URL 缓存。
+ *
+ * `userId` 是可选的，且**不参与判断** —— CACHE_KEY 是一个全局键，
+ * 里面自带 userId 字段供读取时比对，所以「清掉」这个动作本身与是谁无关。
+ * 从前这里有一条 `if (userId === null) return`：它让调用方必须先拿到用户 id，
+ * 而拿 id 要 useAuth，于是撤销 token 的页面为了清一个缓存被迫依赖 AuthProvider。
+ * 清一个已经失效的凭据缓存**在任何情况下都是安全的**，不该有前置条件。
+ */
+export function clearCachedUrls(_userId?: number | null): void {
   try {
     window.sessionStorage.removeItem(CACHE_KEY);
   } catch {

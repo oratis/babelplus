@@ -535,6 +535,11 @@ type fakeOrderWriter struct {
 	transitions  []dbgen.InsertOrderTransitionParams
 	createParams dbgen.CreateOrderParams
 	couponCalls  []int64
+
+	// 余额锁定（reserveOrderBalance）用
+	walletBalance int64 // 钱包里现有的钱；SpendWalletBalance 按它判「够不够」
+	spent         []int64
+	ledgerEntries int
 }
 
 func (f *fakeOrderWriter) CreateOrder(_ context.Context, arg dbgen.CreateOrderParams) (dbgen.Order, error) {
@@ -561,6 +566,29 @@ func (f *fakeOrderWriter) IncrementCouponUse(_ context.Context, id int64) (dbgen
 		return dbgen.IncrementCouponUseRow{}, f.couponErr
 	}
 	return dbgen.IncrementCouponUseRow{ID: id}, nil
+}
+
+func (f *fakeOrderWriter) GetLedgerAccountByCode(_ context.Context, code string) (dbgen.LedgerAccount, error) {
+	return dbgen.LedgerAccount{ID: 1, Code: code}, nil
+}
+
+func (f *fakeOrderWriter) CreateLedgerEntry(_ context.Context, _ dbgen.CreateLedgerEntryParams) (dbgen.LedgerEntry, error) {
+	f.ledgerEntries++
+	return dbgen.LedgerEntry{ID: int64(f.ledgerEntries)}, nil
+}
+
+func (f *fakeOrderWriter) CreateLedgerLine(_ context.Context, _ dbgen.CreateLedgerLineParams) (dbgen.LedgerLine, error) {
+	return dbgen.LedgerLine{}, nil
+}
+
+// SpendWalletBalance 复刻真语句的语义：「够不够」写在 WHERE 里，不够就是 0 行。
+func (f *fakeOrderWriter) SpendWalletBalance(_ context.Context, arg dbgen.SpendWalletBalanceParams) (dbgen.SpendWalletBalanceRow, error) {
+	if f.walletBalance < arg.AmountCents {
+		return dbgen.SpendWalletBalanceRow{}, pgx.ErrNoRows
+	}
+	f.walletBalance -= arg.AmountCents
+	f.spent = append(f.spent, arg.AmountCents)
+	return dbgen.SpendWalletBalanceRow{Balance: f.walletBalance}, nil
 }
 
 func TestWriteOrder(t *testing.T) {
@@ -862,6 +890,7 @@ type fakeDeposit struct {
 	auditRows    []dbgen.InsertOrderTransitionParams
 	payerAddr    []dbgen.RecordOrderPayerAddressParams
 	walletTopups []dbgen.UpsertWalletBalanceParams
+	payments     []dbgen.RecordOrderPaymentParams
 }
 
 func (f *fakeDeposit) GetPayAddressByAddress(context.Context, dbgen.GetPayAddressByAddressParams) (dbgen.GetPayAddressByAddressRow, error) {
@@ -913,6 +942,11 @@ func (f *fakeDeposit) InsertOrderTransition(_ context.Context, arg dbgen.InsertO
 func (f *fakeDeposit) RecordOrderPayerAddress(_ context.Context, arg dbgen.RecordOrderPayerAddressParams) error {
 	f.payerAddr = append(f.payerAddr, arg)
 	return nil
+}
+
+func (f *fakeDeposit) RecordOrderPayment(_ context.Context, arg dbgen.RecordOrderPaymentParams) (dbgen.RecordOrderPaymentRow, error) {
+	f.payments = append(f.payments, arg)
+	return dbgen.RecordOrderPaymentRow{ID: arg.ID}, nil
 }
 
 func (f *fakeDeposit) UpsertWalletBalance(_ context.Context, arg dbgen.UpsertWalletBalanceParams) (dbgen.WalletBalance, error) {
@@ -1259,5 +1293,115 @@ func TestNotifyTradeNoHintIsOnlyAHint(t *testing.T) {
 	empty := gen.HandlePaymentNotifyJSONRequestBody{"money": "1", "trade_status": "TRADE_SUCCESS"}
 	if notifyTradeNoHint(gen.HandlePaymentNotifyRequestObject{JSONBody: &empty}) != "" {
 		t.Fatal("没有订单号线索时必须返回空串，让反查直接失败")
+	}
+}
+
+// ============================================================
+// 余额抵扣必须真的从钱包扣走（回归）
+// ============================================================
+//
+// 🔴 这条守的是一个静默到极点的缺陷：`orders.amount_balance` 曾经是**纯记账字段** ——
+//
+//	它被减进 amount_due，但对应的钱从未离开钱包，于是同一笔余额可以无限次重复抵扣。
+//	而 ReconcileWalletBalances 比的是「分录聚合 vs wallet_balances 缓存」，
+//	两边都没扣，所以每日对账**永远不会报红**。没有任何自动信号，只能靠这条测试。
+func TestWriteOrderReservesBalance(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+
+	t.Run("有余额抵扣时：钱包真的被扣，且金额等于 amount_balance", func(t *testing.T) {
+		f := &fakeOrderWriter{order: dbgen.Order{ID: 11}, walletBalance: 5000}
+		draft := &orderDraft{
+			Type: dbgen.OrderTypeNew, Period: dbgen.OrderPeriodMonthly, PlanID: 1,
+			AmountGross: 10000, AmountBalance: 5000, AmountDue: 5000,
+		}
+		if _, err := writeOrder(context.Background(), f, 7, "T1", draft, now); err != nil {
+			t.Fatalf("不应报错：%v", err)
+		}
+		if len(f.spent) != 1 || f.spent[0] != 5000 {
+			t.Fatalf("应恰好扣一次 5000，实际 %v", f.spent)
+		}
+		if f.walletBalance != 0 {
+			t.Fatalf("扣完余额应为 0，实际 %d", f.walletBalance)
+		}
+		if f.ledgerEntries != 1 {
+			t.Fatalf("扣款必须落一条分录（余额的唯一真相是分录），实际 %d 条", f.ledgerEntries)
+		}
+	})
+
+	t.Run("余额不足：返回 errBalanceReserveFailed，不退化成静默放行", func(t *testing.T) {
+		// 并发下单的形态：两张单各自算出同一笔余额可抵，但只有一张扣得动。
+		f := &fakeOrderWriter{order: dbgen.Order{ID: 12}, walletBalance: 100}
+		draft := &orderDraft{
+			Type: dbgen.OrderTypeNew, Period: dbgen.OrderPeriodMonthly, PlanID: 1,
+			AmountGross: 10000, AmountBalance: 5000, AmountDue: 5000,
+		}
+		_, err := writeOrder(context.Background(), f, 7, "T2", draft, now)
+		if !errors.Is(err, errBalanceReserveFailed) {
+			t.Fatalf("应返回 errBalanceReserveFailed（→ 422），实际 %v", err)
+		}
+	})
+
+	t.Run("没有余额抵扣时：一次钱包都不碰", func(t *testing.T) {
+		f := &fakeOrderWriter{order: dbgen.Order{ID: 13}, walletBalance: 5000}
+		draft := &orderDraft{
+			Type: dbgen.OrderTypeNew, Period: dbgen.OrderPeriodMonthly, PlanID: 1,
+			AmountGross: 10000, AmountBalance: 0, AmountDue: 10000,
+		}
+		if _, err := writeOrder(context.Background(), f, 7, "T3", draft, now); err != nil {
+			t.Fatalf("不应报错：%v", err)
+		}
+		if len(f.spent) != 0 || f.ledgerEntries != 0 {
+			t.Fatalf("amount_balance = 0 不该产生任何扣款或分录，实际 spent=%v entries=%d", f.spent, f.ledgerEntries)
+		}
+	})
+}
+
+// ============================================================
+// 链上付清必须写 amount_paid（回归）
+// ============================================================
+//
+// 🔴 这条纪律此前只写在 D6 手工标记路径上，**正常的链上收款路径漏了**。
+//
+//	amount_paid 恒为 0 的后果全部是静默归零，没有一个会报错：
+//	  ① GetRefundBasis 的 segment_value = amount_paid + amount_balance = 0
+//	     → 用户申请退款拿到「已经没有可退金额」的 422，而他明明付过钱；
+//	  ② GetSubscriptionSource 的折抵额 = 0，升级时已付周期价值凭空消失；
+//	  ③ 营收看板今日/本月恒为 0；
+//	  ④ 佣金追回的分母为 0。
+func TestProcessDepositRecordsAmountPaid(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusPaying, 10_000_000, 10_000_000)
+	f.order.AmountDue = 7150 // ¥71.50：本单的应付人民币
+	if err := processDeposit(context.Background(), f, testLogger(), depositIn(10_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.payments) != 1 {
+		t.Fatalf("付清时必须恰好记一次 RecordOrderPayment，实际 %d 次", len(f.payments))
+	}
+	got := f.payments[0]
+	if got.ID != 100 {
+		t.Fatalf("记到了别的订单上：%d", got.ID)
+	}
+	// 金额取订单的应付人民币，不把到账 USDT 再折一次（避免第二次舍入）。
+	if got.AmountPaid != 7150 {
+		t.Fatalf("amount_paid 应为 7150（order.AmountDue），实际 %d", got.AmountPaid)
+	}
+	if got.GatewayRef == nil || *got.GatewayRef != "abc" {
+		t.Fatalf("gateway_ref 应为链上 txid，实际 %v", got.GatewayRef)
+	}
+	// 顺序：先记收款再推 paid，两者同事务。
+	if len(f.transitions) != 1 || f.transitions[0].ToStatus != dbgen.OrderStatusPaid {
+		t.Fatalf("应当迁移到 paid，实际 %+v", f.transitions)
+	}
+}
+
+// 少付进人工档时**不该**记 amount_paid —— 订单还没付清。
+func TestProcessDepositUnderpaidDoesNotRecordAmountPaid(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusPaying, 10_000_000, 5_000_000)
+	f.order.AmountDue = 7150
+	if err := processDeposit(context.Background(), f, testLogger(), depositIn(5_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.payments) != 0 {
+		t.Fatalf("未付清不应记 amount_paid，实际记了 %d 次", len(f.payments))
 	}
 }

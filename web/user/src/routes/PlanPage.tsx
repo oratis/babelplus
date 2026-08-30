@@ -37,7 +37,6 @@ import {
 } from './_imports.ts';
 import { unwrap, type ApiError } from '@babelplus/shared/api';
 import { api } from '../lib/api.ts';
-import { useAuth } from '../lib/auth.tsx';
 import {
   FormAlert,
   TextField,
@@ -66,6 +65,10 @@ import {
 } from './billing/checkout.tsx';
 
 type PlanKind = Plan['type'];
+
+/** 下单页要花余额，所以余额必须现取，不能用开机时的 CurrentUser 快照。 */
+const loadWalletBalance = (): Promise<{ balance_amount: number }> =>
+  unwrap(api().GET('/api/v1/user/wallet'));
 
 const loadPlans = (): Promise<Plan[]> => unwrap(api().GET('/api/v1/plans'));
 
@@ -294,7 +297,6 @@ function PlanCard({
  */
 function OrderComposer({ plan }: { plan: Plan }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   /**
    * 可选周期。**滤掉 `onetime`**（周期套餐上）：ADR 0013 §2.2 裁决 P1 阶段不售不限时套餐，
@@ -320,7 +322,13 @@ function OrderComposer({ plan }: { plan: Plan }) {
   // 只有**校验通过**的码才会被提交。校验没过还提交上去，服务端会以 422 拒绝，
   // 而用户看到的是「刚才明明说可以用」——user-journey 点名的那种背叛感。
   const appliedCoupon = coupon !== null && coupon.valid ? coupon.code : null;
-  const balance = user?.balance_amount ?? 0;
+  // 🔴 **余额不能读开机时的 CurrentUser 快照。** `user` 由 auth bootstrap 填一次，
+  //    之后只在登录 / 手动 reload 时更新 —— 而这一页恰恰是花余额的地方。
+  //    用户在本次会话里充过值、转过佣金、或用余额付过另一张单之后，
+  //    这里读到的仍是进站那一刻的数字：勾选框会按一个过期的值决定能不能勾，
+  //    展示的「当前余额」也是错的。改成进这一页时真去取一次（与 WalletPage 同源）。
+  const walletQuery = useApiQuery(loadWalletBalance, [], '余额加载失败');
+  const balance = walletQuery.data?.balance_amount ?? 0;
 
   /**
    * 幂等键跟着**载荷**走。载荷的每一个字段都进签名 —— 漏掉一个，

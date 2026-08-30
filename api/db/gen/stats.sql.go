@@ -59,6 +59,13 @@ WITH cur AS (
   SELECT ut.user_id, ut.u, ut.d
   FROM user_traffic ut
   WHERE ut.user_id = $1
+    -- 🔴 这个 EXISTS 不是多余的过滤，它是**归零与推进周期的原子性**本身。
+    -- 数据修改型 CTE 无论外层 UPDATE 匹配几行都会执行：少了它，一个 plan_id 为 NULL
+    -- （或指向已删套餐）的用户会被清空 u/d 却**不推进 reset_seq / 不恢复配额** ——
+    -- 用户凭空拿到一个免费的流量重置，而调用方拿到 ErrNoRows 只会以为「什么都没发生」。
+    AND EXISTS (
+      SELECT 1 FROM users u JOIN plans p ON p.id = u.plan_id WHERE u.id = ut.user_id
+    )
   FOR UPDATE
 ), zeroed AS (
   UPDATE user_traffic ut

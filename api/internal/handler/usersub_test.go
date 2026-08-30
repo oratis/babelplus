@@ -366,7 +366,15 @@ func TestUserNodeViewFillsMultiplier(t *testing.T) {
 
 // 🔴 **本测试不测 Go，测的是 devices.sql 的文本。**
 //
-// UserDevice.id 在数据库里不存在，是 `md5(device_ip::text)` 前 60 bit + 1 合成的。
+// UserDevice.id 在数据库里不存在，是 `md5(device_ip::text)` 前 **52 bit** + 1 合成的。
+//
+// 🔴 52 不是随手取的：契约里 UserDevice.id 是 integer，前端拿到的是 JavaScript number，
+//
+//	而 JS 的安全整数上限是 2^53−1。从前这里取 60 bit，合成出来的 id 有 2^60 量级 ——
+//	`JSON.parse` 会把它舍成一个**邻近但不相等**的数，前端拿这个数去 DELETE，
+//	`WHERE 合成id = $1` 必然不匹配，于是「踢下线」稳定 404。
+//	2^52 < 2^53−1，落在安全区内，往返不丢精度。
+//
 // devices.sql §1 写明：列表与删除两条语句必须用**同一个表达式**，
 // 「改一处不改另一处，所有旧 id 会在一次发布后集体失效」——
 // 而那个现象是「点了踢下线没反应」，且只对某些 IP 出现。
@@ -385,7 +393,7 @@ func TestDeviceIDExpressionIsShared(t *testing.T) {
 	norm := regexp.MustCompile(`\s+`).ReplaceAllString(string(raw), "")
 	norm = regexp.MustCompile(`\b[a-z]\.device_ip`).ReplaceAllString(norm, "device_ip")
 
-	canonical := `(('x'||substr(md5(device_ip::text),1,15))::bit(60)::bigint+1)`
+	canonical := `(('x'||substr(md5(device_ip::text),1,13))::bit(52)::bigint+1)`
 	if n := strings.Count(norm, canonical); n != 2 {
 		t.Fatalf("devices.sql 里合成 id 的表达式出现 %d 次，期望恰好 2 次"+
 			"（ListUserDevicesByIP 一次、KickUserDeviceByID 一次）。\n"+

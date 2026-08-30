@@ -15,7 +15,7 @@
  * 页头那个按钮就是脚手架注释里要的「独立快捷入口」，且它是真的。
  */
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Button, Card, CardTitle, EmptyState, Icon, LinkButton, formatDateTime } from './_imports.ts';
 import {
   ContractGapNotice,
@@ -39,11 +39,18 @@ import {
 } from './order-common.tsx';
 
 export default function OrdersPage() {
+  // 🔴 搜索词要能从 URL 带进来。用户详情页有一个「去订单页搜 <email>」的按钮，
+  //    它链到 `/admin/orders?q=<email>`；这一页从前**完全忽略**那个参数，
+  //    于是链接声称自己搜了、页面显示的却是全量订单列表 ——
+  //    操作者会以为眼前这些行都属于那个用户，然后对着错的行动手。
+  //    写法与 NodeKeysPage 的 `?node=` 同一套（query string 也便于把链接转给别人接手）。
+  const [params, setParams] = useSearchParams();
   // `search` 是输入框里正在打的字，`q` 是**已提交**的那一次。
   // 分开是因为搜索走服务端全表扫（两个 ILIKE，见 admin_ops.sql 的登记）——
   // 边打边搜等于每敲一个字符就让 db-f1-micro 全表扫一遍 orders + users。
-  const [search, setSearch] = useState('');
-  const [q, setQ] = useState('');
+  const initialQ = params.get('q') ?? '';
+  const [search, setSearch] = useState(initialQ);
+  const [q, setQ] = useState(initialQ);
   const pager = useCursorPager();
 
   const query = useApiQuery(
@@ -58,6 +65,8 @@ export default function OrdersPage() {
     // 无意义的位置 —— 现象是「搜出来的第一页少了几条」，且不报错。
     pager.reset();
     setQ(search);
+    // URL 与页面显示的内容保持一致：否则刷新或转发链接会回到另一个结果集。
+    setParams(search === '' ? {} : { q: search }, { replace: true });
   }
 
   return (

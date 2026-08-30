@@ -79,9 +79,9 @@ function page(data: unknown[], meta: Record<string, unknown> = {}) {
   return { data, meta: { ...META, has_more: false, ...meta } };
 }
 
-function renderPage() {
+function renderPage(entry = '/admin/orders') {
   return render(
-    <MemoryRouter initialEntries={['/admin/orders']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/admin/orders" element={<OrdersPage />} />
       </Routes>
@@ -220,5 +220,33 @@ describe('OrdersPage', () => {
     const before = calls.length;
     fireEvent.change(screen.getByLabelText('搜索'), { target: { value: 'abc' } });
     expect(calls.length).toBe(before);
+  });
+});
+
+describe('OrdersPage 深链搜索', () => {
+  // 🔴 用户详情页有一个「去订单页搜 <email>」的按钮，它链到 `/admin/orders?q=<email>`。
+  //    这一页从前完全忽略那个参数 —— 链接声称自己搜了、页面显示的却是全量订单列表。
+  //    这是最坏的一种失败：不报错、不空白，只是**安静地显示了别人的订单**，
+  //    而操作者正准备对着这些行做退款或标记已支付。
+  it('🔴 ?q= 必须真的带进查询，而不是显示全量列表', async () => {
+    stubFetch(() => json(200, page([order()])));
+    renderPage('/admin/orders?q=someone%40example.com');
+    await waitFor(() => {
+      expect(calls.length).toBeGreaterThan(0);
+    });
+    const first = calls[0];
+    expect(first).toBeDefined();
+    const q = new URLSearchParams(first!.search).get('q');
+    expect(q).toBe('someone@example.com');
+  });
+
+  it('没有 ?q= 时不带 q 参数', async () => {
+    stubFetch(() => json(200, page([order()])));
+    renderPage();
+    await waitFor(() => {
+      expect(calls.length).toBeGreaterThan(0);
+    });
+    const q = new URLSearchParams(calls[0]!.search).get('q');
+    expect(q === null || q === '').toBe(true);
   });
 });

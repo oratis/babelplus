@@ -633,6 +633,24 @@ step_cert() {
      项目级绑定的作用域是整个共享项目（vpn-us / vpn-jp / lisa-* 都在里面），
      不只是 babel.plus 的资源 —— 这就是它值一个单独确认串的原因。"
 
+    # 🔴 三个域名池变量本身**就是逗号分隔的列表**，而 gcloud 的 --set-env-vars 默认也拿
+    #    逗号当条目分隔符。默认写法会把 `BP_WEB_DOMAINS=a.com,b.com` 切成
+    #    「BP_WEB_DOMAINS=a.com」与「b.com」两条，后者没有等号 → gcloud 报参数错误。
+    #    单域名时碰巧能过，多域名时必然失败 —— 而失败发生在**项目级 IAM 绑定已经落地之后**，
+    #    于是留下「权限给了、Job 没建成」的半截状态。所以：先建 Job，再授权，
+    #    并且用 gcloud 的替代分隔符语法（^@^ 前缀）—— `@` 不可能出现在主机名里。
+    local env_arg="^@^BP_WEB_DOMAINS=${BP_WEB_DOMAINS:-}@BP_ADMIN_DOMAINS=${BP_ADMIN_DOMAINS:-}@BP_API_DOMAINS=${BP_API_DOMAINS:-}"
+
+    run gcloud run jobs create "$CERT_JOB" \
+      --project="$PROJECT_ID" --region="$REGION" \
+      --image="$CERT_IMAGE" \
+      --service-account="${SA_TASKS}@${PROJECT_ID}.iam.gserviceaccount.com" \
+      --max-retries=1 \
+      --task-timeout=600s \
+      --set-env-vars="$env_arg" \
+      --command=/bin/bash \
+      --args=/opt/bp/infra/scripts/check-cert-issuer.sh,--require-targets
+
     # 🔴 Job 的运行时身份要能写 Cloud Logging，否则 cert_issuer_bad 这条日志写不出去，
     #    而 bp_cert_issuer_bad 的**唯一**信号源就是它 —— 没有这个绑定，整条 P0 链路是死的。
     #    roles/logging.logWriter 在 GCP 里只能项目级授（没有更细的等价角色）。
@@ -643,15 +661,6 @@ step_cert() {
       --role=roles/logging.logWriter \
       --condition=None
 
-    run gcloud run jobs create "$CERT_JOB" \
-      --project="$PROJECT_ID" --region="$REGION" \
-      --image="$CERT_IMAGE" \
-      --service-account="${SA_TASKS}@${PROJECT_ID}.iam.gserviceaccount.com" \
-      --max-retries=1 \
-      --task-timeout=600s \
-      --set-env-vars="BP_WEB_DOMAINS=${BP_WEB_DOMAINS:-},BP_ADMIN_DOMAINS=${BP_ADMIN_DOMAINS:-},BP_API_DOMAINS=${BP_API_DOMAINS:-}" \
-      --command=/bin/bash \
-      --args=/opt/bp/infra/scripts/check-cert-issuer.sh,--require-targets
     ok "Cloud Run Job $CERT_JOB 已创建（镜像 $CERT_IMAGE）"
     SUMMARY_DONE+=("Cloud Run Job $CERT_JOB —— 每日证书核对的执行体")
     job_ready=1

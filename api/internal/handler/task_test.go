@@ -268,6 +268,9 @@ type fakeOrderTimeout struct {
 	batches [][]dbgen.ExpireTimedOutOrdersRow
 	calls   int
 	err     error
+
+	entries  int   // 写过几条分录
+	refunded int64 // 累计退回钱包的金额（分）
 }
 
 func (f *fakeOrderTimeout) ExpireTimedOutOrders(_ context.Context, _ int32) ([]dbgen.ExpireTimedOutOrdersRow, error) {
@@ -281,6 +284,31 @@ func (f *fakeOrderTimeout) ExpireTimedOutOrders(_ context.Context, _ int32) ([]d
 	out := f.batches[0]
 	f.batches = f.batches[1:]
 	return out, nil
+}
+
+// fakeOrderTimeout 同时要满足 balanceReleaser（分录 + 钱包）。
+// 这些桩不模拟真账本，只把「退回了多少」记下来供断言。
+func (f *fakeOrderTimeout) GetLedgerAccountByCode(_ context.Context, code string) (dbgen.LedgerAccount, error) {
+	return dbgen.LedgerAccount{ID: 1, Code: code}, nil
+}
+
+func (f *fakeOrderTimeout) CreateLedgerEntry(_ context.Context, _ dbgen.CreateLedgerEntryParams) (dbgen.LedgerEntry, error) {
+	f.entries++
+	return dbgen.LedgerEntry{ID: int64(f.entries)}, nil
+}
+
+func (f *fakeOrderTimeout) CreateLedgerLine(_ context.Context, _ dbgen.CreateLedgerLineParams) (dbgen.LedgerLine, error) {
+	return dbgen.LedgerLine{}, nil
+}
+
+func (f *fakeOrderTimeout) UpsertWalletBalance(_ context.Context, arg dbgen.UpsertWalletBalanceParams) (dbgen.WalletBalance, error) {
+	f.refunded += arg.Balance
+	return dbgen.WalletBalance{}, nil
+}
+
+// directTx 把 runOrderTimeout 要的事务边界退化成「直接调用假实现」。
+func directTx(f *fakeOrderTimeout) orderTimeoutTx {
+	return func(_ context.Context, fn func(orderTimeoutQuerier) error) error { return fn(f) }
 }
 
 func fullOrderBatch(n int, withAddress bool) []dbgen.ExpireTimedOutOrdersRow {
@@ -304,7 +332,7 @@ func fullOrderBatch(n int, withAddress bool) []dbgen.ExpireTimedOutOrdersRow {
 func TestRunOrderTimeout(t *testing.T) {
 	t.Run("正常路径：关闭一批订单，带收款地址的计入监听窗口延长", func(t *testing.T) {
 		f := &fakeOrderTimeout{batches: [][]dbgen.ExpireTimedOutOrdersRow{fullOrderBatch(3, true)}}
-		res, err := runOrderTimeout(context.Background(), f, testLogger())
+		res, err := runOrderTimeout(context.Background(), directTx(f), testLogger())
 		if err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}
@@ -315,10 +343,10 @@ func TestRunOrderTimeout(t *testing.T) {
 
 	t.Run("幂等重入：第二次跑命中 0 行（订单已是 expired，语句 WHERE 挡住）", func(t *testing.T) {
 		f := &fakeOrderTimeout{batches: [][]dbgen.ExpireTimedOutOrdersRow{fullOrderBatch(2, true)}}
-		if _, err := runOrderTimeout(context.Background(), f, testLogger()); err != nil {
+		if _, err := runOrderTimeout(context.Background(), directTx(f), testLogger()); err != nil {
 			t.Fatalf("第一次不应报错：%v", err)
 		}
-		res, err := runOrderTimeout(context.Background(), f, testLogger())
+		res, err := runOrderTimeout(context.Background(), directTx(f), testLogger())
 		if err != nil {
 			t.Fatalf("第二次不应报错：%v", err)
 		}
@@ -339,7 +367,7 @@ func TestRunOrderTimeout(t *testing.T) {
 			fullOrderBatch(orderTimeoutBatchSize, true),
 			fullOrderBatch(5, true),
 		}}
-		res, err := runOrderTimeout(context.Background(), f, testLogger())
+		res, err := runOrderTimeout(context.Background(), directTx(f), testLogger())
 		if err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}
@@ -357,7 +385,7 @@ func TestRunOrderTimeout(t *testing.T) {
 			batches = append(batches, fullOrderBatch(orderTimeoutBatchSize, false))
 		}
 		f := &fakeOrderTimeout{batches: batches}
-		res, err := runOrderTimeout(context.Background(), f, testLogger())
+		res, err := runOrderTimeout(context.Background(), directTx(f), testLogger())
 		if err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}

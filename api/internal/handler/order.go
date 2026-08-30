@@ -226,9 +226,11 @@ type settingsReader interface {
 }
 
 type createOrderWriter interface {
+	ledgerQuerier
 	CreateOrder(ctx context.Context, arg dbgen.CreateOrderParams) (dbgen.Order, error)
 	InsertOrderTransition(ctx context.Context, arg dbgen.InsertOrderTransitionParams) (dbgen.OrderTransition, error)
 	IncrementCouponUse(ctx context.Context, id int64) (dbgen.IncrementCouponUseRow, error)
+	SpendWalletBalance(ctx context.Context, arg dbgen.SpendWalletBalanceParams) (dbgen.SpendWalletBalanceRow, error)
 }
 
 // depositQuerier 是 `processDeposit` 的全部数据面，顺序即 ADR 0012 §8.4 的五个分支。
@@ -244,6 +246,7 @@ type depositQuerier interface {
 	TransitionOrderStatus(ctx context.Context, arg dbgen.TransitionOrderStatusParams) (dbgen.TransitionOrderStatusRow, error)
 	InsertOrderTransition(ctx context.Context, arg dbgen.InsertOrderTransitionParams) (dbgen.OrderTransition, error)
 	RecordOrderPayerAddress(ctx context.Context, arg dbgen.RecordOrderPayerAddressParams) error
+	RecordOrderPayment(ctx context.Context, arg dbgen.RecordOrderPaymentParams) (dbgen.RecordOrderPaymentRow, error)
 	UpsertWalletBalance(ctx context.Context, arg dbgen.UpsertWalletBalanceParams) (dbgen.WalletBalance, error)
 }
 
@@ -1054,11 +1057,15 @@ func (s *Server) createOrderOnce(ctx context.Context, userID int64, body gen.Cre
 
 	var created dbgen.Order
 	var couponRaced bool
+	var balanceShort bool
 	txErr := s.db.InTx(ctx, func(q *dbgen.Queries) error {
 		o, err := writeOrder(ctx, q, userID, tradeNo, draft, time.Now())
 		if err != nil {
 			if errors.Is(err, errCouponRaced) {
 				couponRaced = true
+			}
+			if errors.Is(err, errBalanceReserveFailed) {
+				balanceShort = true
 			}
 			return err
 		}
@@ -1068,6 +1075,13 @@ func (s *Server) createOrderOnce(ctx context.Context, userID int64, body gen.Cre
 	if couponRaced {
 		return zeroOrder, zeroPlan, gen.CreateOrder422JSONResponse{
 			ErrUnprocessableJSONResponse: s.unprocessable(ctx, "优惠码刚刚被用完了，请去掉优惠码后重试", detail("coupon_code", "已用尽")),
+		}
+	}
+	// 余额是在下单这一刻真的扣走的，所以「余额不足」是一个 422 而不是 500。
+	// 触发它的典型场景是并发下单：两张单各自算出同一笔余额可抵，但只有一张扣得动。
+	if balanceShort {
+		return zeroOrder, zeroPlan, gen.CreateOrder422JSONResponse{
+			ErrUnprocessableJSONResponse: s.unprocessable(ctx, "钱包余额不足，请去掉余额抵扣后重试", detail("use_balance", "余额不足")),
 		}
 	}
 	if txErr != nil {
@@ -1372,6 +1386,12 @@ func writeOrder(ctx context.Context, q createOrderWriter, userID int64, tradeNo 
 		return dbgen.Order{}, err
 	}
 
+	// 🔴 余额抵扣必须在这里真的把钱扣走，否则 amount_balance 就是白送的。
+	//    放在 CreateOrder 之后是因为分录的 ref_id 需要订单 id。
+	if err := reserveOrderBalance(ctx, q, userID, order.ID, order.TradeNo, draft.AmountBalance); err != nil {
+		return dbgen.Order{}, err
+	}
+
 	// 状态机没有触发器兜底，漏写审计不会报错 —— 而「我明明下过单」的工单只能靠这张表回答。
 	actor := "user:" + strconv.FormatInt(userID, 10)
 	reason := "创建订单"
@@ -1582,14 +1602,18 @@ func (s *Server) CancelOrder(ctx context.Context, req gen.CancelOrderRequestObje
 		//    是一次性单调赋值，「永不复用」就是靠它不回退保证的（ADR 0012 §5.2）。
 		from := dbgen.OrderStatusPending
 		reason := "用户取消"
-		_, err = q.InsertOrderTransition(ctx, dbgen.InsertOrderTransitionParams{
+		if _, err := q.InsertOrderTransition(ctx, dbgen.InsertOrderTransitionParams{
 			OrderID:    row.ID,
 			FromStatus: &from,
 			ToStatus:   dbgen.OrderStatusCancelled,
 			Reason:     &reason,
 			Actor:      "user:" + strconv.FormatInt(auth.UserID, 10),
-		})
-		return err
+		}); err != nil {
+			return err
+		}
+		// 下单时锁定的余额必须在**同一事务**里退回：先迁移后退款而中间死掉，
+		// 这笔钱就再也没有路径回到用户手上（订单已是 cancelled，不会再被扫到）。
+		return releaseOrderBalance(ctx, q, row.UserID, row.ID, row.TradeNo, row.AmountBalance, "订单取消")
 	})
 	if notPending {
 		return gen.CancelOrder409JSONResponse{ErrConflictJSONResponse: s.conflict(ctx, "只有待支付的订单可以取消")}, nil
@@ -1688,7 +1712,11 @@ func (s *Server) PayOrder(ctx context.Context, req gen.PayOrderRequestObject) (g
 		return gen.PayOrder422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx, "请求体为空")}, nil
 	}
 
-	att, idemResp := s.beginOrderIdempotency(ctx, auth.UserID, "PayOrder", req.Params.IdempotencyKey, req.Body)
+	// 🔴 endpoint 里必须带上 trade_no。幂等指纹只由 (endpoint, body) 组成，
+	//    而 body 是 `{"method":"..."}` —— trade_no 是路径参数，不在里面。
+	//    少了它，同一个 Idempotency-Key 用在**第二张订单**上会命中第一张的缓存，
+	//    直接重放出第一张单的收款地址与金额：用户对着 A 单的地址付了 B 单的钱。
+	att, idemResp := s.beginOrderIdempotency(ctx, auth.UserID, "PayOrder:"+req.TradeNo, req.Params.IdempotencyKey, req.Body)
 	if idemResp != nil {
 		if r, ok := idemResp.(gen.PayOrderResponseObject); ok {
 			return r, nil
@@ -1770,6 +1798,7 @@ func (s *Server) payOrderOnce(ctx context.Context, userID int64, tradeNo string,
 func (s *Server) payWithBalance(ctx context.Context, userID int64, row dbgen.GetOrderCheckoutRow, set paymentSettings) (gen.PayOrder200JSONResponse, gen.PayOrderResponseObject) {
 	var zero gen.PayOrder200JSONResponse
 	var insufficient bool
+	var raced bool
 
 	err := s.db.InTx(ctx, func(q *dbgen.Queries) error {
 		// 🔴 顺序不能反：`SpendWalletBalance` 的 ledger_entry_id 是**非空**参数 ——
@@ -1800,11 +1829,39 @@ func (s *Server) payWithBalance(ctx context.Context, userID int64, row dbgen.Get
 			}
 			return err
 		}
-		return markOrderPaid(ctx, q, s.logger, row.ID, row.TradeNo, dbgen.OrderStatusPending,
-			"user:"+strconv.FormatInt(userID, 10), "余额支付")
+		// 🔴 **不能走 markOrderPaid**：它内部的 transitionOrder 把 0 行当作
+		//    「别的路径已经推走了」而返回 nil —— 那条宽容规则是为扫链与 recheck 并发写的，
+		//    在这里是致命的：钱已经在上面扣掉了，CAS 却静默失败，于是事务照常提交，
+		//    用户被扣了一次款而订单没有推进。并发两次 payOrder 就会扣两次钱只开通一次。
+		//    这里必须用严格 CAS：0 行 = 回滚整个事务（分录与扣款一起撤销）→ 409。
+		if _, err := q.TransitionOrderStatus(ctx, dbgen.TransitionOrderStatusParams{
+			OrderID: row.ID, FromStatus: dbgen.OrderStatusPending, ToStatus: dbgen.OrderStatusPaid,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				raced = true
+			}
+			return err
+		}
+		from := dbgen.OrderStatusPending
+		reason := "余额支付"
+		if _, err := q.InsertOrderTransition(ctx, dbgen.InsertOrderTransitionParams{
+			OrderID:    row.ID,
+			FromStatus: &from,
+			ToStatus:   dbgen.OrderStatusPaid,
+			Reason:     &reason,
+			Actor:      "user:" + strconv.FormatInt(userID, 10),
+		}); err != nil {
+			return err
+		}
+		s.logger.ErrorContext(ctx, "订单已收款并置为 paid，但权益开通（paid → completed）本轮未实现，需要人工开通",
+			"metric", "bp_order_paid_not_provisioned", "trade_no", row.TradeNo, "order_id", row.ID)
+		return nil
 	})
 	if insufficient {
 		return zero, gen.PayOrder422JSONResponse{ErrUnprocessableJSONResponse: s.unprocessable(ctx, "余额不足")}
+	}
+	if raced {
+		return zero, gen.PayOrder409JSONResponse{ErrConflictJSONResponse: s.conflict(ctx, "订单状态已变化，请刷新后重试")}
 	}
 	if err != nil {
 		return zero, gen.PayOrder500JSONResponse{ErrInternalJSONResponse: s.internalErr(ctx, "余额支付失败", err)}
@@ -2499,6 +2556,25 @@ func settleDeposit(
 					return err
 				}
 			}
+			// 🔴 `amount_paid` 必须在这里涨。它是**四个下游的共同基数**：
+			//    退款额（GetRefundBasis 的 segment_value）、升级折抵（GetSubscriptionSource 的
+			//    v_source）、佣金追回的分母、以及营收看板。留在 0 的后果不是报错而是四处静默归零 ——
+			//    用户退款时会拿到「已经没有可退金额」的 422，而他明明付过钱。
+			//
+			//    这条纪律此前只写在 D6 手工标记路径上（admin_orders.go），**正常的链上收款路径漏了**。
+			//    金额取 `order.AmountDue`（本单的应付人民币）而不是把到账 USDT 再折一次：
+			//    折算会引入第二次舍入，而写销档里的差额已经作为我们的费用单独入账了
+			//    （postShortfallWriteoff），不该再从用户的已付额里扣一遍。
+			if _, err := q.RecordOrderPayment(ctx, dbgen.RecordOrderPaymentParams{
+				ID: order.ID,
+				// pay_amount_received 是 numeric(38,18) 的 USDT 数量（0006 的量纲铁律：
+				// 它不参与任何货币再计算）。累计到账是 1e-6 USDT 的整数，指数 -6 精确无损。
+				PayAmountReceived: pgtype.Numeric{Int: big.NewInt(sum.ReceivedUsdt6), Exp: -6, Valid: true},
+				AmountPaid:        order.AmountDue,
+				GatewayRef:        &in.Transfer.TxID,
+			}); err != nil {
+				return err
+			}
 			return markOrderPaid(ctx, q, log, order.ID, order.TradeNo, order.Status, actor,
 				fmt.Sprintf("链上到账 %d（差额 %d，写销档）", sum.ReceivedUsdt6, shortfall))
 		case shortfall <= in.Settings.ReviewUsdt6:
@@ -2679,6 +2755,95 @@ const (
 	acctUserWallet      = "liability:user_wallet"
 	acctShortfall       = "expense:payment_shortfall"
 )
+
+// ---- 钱包余额的锁定与退回（orders.amount_balance 的真实资金动作）----
+//
+// 🔴 `orders.amount_balance` 从前是一个**纯记账字段**：它被减进 `amount_due`，
+//    但对应的钱从来没有离开过钱包。后果是同一笔余额可以被无限次重复抵扣，
+//    而且**没有任何自动信号会发现它** —— `ReconcileWalletBalances` 比的是
+//    「分录聚合 vs wallet_balances 缓存」，两边都没扣，所以对账始终一致。
+//
+// 为什么锁在**下单**而不是**支付**：链上支付一旦到账就不能再失败。
+// 若把扣款推迟到 settleDeposit，用户在下单与到账之间把余额花在别处，
+// 我们就会拿着一笔已经到账的链上款却扣不动余额 —— 那一刻没有正确的处置方式。
+// 下单时扣则失败得起：`SpendWalletBalance` 把「够不够」写进 WHERE，
+// 0 行就是一次干净的 422，订单根本不会被创建。这同时封住并发下单
+// 各自拿到全额余额的超卖（两条并发事务只有一条能让 `balance >= amount` 成立）。
+//
+// 代价：下单后未支付的订单会占住余额，直到用户取消或支付窗口到期。
+// 两条释放路径都在下面 releaseOrderBalance 里，且都与状态迁移同事务。
+
+// errBalanceReserveFailed 表示钱包余额不足以覆盖本单要抵扣的部分。
+var errBalanceReserveFailed = errors.New("余额不足")
+
+// reserveOrderBalance 在下单事务里把 amount_balance 真的从钱包扣走并落一条分录。
+func reserveOrderBalance(ctx context.Context, q createOrderWriter, userID, orderID int64, tradeNo string, amount int64) error {
+	if amount <= 0 {
+		return nil
+	}
+	// 顺序与 payWithBalance 一致：分录先建，再扣缓存 —— SpendWalletBalance 的
+	// ledger_entry_id 是非空参数，且余额的唯一真相是分录。
+	entry, err := postLedgerEntry(ctx, q, ledgerEntrySpec{
+		EntryNo:     ledgerEntryNo("BALHOLD", tradeNo),
+		Description: "下单锁定钱包余额 " + tradeNo,
+		RefType:     "order",
+		RefID:       orderID,
+		Lines: []ledgerLineSpec{
+			// 借 = 正：用户的钱包负债减少（余额 = −SUM(liability:user_wallet)）。
+			{AccountCode: acctUserWallet, Currency: "CNY", Amount: amount, SubjectID: &userID},
+			// 贷 = 负：服务还没交付，先挂递延收入。与 payWithBalance 同形。
+			{AccountCode: acctDeferredRevenue, Currency: "CNY", Amount: -amount},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := q.SpendWalletBalance(ctx, dbgen.SpendWalletBalanceParams{
+		UserID: userID, AmountCents: amount, LedgerEntryID: entry.ID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errBalanceReserveFailed
+		}
+		return err
+	}
+	return nil
+}
+
+// balanceReleaser 是 releaseOrderBalance 需要的能力集合。
+// 取消（CancelOrder）与超时关闭（runOrderTimeout）两条路径共用它。
+type balanceReleaser interface {
+	ledgerQuerier
+	UpsertWalletBalance(ctx context.Context, arg dbgen.UpsertWalletBalanceParams) (dbgen.WalletBalance, error)
+}
+
+// releaseOrderBalance 把 reserveOrderBalance 锁定的余额原样退回，分录方向完全相反。
+//
+// **必须与订单状态迁移同事务**：先迁移后退款而中间进程死掉，用户的钱就没了，
+// 而且订单已经是 cancelled/expired，没有任何路径会再回来退它。
+func releaseOrderBalance(ctx context.Context, q balanceReleaser, userID, orderID int64, tradeNo string, amount int64, why string) error {
+	if amount <= 0 {
+		return nil
+	}
+	entry, err := postLedgerEntry(ctx, q, ledgerEntrySpec{
+		EntryNo:     ledgerEntryNo("BALREL", tradeNo),
+		Description: why + "，退回锁定的钱包余额 " + tradeNo,
+		RefType:     "order",
+		RefID:       orderID,
+		Lines: []ledgerLineSpec{
+			{AccountCode: acctDeferredRevenue, Currency: "CNY", Amount: amount},
+			{AccountCode: acctUserWallet, Currency: "CNY", Amount: -amount, SubjectID: &userID},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	// 退回走 Upsert 而不是 SpendWalletBalance 的反向：钱包行可能已经被清成 0，
+	// 也可能压根不存在（余额全部锁在这张单上），Upsert 两种情况都对。
+	_, err = q.UpsertWalletBalance(ctx, dbgen.UpsertWalletBalanceParams{
+		UserID: userID, Currency: "CNY", Balance: amount, LastEntryID: &entry.ID,
+	})
+	return err
+}
 
 type ledgerLineSpec struct {
 	AccountCode string

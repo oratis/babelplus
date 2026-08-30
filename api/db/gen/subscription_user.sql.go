@@ -289,7 +289,7 @@ SELECT
   o.online_users,
   o.reported_at,
   o.last_push_at,
-  (extract(epoch FROM (now() - o.reported_at)))::bigint AS seconds_since_report
+  coalesce(extract(epoch FROM (now() - o.reported_at)), 0)::bigint AS seconds_since_report
 FROM servers s
 JOIN server_group_map m ON m.server_id = s.id
 LEFT JOIN server_online_state o ON o.server_id = s.id

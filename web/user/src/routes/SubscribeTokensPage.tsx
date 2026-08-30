@@ -32,6 +32,7 @@ import {
 import { formatDateTime } from './_imports.ts';
 import { unwrap, unwrapEmpty, type ApiError, type components } from '@babelplus/shared/api';
 import { api } from '../lib/api.ts';
+import { clearCachedUrls } from './SubscribePage.tsx';
 import {
   DangerConfirm,
   ListSkeleton,
@@ -267,6 +268,11 @@ function TokenListCard({ tokens }: { tokens: ResourceHandle<SubscriptionToken[]>
     setWriteError(null);
     try {
       await revokeToken(token.id);
+      // 🔴 订阅 URL 有一份 sessionStorage 缓存（SubscribePage 用它避免每次进页面都重新拉）。
+      //    撤销之后不清掉，`/subscribe` 会继续把**一条已经失效的链接**当有效的展示出来 ——
+      //    而用户撤销 token 的场景通常正是「这条链接可能已经泄漏」，
+      //    此时给他看一条旧链接是最坏的结果。
+      clearCachedUrls();
       setConfirming(null);
       tokens.reload();
     } catch (cause) {
@@ -283,6 +289,7 @@ function TokenListCard({ tokens }: { tokens: ResourceHandle<SubscriptionToken[]>
     setWriteError(null);
     try {
       const result = await revokeAllTokens();
+      clearCachedUrls();
       setRevokeAllOpen(false);
       setRevokedAllCount(result.revoked);
       tokens.reload();

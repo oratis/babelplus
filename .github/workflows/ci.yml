@@ -311,6 +311,7 @@ jobs:
       # 的第一句就是 DROP TRIGGER + DROP FUNCTION users_bump_user_rev()，证物会被销毁。
       - name: 逆序回滚全部 down migration（0016.down 之后插入写探针）
         run: |
+          probe_ran=0
           for f in $(ls db/migrations/*.down.sql | sort -r); do
             echo "  → $(basename "$f")"
             psql -v ON_ERROR_STOP=1 -q -f "$f"
@@ -321,8 +322,19 @@ jobs:
                 echo "::error::0016.down 之后 users 表写不进去 —— 多半是 down 忘了先把 users_bump_user_rev() 换回 0012 的函数体就删掉了分量列（ADR 0013 §6.2 第 1 步）"
                 exit 1
               fi
+              probe_ran=1
             fi
           done
+
+          # 🔴 探针必须证明自己**真的跑过**。它钉在一个硬编码文件名上，而文件名会变：
+          #    0016 被改名、拆分或与别的迁移合并时，上面那个 if 会永远不成立，
+          #    于是这一步继续绿灯，而它要守的那条不变量已经无人看守 ——
+          #    「一道从来不会失败的检查」正是这份 CI 在 db-explain 那一步刻意避开的形态。
+          if [ "$probe_ran" -ne 1 ]; then
+            echo "::error::回滚写探针一次都没执行 —— 0016_billing_rules.down.sql 被改名/合并了。"
+            echo "把上面那个 case 的文件名同步过来，或者改成按 schema 状态（而不是文件名）定位插入点。"
+            exit 1
+          fi
 
       - name: 断言回滚后归零
         run: |

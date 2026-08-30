@@ -718,10 +718,17 @@ RETURNING
 --     少追回一分是我们承担，那才是给套利留的口子。
 --   · 基数是 `orders.amount_paid`，**不含** amount_balance 与 surplus_amount（硬规则 1）。
 --     一句话同时封住「用余额刷佣金」与「用折抵刷佣金」。
---   · `greatest(1, o.amount_paid)` 只防除零。🔴 `amount_paid = 0` 而又生成了佣金，
---     本身就是一个数据错误（基数写死 amount_paid）；此时本式退化成「全额追回」，
---     方向对我们有利，但 handler **必须同时告警** —— 靠一个除零保护把数据错误吞掉，
---     等于把它变成永远不会被发现的那一类。
+--   · **外层 `least(c.amount, …)` 是硬上限**：追回额永远不会超过佣金本身。
+--     没有它的话，分子的退款额含 `amount_balance`、分母只有 `amount_paid`，
+--     两者量纲不同 —— 只要订单有任何一部分用钱包余额付，比值就 > 1，
+--     于是从邀请人钱包里扣走的钱会**多于他拿到过的佣金**。
+--     handler 只按邀请人余额封顶（`minInt64(ClawbackAmount, InviterBalance)`），
+--     不按佣金封顶，差额还会记进 `expense:refund` 当成真实损失。
+--   · 🔴 `amount_paid = 0` 而又生成了佣金，本身就是一个数据错误（基数写死 amount_paid）。
+--     此处显式走 `CASE … THEN c.amount` 退化成**真正的**全额追回 —— 从前这里是
+--     `greatest(1, o.amount_paid)`，退化出来的其实是 `c.amount × 退款额`（放大若干倍），
+--     与它上面那句注释宣称的语义**不是一回事**。handler **必须同时告警**：
+--     靠一个除零保护把数据错误吞掉，等于把它变成永远不会被发现的那一类。
 --
 -- `inviter_balance` 一并带出：`wallet_balances` 有 `CHECK (balance >= 0)`，
 -- 扣不动的部分要记 `expense:refund` 并写审计日志、由管理员人工处理（几十人量级，管理员认识每个人）。
@@ -736,9 +743,12 @@ SELECT
   c.id, c.order_id, c.inviter_id, c.invitee_id,
   c.rate_bps, c.amount, c.status, c.confirm_at, c.confirmed_at, c.created_at,
   o.amount_paid AS order_amount_paid,
-  ceil(c.amount::numeric
-       * sqlc.arg(refund_amount)::bigint
-       / greatest(1, o.amount_paid))::bigint AS clawback_amount,
+  least(c.amount,
+        CASE WHEN o.amount_paid <= 0 THEN c.amount
+             ELSE ceil(c.amount::numeric
+                       * sqlc.arg(refund_amount)::bigint
+                       / o.amount_paid)
+        END)::bigint AS clawback_amount,
   coalesce(w.balance, 0)::bigint AS inviter_balance,
   inv.email AS inviter_email
 FROM commissions c

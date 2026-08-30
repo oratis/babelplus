@@ -451,6 +451,7 @@ func (s *Server) RunExpireCheckTask(ctx context.Context, _ gen.RunExpireCheckTas
 // ============================================================
 
 type orderTimeoutQuerier interface {
+	balanceReleaser
 	ExpireTimedOutOrders(ctx context.Context, batch int32) ([]dbgen.ExpireTimedOutOrdersRow, error)
 }
 
@@ -475,31 +476,53 @@ type orderTimeoutResult struct {
 //
 // 幂等：语句的 WHERE 带 `status IN ('pending','paying','underpaid')`，
 // 处理过的订单已是 expired，重投必然命中 0 行。
-func runOrderTimeout(ctx context.Context, q orderTimeoutQuerier, log *slog.Logger) (orderTimeoutResult, error) {
+// orderTimeoutTx 把「一批的事务边界」参数化，好让单测不需要一个真数据库。
+// 生产侧传的是 Store.InTx，测试侧传的是「直接调用假实现」。
+type orderTimeoutTx func(ctx context.Context, fn func(orderTimeoutQuerier) error) error
+
+func runOrderTimeout(ctx context.Context, inTx orderTimeoutTx, log *slog.Logger) (orderTimeoutResult, error) {
 	var res orderTimeoutResult
 
 	for pass := 0; pass < orderTimeoutMaxPasses; pass++ {
-		rows, err := q.ExpireTimedOutOrders(ctx, orderTimeoutBatchSize)
-		if err != nil {
-			return res, fmt.Errorf("关闭超时订单失败（第 %d 批）: %w", pass+1, err)
-		}
-		res.Passes = pass + 1
-		res.Orders += len(rows)
-
-		for _, o := range rows {
-			if o.PayAddress != nil {
-				res.WatchExtended++
+		var batch int
+		// 🔴 一批一个事务。ExpireTimedOutOrders 自己是原子的，但它不再是本批的全部动作 ——
+		//    下单锁定的余额要在同一批里退回，两者必须一起成功或一起回滚。
+		//    仍然**一批一事务**而不是整趟一个事务：后者会让多趟之间互相持锁（原注释的理由仍然成立）。
+		err := inTx(ctx, func(q orderTimeoutQuerier) error {
+			rows, err := q.ExpireTimedOutOrders(ctx, orderTimeoutBatchSize)
+			if err != nil {
+				return fmt.Errorf("关闭超时订单失败（第 %d 批）: %w", pass+1, err)
 			}
-			// 每张订单一条日志：订单是钱，量也小（正常一分钟内个位数）。
-			// 带上 from_status 是因为 underpaid → expired 与 pending → expired
-			// 的人工处理方式完全不同 —— 前者用户已经付了一部分钱。
-			log.InfoContext(ctx, "订单支付窗口到期已关闭",
-				"order_id", o.ID, "trade_no", o.TradeNo, "user_id", o.UserID,
-				"from_status", string(o.FromStatus),
-				"watch_until", timestamptzString(o.AddressWatchUntil))
+			batch = len(rows)
+
+			for _, o := range rows {
+				if o.PayAddress != nil {
+					res.WatchExtended++
+				}
+				// 下单时锁定的余额在这里退回，与本批的状态迁移同事务。
+				// 先迁移后退款而中间失败，这笔钱就再也没有路径回到用户手上
+				// （订单已是 expired，下一趟的 WHERE 不会再命中它）。
+				if err := releaseOrderBalance(ctx, q, o.UserID, o.ID, o.TradeNo, o.AmountBalance, "支付窗口到期"); err != nil {
+					return fmt.Errorf("退回订单 %s 锁定的余额失败: %w", o.TradeNo, err)
+				}
+				// 每张订单一条日志：订单是钱，量也小（正常一分钟内个位数）。
+				// 带上 from_status 是因为 underpaid → expired 与 pending → expired
+				// 的人工处理方式完全不同 —— 前者用户已经付了一部分钱。
+				log.InfoContext(ctx, "订单支付窗口到期已关闭",
+					"order_id", o.ID, "trade_no", o.TradeNo, "user_id", o.UserID,
+					"from_status", string(o.FromStatus),
+					"balance_released", o.AmountBalance,
+					"watch_until", timestamptzString(o.AddressWatchUntil))
+			}
+			return nil
+		})
+		if err != nil {
+			return res, err
 		}
 
-		if o := len(rows); o < orderTimeoutBatchSize {
+		res.Passes = pass + 1
+		res.Orders += batch
+		if batch < orderTimeoutBatchSize {
 			break
 		}
 	}
@@ -513,11 +536,14 @@ func runOrderTimeout(ctx context.Context, q orderTimeoutQuerier, log *slog.Logge
 
 // RunOrderTimeoutTask 实现 POST /internal/tasks/order-timeout。
 //
-// 不包事务：ExpireTimedOutOrders 本身就是单条语句（状态迁移 + 审计 + 延长监听窗口
-// 全在一条 CTE 里），已经是原子的。多包一层事务只会让多趟之间互相持锁。
+// **一批一个事务**：ExpireTimedOutOrders 单条 CTE 自己是原子的，但它不再是一批的全部动作
+// —— 下单锁定的钱包余额要在同一批里退回。整趟包一个事务会让多趟之间互相持锁，所以按批包。
 func (s *Server) RunOrderTimeoutTask(ctx context.Context, _ gen.RunOrderTimeoutTaskRequestObject) (gen.RunOrderTimeoutTaskResponseObject, error) {
 	log := s.taskLogger(ctx, "order-timeout")
-	if _, err := runOrderTimeout(ctx, s.db, log); err != nil {
+	inTx := func(ctx context.Context, fn func(orderTimeoutQuerier) error) error {
+		return s.db.InTx(ctx, func(q *dbgen.Queries) error { return fn(q) })
+	}
+	if _, err := runOrderTimeout(ctx, inTx, log); err != nil {
 		return gen.RunOrderTimeoutTask500JSONResponse{
 			ErrInternalJSONResponse: s.internalErr(ctx, "关闭超时订单失败", err),
 		}, nil
