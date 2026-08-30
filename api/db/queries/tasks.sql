@@ -1,0 +1,547 @@
+-- tasks.sql · 内部定时任务面（`/internal/tasks/*`）专用的九条链路
+--
+-- 事实源：api-contract.md §7（内部面总表与三条约束）、§8.2（流量入账链路）、
+--         §9.1/§9.2（幂等总表与 `/push` 缺口）、§3.8 bump 规则第 3/4 条；
+--         ADR 0012（自扫链、一单一址、监听窗口）、ADR 0013 §5.3（周期重置）；
+--         列名与类型全部按 db/migrations/0001–0017 逐列核过，不凭契约文字猜。
+--
+-- ============================================================
+-- 🔴 契约与实际 schema 的三处不一致，先记在这里，后面每条查询不再重复
+-- ============================================================
+--
+-- openapi 与 api-contract 描述这九个任务时，引用了三张**从未落进 migration 的表**：
+--
+--   | 契约里的名字      | 实际存在的东西                          | 差异后果 |
+--   |-------------------|-----------------------------------------|----------|
+--   | `user_alive`      | `user_device_state`（0005，UNLOGGED）   | 只是改名，语义一致 |
+--   | `traffic_batch`   | **不存在**                              | 队列侧入账整条链路无法落地 |
+--   | `mail_queue`      | **不存在**；`email_log`（0011）兼作队列 | 见下 |
+--
+-- 处理方式（规矩 5：与文档冲突时以实际定义为准，并把冲突写下来）：
+--
+--  1. `user_alive` → 直接用 `user_device_state`，servers.sql 的 CleanupStaleDeviceState 已就位。
+--  2. `traffic_batch` → **本轮不建表**（建表要新 migration，不在本轮文件范围内）。
+--     `/push` 目前是请求内同步累加（node.go 的长注释已登记这是临时形态），
+--     所以队列侧没有待消费的载荷。本文件为 traffic-batch 提供的是
+--     `BumpUserRevForExhaustedUsers` —— 「跨阈值那一次必须 bump」的**兜底对账**，
+--     理由见该查询自己的注释。
+--  3. `mail_queue` → 用 `email_log`。这不是凑合：0011 的表注释写着
+--     「邮件发送日志 = user-journey §3.3 的 email_probe（合并成一张表，不建两张）」，
+--     而 `status` 的 CHECK 里第一个取值就是 `'queued'` —— 这张表**本来就是按队列设计的**。
+--     于是 `MailSendTaskRequest.mail_queue_id` 在实现上就是 `email_log.id`。
+--
+-- ⚠️ 本文件里所有「时间驱动」的扫描都必须自带收敛：跑完一遍之后，
+--    同一批行不能再次被选中。否则 Cloud Scheduler 每 N 分钟会把同一批行重扫一次，
+--    表现是日志刷屏 + 无谓写放大，而这两样都不会报错。
+
+
+-- ============================================================
+-- 1 · expire-check（Scheduler，5 分钟）
+-- ============================================================
+--
+-- 🔴 这是整个 ETag 设计里最容易漏的一条（api-contract §2 第 7 条 / §3.8 bump 规则第 4 条）：
+--    **到期不是写操作**。封禁有 UPDATE、改套餐有 UPDATE、流量耗尽有累加语句 ——
+--    只有「时间走过了 expired_at」没有任何写，因此没有任何触发点。
+--    不跑这个扫描，已到期的用户会一直留在 ListAvailableUsersByServer 的结果里，
+--    而节点因为 user_rev 没变永远收 304，于是**永远不知道他该被踢掉**。
+--
+-- 代价已量化并接受：到期后最长 5 分钟扫描 + 60 秒轮询 ≈ 6 分钟仍可上网
+-- （按 Hysteria2 实测 ~1700 KB/s 上限约 612 MB，约 ¥0.06–0.15/人次）。
+--
+-- 与 stats.sql 的 MarkExpiredUsers 是近亲，但**不能直接用它**：
+-- 它的 RETURNING 是 (id, email, expired_at)，**没有 group_id**，
+-- 而 group_id 正是显式 bump 唯一需要的东西。多带一列 email 是为了日志能指认到人。
+-- TODO(P2): 两条语义已完全重合，MarkExpiredUsers 的调用方清零后应当删掉它，只留这一条。
+--
+-- ⚠️ 0012 的 users_bump_user_rev_trg 把 expiry_applied_at 放进了监视列表，
+--    所以本语句**自己就会触发一次 bump**。调用方仍然要显式再 bump 一次 ——
+--    理由见 handler 里 runExpireCheck 的注释（一句话：那条触发器自带撤回条件，
+--    而到期是全系统唯一没有第二个写入者能兜住它的路径）。
+--    重复 bump 的代价是 user_rev 一次前进 2 而不是 1：节点每轮只比对一次 ETag，
+--    因此额外的那一次**不产生任何多余请求**，代价确实是零。
+-- name: SweepExpiredUsers :many
+UPDATE users
+SET expiry_applied_at = now(), updated_at = now()
+WHERE expired_at IS NOT NULL
+  AND expired_at <= now()
+  AND expiry_applied_at IS NULL
+  AND deleted_at IS NULL
+RETURNING id, group_id, email, expired_at;
+
+-- 加油包配额到期（ADR 0013 §5.1 第 3 条：「结转是无限期负债，pack_expire_at 是它唯一的封口」）。
+--
+-- 0016 专门为这次扫描建了 users_pack_expiry_due_idx，注释逐字写着「与 users_expiry_due_idx
+-- 同形：Cloud Scheduler 每分钟跑，平时命中 0 行」—— 也就是说这条扫描是 schema 作者
+-- 已经规划好、但一直没有 handler 去调的那一半。放在 expire-check 里而不是新开一个端点：
+-- 它就是到期，只不过到期的是配额不是时间。
+--
+-- 🔴 **必须把 pack_expire_at 一并置 NULL**，不能只清 transfer_enable_pack：
+--    users_pack_expiry_due_idx 的谓词是 `pack_expire_at IS NOT NULL AND deleted_at IS NULL`，
+--    留着时间戳的话，每一个历史上买过加油包的用户都会永久留在这个索引里，
+--    而扫描条件是 `pack_expire_at <= now()` —— 于是每 5 分钟重扫的行数**只增不减**。
+--    置 NULL 让它们掉出索引，扫描永远只看真正到期的那几行。
+--    丢失的信息（这个包什么时候过期的）在 orders 与 traffic_reset_log 里都有，不是唯一副本。
+--
+-- transfer_enable_pack 在 0016 改过的触发器监视列表里，所以本语句自动 bump user_rev。
+-- RETURNING transfer_enable（生成列）是为了日志能打出「收回后他还剩多少配额」。
+-- name: ExpireTrafficPacks :many
+UPDATE users
+SET transfer_enable_pack = 0, pack_expire_at = NULL, updated_at = now()
+WHERE pack_expire_at IS NOT NULL
+  AND pack_expire_at <= now()
+  AND deleted_at IS NULL
+RETURNING id, group_id, transfer_enable;
+
+-- 按一批 group_id 显式 bump。
+--
+-- servers.sql 已有 BumpUserRevByGroup（单个 group），但到期扫描一次会命中多个分组，
+-- 逐个调用就是 N 次往返 —— 而连接池每实例只有 2 条连接（ADR 0005 的实例规格倒推）。
+-- 用 = ANY(array) 一条语句吃完。
+--
+-- ⚠️ 调用方传空数组时本语句影响 0 行（`= ANY('{}')` 恒假），不是全表 bump ——
+--    这一点值得写下来：如果为了「少一次判断」把 WHERE 写成动态拼接，
+--    空数组很容易退化成「bump 所有节点」，那会让全站节点在同一秒一起重拉用户表。
+-- name: BumpUserRevByGroups :execrows
+UPDATE node_rev
+SET user_rev = user_rev + 1, user_rev_at = now()
+WHERE server_id IN (
+  SELECT m.server_id FROM server_group_map m
+  WHERE m.group_id = ANY(@group_ids::bigint[])
+);
+
+
+-- ============================================================
+-- 2 · traffic-batch（Cloud Tasks，每次 push）
+-- ============================================================
+--
+-- 🔴 **本查询不是 api-contract §8.2 描述的那件事，读之前必须知道差别在哪。**
+--
+-- §8.2 的目标形态是：`/push` 只 INSERT traffic_batch + 入队，累加与阈值判定都在这里做。
+-- 那条链路**今天不存在**：`traffic_batch` 表没有落进任何一支 migration，
+-- `/push` 仍是请求内同步累加（node.go:257 起的长注释登记了这个临时形态与它的两条硬理由）。
+-- 建表属于新 migration，不在本轮文件范围内。
+--
+-- 那么这个端点今天该做什么？做**那条链路里唯一「漏了会静默变成免费无限上网」的判定**的兜底。
+--
+-- api-contract §3.8 bump 规则第 3 条：「流量累加不 bump user_rev，但跨过 transfer_enable
+-- 阈值必须 bump」。这一条现在由 servers.sql 的 AddNodeTrafficBatch 在累加语句里完成
+-- （crossed → bumped 两个 CTE）。它有三种漏掉的方式，每一种都**完全静默**：
+--
+--   1. node_rev 里没有该节点的行（新节点建好但没跑 InitNodeRev）→ bumped 影响 0 行；
+--   2. 跨阈值发生在**别的**入账路径上（管理员手工调 AddUserTraffic、补账脚本），
+--      那条语句里根本没有 bump 逻辑；
+--   3. 将来 /push 真的改成入队形态时，两条路径并存的窗口期里任何一边写错。
+--
+-- 漏掉的后果是确定的：配额耗尽的用户永远不会从节点列表消失 = 免费无限上网，
+-- 而且没有报错、没有告警，只有账单。所以这里做一次**收敛式对账**：
+--
+--   「该被踢掉的用户（已耗尽配额、未过期、未封禁）所在分组的节点，
+--     如果它的 user_rev_at 早于该分组最近一次流量写入的时刻，
+--     说明那次跨阈值之后没有任何 bump 传播过去」→ 补一次。
+--
+-- 为什么这个判据不会误伤正常路径：AddNodeTrafficBatch 里累加与 bump 在**同一条语句**里，
+-- 两者拿到的 now() 是同一个事务时间戳，于是 user_rev_at = ut.updated_at，
+-- `user_rev_at < updated_at` 为假。只有「累加发生了而 bump 没发生」才会为真。
+--
+-- 会误报的一个真实窗口：用户刚跨阈值被 bump，但节点手上的用户列表还有效 60 秒，
+-- 于是又推了一批流量上来 → updated_at 前进到 user_rev_at 之后 → 本语句多 bump 一次。
+-- 代价是那些节点下一轮拿 200 而不是 304，一次。可以接受，且它会自然收敛
+-- （用户已不在列表里，不会再有他的流量）。
+--
+-- ⚠️ 成本：`ut.u + ut.d >= u.transfer_enable` 跨表跨列，**无法索引**
+--    （servers.sql 的 ListAvailableUsersByServer 已登记同一条约束）。
+--    本语句因此是一次 users ⋈ user_traffic 的全扫。在 P1 规模（< 1 万用户）是毫秒级，
+--    TODO(P2): 用户量上万后改成 users 上一列物化的 quota_exhausted_at + 部分索引。
+--
+-- ⚠️ bumped 必须写成 data-modifying CTE：PostgreSQL 不执行**未被引用的**普通 CTE，
+--    写成 `SELECT bump_user_rev(...)` 会得到一个「有时不 bump」的静默故障
+--    （stats.sql 已登记同一条陷阱）。
+-- name: BumpUserRevForExhaustedUsers :one
+WITH exhausted AS (
+  SELECT u.group_id,
+         count(*)::bigint   AS users,
+         max(ut.updated_at) AS last_traffic_at
+  FROM users u
+  JOIN user_traffic ut ON ut.user_id = u.id
+  WHERE u.deleted_at IS NULL
+    AND u.banned = false
+    -- 只盯「唯一的下线理由是配额耗尽」的人：已过期的那批归 expire-check 管，
+    -- 混进来只会让两个任务互相 bump 对方已经处理过的分组。
+    AND coalesce(u.expired_at, 'infinity'::timestamptz) > now()
+    AND ut.u + ut.d >= u.transfer_enable
+  GROUP BY u.group_id
+),
+stale AS (
+  SELECT DISTINCT m.server_id
+  FROM exhausted e
+  JOIN server_group_map m ON m.group_id = e.group_id
+  JOIN node_rev nr        ON nr.server_id = m.server_id
+  WHERE nr.user_rev_at < e.last_traffic_at
+),
+bumped AS (
+  UPDATE node_rev nr
+     SET user_rev = nr.user_rev + 1, user_rev_at = now()
+   WHERE nr.server_id IN (SELECT server_id FROM stale)
+  RETURNING nr.server_id
+)
+SELECT coalesce((SELECT sum(e.users) FROM exhausted e), 0)::bigint AS exhausted_users,
+       (SELECT count(*) FROM bumped)::bigint                       AS bumped_servers;
+
+
+-- ============================================================
+-- 3 · order-timeout（Scheduler，1 分钟）
+-- ============================================================
+--
+-- 一条语句做完三件必须同时发生的事，理由分别是：
+--
+--   due     —— FOR UPDATE SKIP LOCKED：Cloud Run 会横向扩容，两个实例同时被 Scheduler
+--              打到时，SKIP LOCKED 让它们各自领走不同的订单，而不是一个等另一个
+--              （等 = 请求超时 = Scheduler 判定失败 = 重投，把并发问题变成雪崩）。
+--   upd     —— 状态置 expired 并把收款监听窗口顶到 **至少 24 小时之后**。
+--   audited —— order_transitions 是 append-only 的状态机证据。orders.sql 的
+--              UpdateOrderStatus 注释逐字写着「调用方必须在同一事务里 InsertOrderTransition
+--              —— 状态机没有触发器兜底，漏写审计不会报错」。合进同一条语句之后，
+--              「漏写」这件事在类型层面不可表达。
+--
+-- 🔴 address_watch_until 的 greatest(...) 是本语句最重要的一行。
+--    user-journey §7 判定「钱进黑洞」是最不可挽回的失败模式：用户在倒计时结束前一秒
+--    付了款，我们把订单关掉、不再监听那个地址，那笔 USDT 就真的没有任何人会发现。
+--    ADR 0012 §11.1 把默认监听窗口定为 expires_at + 7 天，由 AttachPaymentAddress 在
+--    绑定地址时写入；**本语句只负责兜底那个 24 小时的下限**（openapi 对本端点的原文要求），
+--    并且用 greatest 保证它永远只延长、不缩短已有的窗口。
+--    地址为 NULL（余额支付 / 未绑地址）时保持原值 —— 没有地址就没有可监听的东西。
+--
+-- ⚠️ 归属是永久的，监听窗口只是自动扫描的时长（ADR 0012 §11.1）。
+--    超出窗口的到账靠每日链上余额对账发现，不靠这一列。
+-- name: ExpireTimedOutOrders :many
+WITH due AS (
+  SELECT o.id, o.status
+  FROM orders o
+  WHERE o.status IN ('pending','paying','underpaid')
+    AND o.expires_at <= now()
+  ORDER BY o.expires_at
+  LIMIT @batch::integer
+  FOR UPDATE SKIP LOCKED
+),
+upd AS (
+  UPDATE orders o SET
+    status       = 'expired',
+    cancelled_at = coalesce(o.cancelled_at, now()),
+    address_watch_until = CASE
+      WHEN o.pay_address IS NULL THEN o.address_watch_until
+      ELSE greatest(coalesce(o.address_watch_until, now()), now() + interval '24 hours')
+    END,
+    updated_at = now()
+  FROM due
+  WHERE o.id = due.id
+  RETURNING o.id, o.trade_no, o.user_id, due.status AS from_status,
+            o.pay_address, o.address_watch_until
+),
+audited AS (
+  INSERT INTO order_transitions (order_id, from_status, to_status, reason, actor)
+  SELECT upd.id, upd.from_status, 'expired'::order_status,
+         '支付窗口到期，由 /internal/tasks/order-timeout 关闭；收款地址继续监听',
+         'system'
+  FROM upd
+  RETURNING order_id
+)
+SELECT upd.id, upd.trade_no, upd.user_id, upd.from_status,
+       upd.pay_address, upd.address_watch_until,
+       (SELECT count(*) FROM audited)::bigint AS audited_rows
+FROM upd
+ORDER BY upd.id;
+
+
+-- ============================================================
+-- 4 · traffic-reset（Scheduler，每小时）
+-- ============================================================
+--
+-- 周期重置本体走 stats.sql 的 AdvanceUserResetCycle（ADR 0013 §5.3 已把归零、
+-- 重发套餐配额、结转加油包合并进同一条 CTE，**不要再单独调 ResetUserTraffic**）。
+-- 这里只补它缺的一块：把「永远选得中、但永远处理不了」的行摘出去。
+--
+-- 🔴 AdvanceUserResetCycle 的 FROM 子句是 `FROM plans p, cur WHERE p.id = u.plan_id`
+--    —— 交叉连接。plan_id 为 NULL（套餐被删，users.plan_id 是 ON DELETE SET NULL）时
+--    它匹配 0 行，:one 于是返回 pgx.ErrNoRows。
+--    而 ListUsersDueForReset 用的是 LEFT JOIN plans，**照样会把这些人选出来**。
+--    结果：每小时选中、每小时 ErrNoRows、每小时刷一条错误日志，永远不收敛 ——
+--    而真正的问题（这个人没有套餐了）被淹在噪声里。
+--
+-- 把 reset_at 置 NULL 是正确的语义而不只是消音：没有套餐就没有周期，
+-- 「下一次重置时刻」这个值不该存在。重新开通时 ApplyUserEntitlement 会把它写回去。
+-- reset_at 不在 0012 触发器的监视列表里，所以本语句不 bump user_rev —— 也不该 bump，
+-- 节点不关心谁的重置时刻是几点。
+-- name: SuspendResetForPlanlessUsers :execrows
+UPDATE users
+SET reset_at = NULL, updated_at = now()
+WHERE reset_at IS NOT NULL
+  AND reset_at <= now()
+  AND plan_id IS NULL
+  AND deleted_at IS NULL;
+
+
+-- ============================================================
+-- 5 · alive-gc（Scheduler，5 分钟）
+-- ============================================================
+--
+-- 在线态清理本体是 servers.sql 的 CleanupStaleDeviceState（契约里的 `user_alive`
+-- 就是 `user_device_state`）。这里补一条同频率、同性质、但一直没有归宿的清理。
+--
+-- 0015_payment_fixes.up.sql:110 逐字写着：「由 /internal/tasks/* 定期清理
+-- `used_at < now() - interval '10 minutes'` 的行。10 分钟而不是 5 分钟：
+-- TOTP 校验允许 ±1 个时间步的漂移，按 5 分钟清会在边界上放过一次重放。」
+-- —— 那句话指的就是这个端点，而在此之前没有任何代码调它。
+--
+-- 不清理的后果不是安全问题（主键仍然拒绝重放），是这张表**只增不减**：
+-- 每次管理员登录写一行，永不删除，而它是 D6 那条高频路径上的表。
+-- 10 分钟这个数字直接抄 0015 的注释，不要改小。
+-- name: CleanupUsedTotp :execrows
+DELETE FROM used_totp WHERE used_at < now() - interval '10 minutes';
+
+
+-- ============================================================
+-- 6 · remind-sweep（Scheduler，每日）
+-- ============================================================
+--
+-- 幂等键按契约是 `(user_id, remind_kind, day)`。库里没有提醒表，
+-- 于是这个键落在 email_log 上：`(user_id, template, 当天)`。
+--
+-- 🔴 **这个去重是「建议性」的，不是数据库强制的** —— 必须说清楚，否则下一个人会以为它是。
+--    email_log 上没有 `(user_id, template, date(created_at))` 的唯一索引，
+--    所以 NOT EXISTS 与后面的 INSERT 之间有窗口：两个实例同时跑同一次 Scheduler 投递时，
+--    双方都能通过检查，用户会收到两封一样的提醒。
+--    接受这个代价的理由：Cloud Scheduler 对同一 job 的并发投递是异常而非常态，
+--    而重复的后果是「多收一封信」，不是钱。真要根治需要一条新 migration 加部分唯一索引。
+--    TODO(P2): `CREATE UNIQUE INDEX ... ON email_log (user_id, template,
+--              (created_at AT TIME ZONE 'Asia/Shanghai')::date) WHERE user_id IS NOT NULL`。
+--
+-- 「当天」的口径用 Asia/Shanghai 切天，与 stats.sql 的 stat_date 一致 ——
+-- 报表与提醒用两个不同的「天」会让「昨天发了几封」这种问题永远对不上。
+--
+-- 🔴 notify_expire / notify_traffic 是用户开关，这两条查询必须尊重它们；
+--    但 `service_broadcast`（失联广播）**不受任何开关控制**，所以它不在本任务里 ——
+--    0003_accounts.up.sql 表达这条裁决的方式就是 users 上根本没有那一列
+--    （account.sql 的长注释：「用户把它关掉的那天，就是我们再也够不到他的那天」）。
+--    往这里加一个「广播提醒」分支之前先读那段注释。
+-- name: ListRemindableExpiringUsers :many
+SELECT u.id, u.email, u.expired_at
+FROM users u
+WHERE u.deleted_at IS NULL
+  AND u.banned = false
+  AND u.notify_expire = true
+  AND u.expired_at IS NOT NULL
+  AND u.expired_at > now()
+  AND u.expired_at <= now() + make_interval(days => @within_days::integer)
+  AND NOT EXISTS (
+    SELECT 1 FROM email_log el
+    WHERE el.user_id = u.id
+      AND el.template = @template::text
+      AND (el.created_at AT TIME ZONE 'Asia/Shanghai')::date
+          = (now()        AT TIME ZONE 'Asia/Shanghai')::date
+  )
+ORDER BY u.expired_at
+LIMIT @batch::integer;
+
+-- 流量提醒。
+--
+-- ⚠️ 阈值比较写成 `(u + d) * 100 >= transfer_enable * pct` 而不是先算百分比 ——
+--    整数除法会把 79.9% 算成 79，于是 80% 的提醒在恰好卡线时不发。
+--    溢出核算：u/d 是字节 bigint，即使 1 PB（1e15）× 100 = 1e17，
+--    仍远低于 bigint 上限 9.2e18。
+--
+-- transfer_enable > 0 是必须的：不限流量的套餐（配额 0 或未开通）恒满足任何百分比，
+-- 会给全部这类用户天天发「流量快用完了」。
+-- name: ListRemindableTrafficUsers :many
+SELECT u.id, u.email, ut.u, ut.d, u.transfer_enable
+FROM users u
+JOIN user_traffic ut ON ut.user_id = u.id
+WHERE u.deleted_at IS NULL
+  AND u.banned = false
+  AND u.notify_traffic = true
+  AND u.transfer_enable > 0
+  AND coalesce(u.expired_at, 'infinity'::timestamptz) > now()
+  AND (ut.u + ut.d) * 100 >= u.transfer_enable * @threshold_pct::bigint
+  AND NOT EXISTS (
+    SELECT 1 FROM email_log el
+    WHERE el.user_id = u.id
+      AND el.template = @template::text
+      AND (el.created_at AT TIME ZONE 'Asia/Shanghai')::date
+          = (now()        AT TIME ZONE 'Asia/Shanghai')::date
+  )
+ORDER BY u.id
+LIMIT @batch::integer;
+
+-- 批量入队。一次 INSERT 吃下整批，不逐条 CreateEmailLog ——
+-- 每日提醒可能一次几百人，逐条就是几百次往返，而连接池每实例只有 2 条连接。
+--
+-- ⚠️ 两个数组用 WITH ORDINALITY 按下标配对，而不是 unnest(a, b)：
+--    sqlc v1.31 的内建 catalog **没有多参数 unnest**（servers.sql / stats.sql 都踩过）。
+--    调用方必须保证两个数组等长（Go 侧 assert）。
+--
+-- to_domain 取 lower(split_part(email,'@',2))：0011 的列注释说它是冗余列，
+-- 用途是「按域名分组统计送达率」—— 而 ADR 0002 §7 关心的正是 qq.com / 163.com
+-- 这几个域的送达率。不 lower() 的话 QQ.com 与 qq.com 会分成两组，
+-- 那个统计就废了（users_email_uk 也是 lower(email)，口径保持一致）。
+--
+-- status 恒为 'queued'：本语句只入队，真正发信在 mail-send 任务里。
+-- esp 由调用方传入（发信实现的名字），未接通时是那个「未配置」实现的名字 ——
+-- 让「这批信当时准备用谁发」在日志里可追。
+-- name: EnqueueReminderMails :many
+INSERT INTO email_log (user_id, to_email, to_domain, esp, template, subject, status)
+SELECT a.user_id,
+       b.email,
+       lower(split_part(b.email, '@', 2)),
+       @esp::text, @template::text, @subject::text, 'queued'
+FROM unnest(@user_ids::bigint[]) WITH ORDINALITY AS a(user_id, n)
+JOIN unnest(@emails::text[])     WITH ORDINALITY AS b(email, n) ON b.n = a.n
+RETURNING id, user_id, to_email;
+
+
+-- ============================================================
+-- 7 · mail-send（Cloud Tasks，按需）
+-- ============================================================
+--
+-- 🔴 抢占即幂等：`WHERE id = $1 AND status = 'queued'` 影响 0 行 = 这封信已经被
+--    上一次投递领走了（Cloud Tasks 是 at-least-once，重投是常态不是异常）。
+--    :one 于是返回 pgx.ErrNoRows，调用方按「幂等丢弃」处理并回 200。
+--
+-- 🔴 **抢占在发信之前，语义是 at-most-once。** 这是一个刻意的取舍，写下来免得被人「修好」：
+--    反过来（先发信、成功后再改状态）在「发信成功但回写失败」时会重发，
+--    而重发验证码意味着两个都有效的 code 同时在飞 —— 那是账户接管面的扩大。
+--    本方向的代价是「发信失败但状态已是 sent」，靠下面的 MarkMailSendFailed 把它改成 failed，
+--    于是失败在 email_log 里是**可见**的（ADR 0002 §7 的送达率统计本来就要读这张表）。
+--
+-- status 从 'queued' 直接跳到 'sent' 而不是先进一个 'sending' 中间态：
+-- 0011 的 CHECK 里没有那个取值，加它要一支新 migration。
+-- name: ClaimQueuedMail :one
+UPDATE email_log
+SET status = 'sent', esp = @esp::text, sent_at = now()
+WHERE id = @id::bigint AND status = 'queued'
+RETURNING id, user_id, to_email, to_domain, template, subject;
+
+-- 回写 ESP 侧的消息 ID。它是后续把投递回调（delivered / bounced）对回本行的唯一钥匙。
+-- 条件带 status = 'sent'：并发把它改成 failed 之后就不该再盖 provider_msg_id。
+-- name: MarkMailSent :exec
+UPDATE email_log
+SET provider_msg_id = @provider_msg_id::text
+WHERE id = @id::bigint AND status = 'sent';
+
+-- 发信失败的回滚。sent_at 一并清掉：它的语义是「真的发出去的时刻」，
+-- 留着会让 sent_at → redeemed_at 的送达时延统计（0011 列注释里的探针口径）混进没发出去的信。
+-- name: MarkMailSendFailed :exec
+UPDATE email_log
+SET status = 'failed', sent_at = NULL, bounce_code = @bounce_code::text
+WHERE id = @id::bigint AND status = 'sent';
+
+
+-- ============================================================
+-- 8 · chain-scan（Scheduler，1 分钟）
+-- ============================================================
+--
+-- ⚠️ ADR 0012 的状态是「提案，未批准」。本轮**不接任何第三方 RPC**：
+--    链上拉取做成可注入接口，默认实现返回「未配置」。下面的查询只负责
+--    「拿到一批链上转账之后该怎么落库」，那一半与用哪家 RPC 无关。
+--
+-- 归属**只看地址不看金额**（ADR 0012 §5.4 推翻了 EPUSDT 的金额尾数递增法；
+-- 0015 的 orders_pay_addr_uk 是它在 schema 上的表达）。所以这条查询直接
+-- pay_addresses ⋈ orders，一次确定的查表，不做任何模糊匹配。
+--
+-- 扫描范围 = 未终结的订单 **或** 仍在监听窗口内的地址。
+-- 后半句是 user-journey §7「钱进黑洞」那条的执行面：订单过期 ≠ 停止监听
+-- （order-timeout 已经把窗口顶到 ≥ 24 小时）。
+--
+-- ORDER BY last_scanned_at NULLS FIRST：新分配、从没扫过的地址优先 ——
+-- 那是唯一一批「用户正盯着收银台等」的地址。
+-- name: ListScannableChainAddresses :many
+SELECT a.id AS pay_address_id, a.chain, a.address, a.cursor_ts, a.is_blacklisted,
+       o.id AS order_id, o.trade_no, o.user_id,
+       o.status AS order_status, o.pay_amount_usdt6, o.address_watch_until
+FROM pay_addresses a
+JOIN orders o ON o.id = a.assigned_order_id
+WHERE a.enabled = true
+  AND (o.status IN ('pending','paying','underpaid')
+       OR (o.address_watch_until IS NOT NULL AND o.address_watch_until > now()))
+ORDER BY a.last_scanned_at NULLS FIRST, a.id
+LIMIT @batch::integer;
+
+-- 游标推进。cursor_ts 是**外部 API 的分页游标**（0014 的列注释：存毫秒整数而不是
+-- timestamptz，因为要原样回传给 TronGrid，转成 timestamptz 再转回去会在毫秒边界丢事件）。
+-- 传 NULL 表示这一轮没拿到新游标（例如拉取失败），保持原值 —— 绝不能写成 0，
+-- 那等于把游标重置到 1970 年，下一轮会把这个地址的全部历史重扫一遍。
+-- name: TouchPayAddressScan :exec
+UPDATE pay_addresses
+SET last_scanned_at = now(),
+    cursor_ts = coalesce(sqlc.narg(cursor_ts)::bigint, cursor_ts)
+WHERE id = sqlc.arg(id)::bigint;
+
+-- 落一条链上入账流水。
+--
+-- 🔴 幂等由 0014 的 `UNIQUE (provider, external_id)` 强制，external_id = `txid:log_index`
+--    （ADR 0012 §8.2：取值来源**只有链上事件**，与录入者无关）。
+--    DO NOTHING 返回 0 行 → :one 报 pgx.ErrNoRows → 调用方按「这笔已经记过」处理。
+--    §10.5 的「游标往回退 10 分钟重扫」正是靠这条唯一索引兜底，所以重复是**设计内的常态**。
+--
+-- state 的判定放在 SQL 里而不是 Go 里，因为它要读 prior（同一订单此前的累计到账），
+-- 而 ADR 0012 §6.3 的累计口径就是「按地址/订单求和」—— 拉回 Go 侧算意味着
+-- 先查一次再插一次，两步之间另一笔到账落库就会算错。
+--
+-- 三个分支，顺序不能换：
+--   1. 未固化 → confirming。ADR 0012 §10.5：TRON 的最终性是「固化」而不是 N 个确认，
+--      openapi 的 confirmations_required = 19 **只用于前端展示进度**，不是服务端判据。
+--      把没固化的钱记成 paid，等于在链重组时开通一个没付钱的订阅。
+--   2. 应收未知（orders.pay_amount_usdt6 为 NULL）→ 也记 confirming。
+--      这是数据缺陷（0015 §17.3 加的这一列是判定的唯一依据），
+--      但「钱收到了却因为我们自己的字段缺失而不落库」比记一条待人工处理的流水糟得多。
+--   3. 累计 ≥ 应收 → paid，否则 underpaid。判定**一律在 1e-6 USDT 的整数域做**
+--      （ADR 0012 §17.3：pay_amount_raw 是 numeric(38,18)，类型本身容得下噪声）。
+--
+-- prior 里带上 'confirming' 是刻意的：同一笔钱先以 confirming 记入、后续固化后
+-- 由别的路径改状态，若这里不计入，补足判定会把它当成没收到过。
+--
+-- entered_by 恒为 'scanner'：0014 的列注释说它只区分**录入者**、不参与幂等，
+-- 手工与自动因此天然互斥（谁先到谁插入成功）。
+--
+-- ⚠️ 本语句**只记录收到了钱，不开通任何权利、不写任何账本分录**。
+--    开通与入余额属于 ADR 0012 §8.4 的入账路径，那条路径本轮未实现。
+--    这个分工是安全的方向：多记一条流水没有副作用，少开通一次订阅有工单兜底；
+--    反过来（先开通后记账）则会在重投时开通两次。
+-- name: RecordChainPayment :one
+WITH prior AS (
+  SELECT coalesce(sum(p.amount_usdt6), 0)::bigint AS received
+  FROM payments p
+  WHERE p.order_id = @order_id::bigint
+    AND p.state IN ('confirming','underpaid','paid')
+)
+INSERT INTO payments (
+  provider, external_id, entered_by, order_id, user_id,
+  chain, txid, log_index, from_address, to_address,
+  amount_usdt6, state, confirmations, raw
+)
+SELECT @provider::text, @external_id::text, 'scanner',
+       @order_id::bigint, @user_id::bigint,
+       @chain::text, @txid::text, @log_index::integer,
+       @from_address::text, @to_address::text,
+       @amount_usdt6::bigint,
+       CASE
+         WHEN NOT @solidified::boolean                THEN 'confirming'::payment_state
+         WHEN sqlc.narg(expected_usdt6)::bigint IS NULL THEN 'confirming'::payment_state
+         WHEN prior.received + @amount_usdt6::bigint
+              >= sqlc.narg(expected_usdt6)::bigint    THEN 'paid'::payment_state
+         ELSE 'underpaid'::payment_state
+       END,
+       @confirmations::integer,
+       @raw::jsonb
+FROM prior
+ON CONFLICT (provider, external_id) DO NOTHING
+RETURNING id, state, order_id;
+
+-- 回填付款方地址。ADR 0013 §9 的失效条件靠这一列执行（0016 的列注释：
+-- 「链上付款方地址，归集时按 txid 回填」），而**扫链是唯一看得见付款方的地方** ——
+-- 不在这里落下来，之后任何时候都拿不回来了。
+--
+-- coalesce 语义：只写第一次。补足支付可能来自另一个地址，
+-- 而「这张订单是谁付的」应当锁定在首笔，后续的在 payments.from_address 里逐笔可查。
+-- name: SetOrderPayFromAddress :exec
+UPDATE orders
+SET pay_from_address = @from_address::text, updated_at = now()
+WHERE id = @id::bigint AND pay_from_address IS NULL;
