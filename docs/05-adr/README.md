@@ -18,8 +18,8 @@
 | [0002](0002-notification-channels.md) | 邮件是唯一的失联恢复通道，Telegram 只能做锦上添花 | 设计稿 v1，待实施 |
 | [0003](0003-web-hosting-and-reachability.md) | 控制面托管按实测可达性选型，必须用自有域名 + 镜像 | 设计稿 v1，待实施 |
 | [0004](0004-transport-hardening.md) | 传输层按「特征混同」而非「性能最优」调参 | 设计稿 v1，待实施 |
-| [0005](0005-database-selection.md) | Cloud SQL Postgres 17 + Unix socket，在线态用 UNLOGGED 表不买 Redis | 设计稿 v1，待实施 |
-| [0006](0006-api-stack.md) | Go + chi + pgx/sqlc + OpenAPI spec-first，理由是与节点端同语言生态 | 设计稿 v1，待实施 |
+| [0005](0005-database-selection.md) | Cloud SQL Postgres 17 + Unix socket，在线态用 UNLOGGED 表不买 Redis | **执行中**（2026-08-30 订正）—— `bp-db` 自 2026-08-17 运行并计费、17 组迁移 44 张表在库；⚠️ **但仓库里没有用户显式批准记录**（本文头部原写「设计稿 v1，待实施」、ADR 头部原写「提案，未批准」、[docs/README §6](../README.md) 原写「设计稿 v1」——**同一份裁决曾有三个状态**，见 0005 头部的订正说明） |
+| [0006](0006-api-stack.md) | Go + chi + pgx/sqlc + OpenAPI spec-first，理由是与节点端同语言生态 | **执行中**（2026-08-30 订正）—— 整套栈已在 Cloud Run 上（chi 5.3.1 / pgx 5.10.0 / oapi-codegen / sqlc 194 条查询）；⚠️ 128 个 operation 只实现 18 个，§12 的真实 v2node 契约测试仍不存在 |
 | [0007](0007-node-migration.md) | 混合迁移：新建 bp-node-hk1，vpn-us/vpn-jp 原封不动 | 设计稿 v1，待实施 |
 | [0008](0008-network-tier-standard.md) | 网络层级改用 Standard，放弃为 IPv6 支付 Premium 溢价 —— **推翻 0004 §3.7** | **已实施（仅新节点）**，既有 `vpn-*` 核实为 Premium 且不迁 |
 | **0009** | *刻意留空的编号，不是遗漏。* 旧节点退役（roadmap B38）—— 见下方「待写」 | **未写**（前置条件：bp 侧连续 30 天零回滚事件） |
@@ -47,5 +47,23 @@
 
 > **0010–0015 六份都是「提案，未批准」。** 它们由一次深挖设计 + 正反方辩论 + 裁决合成产出
 > （每份都带 `## N · 辩论与裁决` 一节，逐条记录反方论点的采纳/驳回与理由），
-> 用户已授权「所有决策按照推荐进行」，但其中两件**必须由用户本人回答后才能执行**：
-> `babel.plus` 的归属（0010 §1，卡住生产 `BP_ALLOWED_ORIGINS` 的改动）与域名采购下单。
+> 用户已授权「所有决策按照推荐进行」。
+>
+> **原文这里写的是「其中两件必须由用户本人回答后才能执行：`babel.plus` 的归属
+> （0010 §1，卡住生产 `BP_ALLOWED_ORIGINS` 的改动）与域名采购下单」——
+> 2026-08-30 订正为一件，理由如下：**
+>
+> - 🔴 **`babel.plus` 的归属不再是待答项，而且它从来没有真的卡住 `BP_ALLOWED_ORIGINS`。**
+>   用户已于 **2026-08-25 确认它是项目所有者自己的**（commit `4d1798676ec`，
+>   [ADR 0010 §2.1 情形 (a)](0010-domain-strategy.md)，本表上方 0010 那一行同日记录）。
+>   而**答案落在 (a) 上的处置恰恰是「什么都不要动」** —— 生产
+>   `BP_ALLOWED_ORIGINS=https://web.babel.plus,https://admin.babel.plus` 与
+>   `infra/deploy/deploy-api.sh` 的默认 `origins` **保持原样**，改它才会当场打断生产 CORS。
+>   所以这一步是从「问清归属」转成「确认不动」，**已完成**（0010 §1.2 第 1 步已标 ✅ 已完成）。
+>   本段此前与本表第 25 行左右那句「归属已答」在同一份文件里隔了十几行自相矛盾，
+>   一句说已答、一句说仍待答且卡着生产改动。
+> - ✅ **剩下的只有一件：域名采购下单。** 它需要用户本人付钱，且是一笔**不可退**的采购
+>   （0010 §1.2 第 10 步与该 ADR 的代价节）。`dig +short NS babel.plus` 实查为
+>   `dns13/dns14.hichina.com`（2026-08-30），即**已有一个已注册且 DNS 可控的域名**；
+>   缺的是 0010 规定的 **5 个中性镜像主域名，一个都还没买**。
+>   这条同时是 [roadmap B4](../00-overview/roadmap.md) 的现值。

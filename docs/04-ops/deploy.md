@@ -454,6 +454,16 @@ gcloud run deploy bp-api \
 
 ### 5.3 健康检查：两个端点，用途不同
 
+> 🔴 **2026-08-30 订正：下面这张表描述的是设计意图，实现与它有三处不一致，逐条列出。**
+> 原表保留在下方（它是 2026-08-16 的设计记录），**但落地时以「实现」那一列为准**。
+>
+> | 项 | 本表原写 | `api/` 实际实现 | 后果 |
+> |---|---|---|---|
+> | 路径 | `/healthz` | **`/-/healthz`** | Cloud Run 的 Google Frontend **拦截 `/healthz`**，请求根本到不了容器（2026-08-17 实测，证据 [cloudrun-healthz-intercept-20260817](../evidence/cloudrun-healthz-intercept-20260817/)）。探活配 `/healthz` = 永远探不到我们的服务 |
+> | 响应体 | `{"ok":true,"revision":"<sha>"}` | **三个字节的纯文本 `ok`**（`api/internal/handler/server.go`：`return gen.GetHealthz200TextResponse("ok"), nil`） | 任何 `--matcher-content='"ok":true'` 的判据**从第一天起永久报红**。[monitoring.md §6.2 / §7](monitoring.md) 已同步改成 `ok` |
+> | `revision` 字段 | 有 | **没有** | `/healthz` 至今回报不了版本（`-X main.version` 打的符号在 `main.go` 里不存在，见 [roadmap B41](../00-overview/roadmap.md) 遗留第 ③ 条） |
+> | 查不查 DB | `/healthz` **不查**，另有 `/readyz` 查 | **`/-/healthz` 会查**（`s.db.Health(ctx)`，DB 不可达返 503）；**`/readyz` 这个 operation 在 `openapi.yaml` 里不存在** | 下面那条「`/healthz` 绝不能查数据库」的论证**在当前实现上没有落地** —— 一次 Cloud SQL 抖动确实会让 Cloud Run 判容器不健康。这是一处**真实且未修的设计-实现偏离**，登记为下面的 ⚠️ 一条 |
+
 | 端点 | 查数据库吗 | 谁用 | 失败意味着 |
 |---|---|---|---|
 | `/healthz` | **不查** | Cloud Run startup/liveness probe、Uptime check | 进程活着、能接 HTTP。返回 `{"ok":true,"revision":"<sha>"}` |
@@ -462,6 +472,14 @@ gcloud run deploy bp-api \
 **`/healthz` 绝不能查数据库。** system-design §5.3 的原则是「控制面故障不得升级为数据面故障」；
 如果 `/healthz` 依赖 DB，一次 Cloud SQL 抖动就会让 Cloud Run 判定容器不健康并重启全部实例 ——
 把一个「部分功能降级」放大成「整体不可用」。
+
+> ⚠️ **这条原则当前没有被实现遵守，2026-08-30 登记。** `handler.GetHealthz` 的第一行就是
+> `if err := s.db.Health(ctx); err != nil { return gen.GetHealthz503JSONResponse{}, nil }` ——
+> 它**查 DB**，而且它就是 Cloud Run 探针打的那个端点。该文件自己的注释写着
+> 「只探数据库连接，不查业务表」，说明写的人是**有意**这么做的，只是与本节的裁决相反。
+> 两条路可选（本文不代替裁决）：① 按本节改实现，拆出不查 DB 的 `/-/healthz` 与查 DB 的 `/readyz`；
+> ② 按实现改本节，并显式接受「Cloud SQL 抖动会重启全部实例」这个代价。
+> **在二选一之前，不要把这段文字当成对线上行为的描述。**
 
 ```bash
 gcloud run services update bp-api --project=$P --region=us-central1 \

@@ -117,9 +117,10 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | 目录 | 文档 | 状态 |
 |---|---|---|
 | **00-overview** | [product-brief.md](00-overview/product-brief.md) — 产品定位与范围 | 设计稿 v1 |
-| | [roadmap.md](00-overview/roadmap.md) — 路线图与排期 | 设计稿 v1 |
+| | [roadmap.md](00-overview/roadmap.md) — 路线图与排期 | **执行中**（2026-08-30 复核 §3–§7 勾选与 §9 的 B1–B49 总账） |
 | | [glossary.md](00-overview/glossary.md) — 术语表 | 执行中 |
-| | [launch-readiness-review-20260821.md](00-overview/launch-readiness-review-20260821.md) — 上线审查（时点快照） | **As-Built**（2026-08-21，不回改） |
+| | [launch-readiness-review-20260830.md](00-overview/launch-readiness-review-20260830.md) — 上线审查（2026-08-30 时点快照，含与 08-21 那份的逐条对读） | **As-Built**（2026-08-30，不回改） |
+| | [launch-readiness-review-20260821.md](00-overview/launch-readiness-review-20260821.md) — 上线审查（2026-08-21 时点快照） | **As-Built**（2026-08-21，不回改） |
 | **01-research** | [competitor-conyss.md](01-research/competitor-conyss.md) — 竞品一手走查 | 已完成 |
 | | [reference-repos.md](01-research/reference-repos.md) — Proxy_Skill + Diogenes | 已完成 |
 | | [protocol-and-infra.md](01-research/protocol-and-infra.md) — 协议与基础设施 | 已完成 |
@@ -128,10 +129,10 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [admin-support-docs.md](01-research/admin-support-docs.md) — 后台/工单/通知/文档站 | 已完成 |
 | **02-architecture** | [as-built-gcp.md](02-architecture/as-built-gcp.md) — GCP 资产清点 | **As-Built**（§2–§6 为 2026-08-16；§10 为 2026-08-20） |
 | | [system-design.md](02-architecture/system-design.md) — 系统架构 | 设计稿 v1，未实施 |
-| | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | 设计稿 v1 |
-| | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | 设计稿 v1 |
-| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **草稿**，出口成本已实测（Premium 层混合 $0.1005/GiB），价格仍待定 |
-| | [pricing-and-plans-revision-20260823.md](03-product/pricing-and-plans-revision-20260823.md) — 定价定稿的修订说明（含推导附录） | 设计方案（2026-08-23），**待并入活文档** |
+| | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | **执行中**（2026-08-30 订正）—— 17 组迁移、44 张表已在 `bp-db`；文档与 `migrations/` 是两份东西，无逐列一致校验 |
+| | [api-contract.md](02-architecture/api-contract.md) — 三套 API 契约 | **执行中**（2026-08-30 订正）—— 契约已冻结成 `openapi.yaml`（128 op），18 个已上 Cloud Run，110 个仍 501 |
+| **03-product** | [pricing-and-plans.md](03-product/pricing-and-plans.md) — 套餐与定价 | **设计稿 v1**（2026-08-30）—— 三档 ¥72 / ¥159 / ¥358 已定案（30/100/250 GiB，2/5/10 设备），推导见其 §3.5；**不给「设计冻结稿」**（`nettier-ab-*` 未做） |
+| | [pricing-and-plans-revision-20260823.md](03-product/pricing-and-plans-revision-20260823.md) — 定价定稿的修订说明（含推导附录） | **已归档**（2026-08-30）—— §3 的指令已执行并并入活文档。原写「设计方案」，那是 §2.1 的**性质**词不是 §2.2 的**状态**词 |
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
@@ -144,8 +145,8 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0002](05-adr/0002-notification-channels.md) — 邮件是唯一失联恢复通道 | 设计稿 v1 |
 | | [0003](05-adr/0003-web-hosting-and-reachability.md) — 托管按实测可达性选型 | 设计稿 v1 |
 | | [0004](05-adr/0004-transport-hardening.md) — 传输层按特征混同调参 | 设计稿 v1 |
-| | [0005](05-adr/0005-database-selection.md) — Cloud SQL Postgres 17 | 设计稿 v1 |
-| | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | 设计稿 v1 |
+| | [0005](05-adr/0005-database-selection.md) — Cloud SQL Postgres 17 | **执行中**（2026-08-30 订正）—— `bp-db` 自 2026-08-17 运行并计费；⚠️ 无用户显式批准记录。此前本行「设计稿 v1」、[05-adr/README](05-adr/README.md) 「设计稿 v1，待实施」、ADR 头部「提案，未批准」**三处各写一种**，见 0005 头部订正说明 |
+| | [0006](05-adr/0006-api-stack.md) — Go + OpenAPI spec-first | **执行中**（2026-08-30 订正）—— 整套栈已在 Cloud Run 上；⚠️ 128 个 operation 只实现 18 个 |
 | | [0007](05-adr/0007-node-migration.md) — 节点混合迁移 | 设计稿 v1 |
 | | [0008](05-adr/0008-network-tier-standard.md) — 网络层级改 Standard（**推翻 0004 §3.7**） | **已实施（仅新节点）** |
 | | *0009 —— 编号**刻意留空**，见下* | **未写**（等 bp 侧连续 30 天零回滚事件，[05-adr/README.md](05-adr/README.md) §待写） |

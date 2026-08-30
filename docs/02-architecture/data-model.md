@@ -1,6 +1,18 @@
 # 数据模型：抄 Xboard 的业务语义，用 PostgreSQL 重写表达，并在四处热点上拆表与加固
 
-> 日期：2026-08-16 · 性质：**设计方案** · 状态：**设计稿 v1**（2026-08-16，未实施）
+> 日期：2026-08-16 · 性质：**设计方案** · 状态：**执行中**（2026-08-30 订正；原「设计稿 v1（2026-08-16，未实施）」。
+> `执行中` 取自 [docs/README §2.2](../README.md) 的受控词表 —— 「部分实施」不在词表里，不用）
+> 🔴 **「未实施」这三个字 2026-08-30 起是错的**：本文的 DDL 已经变成
+> `api/db/migrations/` 的 **17 组 up/down**，并灌进了真实的 Cloud SQL 实例 `bp-db`
+> （自 2026-08-17 运行并计费）。**44 张表在库** ——
+> `grep -rhoiE 'CREATE TABLE (IF NOT EXISTS )?[a-z_."]+' api/db/migrations/*.up.sql | sort -u | wc -l`
+> = 44（2026-08-30 实数），迁移 `0014`–`0017` 是 2026-08-29 之后新增的支付 / 计费 / 订阅取数表。
+> ⚠️ **但「部分」这两个字是认真的，不要读成「数据模型做完了」**：
+> ① 本文与 `migrations/` 是**两份东西**，仓库里没有任何机制校验它们逐列一致
+> （sqlc 的内置引擎只做语法与列名解析，`sqlc.yaml` 无 `database:` 段 —— 这正是
+> [roadmap B49](../00-overview/roadmap.md) 与 commit `a4604c9396f` 那两步 CI 检查的由来）；
+> ② §16 登记的未解决项一条都没少；
+> ③ 表在库 ≠ 表在用 —— 128 个 operation 里只实现了 18 个，绝大多数表至今没有任何读写路径。
 > 事实基线：Xboard 表结构实测见 [panels-and-market.md](../01-research/panels-and-market.md) §1.2 / §6.4 / §6.6；
 > 工单八表 DDL 已存在于 [admin-support-docs.md](../01-research/admin-support-docs.md) §2.4；
 > 订单与复式账 DDL 已存在于 [payments.md](../01-research/payments.md) §4.13

@@ -1,6 +1,26 @@
 # 0005 · 裁决：控制面数据库用 Cloud SQL for PostgreSQL，与 `bp-api` 同区同项目，起步 `db-f1-micro`
 
-> 日期：2026-08-16 · 性质：**架构裁决** · 状态：**提案，未批准**（2026-08-16）
+> 日期：2026-08-16 · 性质：**架构裁决** · 状态：**执行中**（2026-08-30 订正；原状态「提案，未批准」，2026-08-16）
+> 落地范围：`bp-db`（Cloud SQL PostgreSQL 17 / `db-f1-micro` / `us-central1`）**2026-08-17 建成，
+> 自当日起运行并计费**（到 2026-08-20 的 gross 为 $0.74）；`bp-api` 走 Cloud Run 内建 Cloud SQL
+> 连接器（Unix socket），未建 VPC connector、未碰 `default` 网络 —— 与 §1 裁决逐条一致。
+> `db/migrations/` 的 **17 组 up/down 已灌进这台实例，44 张表在库**
+> （2026-08-30 实数：`ls api/db/migrations/*.up.sql | wc -l` = 17；
+> `grep -rhoiE 'CREATE TABLE (IF NOT EXISTS )?[a-z_."]+' api/db/migrations/*.up.sql | sort -u | wc -l` = 44）。
+> 落地证据：[as-built-gcp.md §10.2 / §10.3](../02-architecture/as-built-gcp.md)、
+> [evidence/gcp-inventory-20260821 §3](../evidence/gcp-inventory-20260821/)
+> 🔴 **状态订正说明（2026-08-30），两半都要保留：**
+> ① **「提案」这一半已经不成立** —— 本文头部原状态是「提案，未批准」，而它规定的东西
+> 自 2026-08-17 起就在真实运行并产生真实账单，44 张表在真库里。一份描述**已经在跑的生产系统**的
+> 文档挂着「提案」，会让读 [05-adr/README.md](README.md) 与 [docs/README.md §6](../README.md)
+> 的人以为数据库选型还没开工。
+> ② **「未批准」这一半仍然成立，不许因为改了状态词就当它消失了** —— 本文下面
+> 「裁决人：**待定** —— 本文需用户拍板」一行**原样保留**：仓库里**找不到**用户显式批准 0005 的记录
+> （对照 [ADR 0001](0001-cloudflare-tos-risk.md) 有 2026-08-17 的显式批准记录）。
+> 也就是说 `bp-db` 是**先建后批**的，这条程序缺口登记在
+> [roadmap §9 B47 之后的新增条目](../00-overview/roadmap.md) 与
+> [launch-readiness-review-20260830.md](../00-overview/launch-readiness-review-20260830.md) §3。
+> **`执行中` 描述的是实现状态，不是批准状态**；本文没有、也不能替用户补一次批准。
 > 事实基线：2026-08-16 实际抓取 Google Cloud / Cloudflare / Neon / Supabase / PlanetScale
 > 官方定价页与开发者文档原文；GCP 现状取自
 > [as-built-gcp.md](../02-architecture/as-built-gcp.md)（2026-08-16 `gcloud` 输出）

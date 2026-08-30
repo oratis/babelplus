@@ -9,6 +9,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -71,10 +72,13 @@ type Config struct {
 	//
 	// 两项都**没有默认值**，也都不在 required 表里 —— 缺失时进程照常启动，
 	// 但 middleware.AuthenticateInternal 会把整条内部面全部拒掉（fail-closed 在运行时那一侧）。
-	// 之所以不做成「缺失即拒绝启动」：内部面尚未接线（authmap.go 目前对这 9 个 operation 返 501），
-	// 现在就把它列为必需，等于让每个本地开发者与 CI 都必须先配两个用不上的变量。
-	// TODO(接线时): 内部面挂上 AuthenticateInternal 的同一个 PR 里，
-	//   把这两项加进 prod/staging 的必需集，并同步 api/.env.example 与 infra/deploy/deploy-api.sh。
+	// 之所以不做成「缺失即拒绝启动」：本地开发与 CI 不必为了跑起来先配两个用不上的变量。
+	//
+	// ⚠️ 内部面**已经接线**（authmap.go 的 internalTaskOperations 分支现在调
+	// AuthenticateInternal），所以在 prod/staging 上这两项缺失的后果不再是「501」，
+	// 而是「六条 Cloud Scheduler 与一条 Cloud Tasks 队列全部 403」。
+	// TODO(P2): 把这两项加进 prod/staging 的必需集。**必须与 infra/deploy/deploy-api.sh
+	//   同一个 PR**：先在这里设为必需而部署脚本还没传值，会让下一次 prod 部署起不来。
 
 	// InternalOIDCAudience 是内部面 ID token 的 `aud` 必须逐字节等于的值。
 	//
@@ -90,6 +94,34 @@ type Config struct {
 	// InternalTaskCallers 是允许调用 /internal/tasks/* 的服务账号 email 白名单（已小写化、已去重）。
 	// 环境变量：BP_INTERNAL_TASK_CALLERS（逗号分隔）
 	InternalTaskCallers []string
+
+	// ---- 管理面：IAP 断言 + TOTP step-up（api-contract.md §6）----
+	//
+	// 与内部面同一条纪律：两项都没有默认值，也都不在 required 表里 ——
+	// 缺失时进程照常启动，但 middleware.AuthenticateAdmin 会把整个管理面拒掉
+	// （fail-closed 落在运行时那一侧）。本地开发与 CI 不必为了跑起来先配两个用不上的变量。
+	//
+	// 🔴 「缺失 = 整体拒绝」这件事本身是承重的：管理面前面站着 IAP，
+	// 而 `x-goog-iap-jwt-assertion` 在没有 IAP 的部署形态下是**任何人都能设的普通请求头**
+	// （bp-api 目前 --ingress=all 直接暴露在 *.run.app 上）。
+	// 如果哪天有人把「没配 audience」实现成「跳过校验」，现象就是「谁都能进管理面」，
+	// 而且完全静默。所以这里只负责校验形状，**不负责给默认值**。
+
+	// AdminIAPAudience 是 IAP 断言的 `aud` 必须逐字节等于的值，形如
+	// `/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>`。
+	//
+	// 取值来自负载均衡器后端服务，**不是** URL、不是项目 ID：
+	//	gcloud compute backend-services describe <NAME> --global --format='value(id)'
+	// 环境变量：BP_ADMIN_IAP_AUDIENCE
+	AdminIAPAudience string
+
+	// AdminTOTPEncKey 是解密 admin_users.totp_secret_enc 的 AES-256 密钥（**32 字节**），
+	// 来自 Secret Manager。环境变量里是 base64 形态，这里存解码后的原始字节。
+	//
+	// 缺失时 §6.2 L3 的危险操作（D3 D5 D6 D10 D15 D16）一律被拒 ——
+	// 「危险操作做不了」，不是「危险操作不需要 TOTP」。
+	// 环境变量：BP_ADMIN_TOTP_ENC_KEY
+	AdminTOTPEncKey []byte
 }
 
 // required 列出所有必需的环境变量及其写入位置。
@@ -181,6 +213,31 @@ func Load() (*Config, error) {
 				"  只配一项时内部面仍然整体拒绝（与没配无异），但排查方向会被带偏")
 	}
 
+	// 管理面（同样可缺省，但**给了就必须是对的形状**）。
+	iapAud, err := parseAdminIAPAudience(os.Getenv("BP_ADMIN_IAP_AUDIENCE"))
+	if err != nil {
+		return nil, err
+	}
+	c.AdminIAPAudience = iapAud
+
+	totpKey, err := parseAdminTOTPEncKey(os.Getenv("BP_ADMIN_TOTP_ENC_KEY"))
+	if err != nil {
+		return nil, err
+	}
+	c.AdminTOTPEncKey = totpKey
+
+	// 与内部面那一对同一条理由：只配一项是纯粹的配置错误，而两种漏配的现象
+	// 都不指向配置本身 ——
+	//   · 只配 audience：管理面能进，但每一个危险操作都回 AUTH_TOTP_REQUIRED，
+	//     运维会去查 TOTP 绑定、查手机时间，唯独不会回来看这里；
+	//   · 只配 TOTP 密钥：管理面**整体**进不去，看起来像 IAP 配错了。
+	if (c.AdminIAPAudience == "") != (len(c.AdminTOTPEncKey) == 0) {
+		return nil, errors.New(
+			"BP_ADMIN_IAP_AUDIENCE 与 BP_ADMIN_TOTP_ENC_KEY 必须同时配置或同时留空：\n" +
+				"  只配 audience → 管理面能进但所有危险操作被拒；只配密钥 → 管理面整体进不去。\n" +
+				"  两种现象都不指向配置本身")
+	}
+
 	// 一条低成本的防呆：项目 ID 写错会把资源建到别的项目里。
 	if c.Env == "prod" && c.GCPProjectID != "oratis-491316" {
 		return nil, fmt.Errorf("prod 环境的 BP_GCP_PROJECT_ID 应为 oratis-491316，当前值 %q", c.GCPProjectID)
@@ -202,10 +259,16 @@ func (c *Config) Redacted() map[string]any {
 		// 白名单原样打印，不脱敏 —— 它不是秘密，而且「线上到底放行了哪些 Origin」
 		// 是排查跨域故障时第一个要看的东西。
 		"allowed_origins": c.AllowedOrigins,
+		// 两条鉴权面的开关状态：它们不是秘密，而「这个实例的管理面/内部面到底开没开」
+		// 是排查「所有人都被拒」时第一个要看的东西。
+		"admin_iap_audience":     c.AdminIAPAudience,
+		"internal_oidc_audience": c.InternalOIDCAudience,
+		"internal_task_callers":  c.InternalTaskCallers,
 		"secrets_len": map[string]int{
 			"subscription_token_pepper": len(c.SubscriptionTokenPepper),
 			"node_key_pepper":           len(c.NodeKeyPepper),
 			"session_signing_key":       len(c.SessionSigningKey),
+			"admin_totp_enc_key":        len(c.AdminTOTPEncKey),
 		},
 	}
 }
@@ -408,6 +471,102 @@ func parseInternalCallers(raw, env string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// parseAdminIAPAudience 校验管理面 IAP 断言的 `aud`。
+//
+// 留空是允许的（缺失时 middleware.AuthenticateAdmin 把整个管理面拒掉）。
+// 给了就必须是对的形状：aud 的比对是 subtle.ConstantTimeCompare 的逐字节相等，
+// 所以一个多出来的尾斜杠、一段 https:// 前缀、一个大写字母，都会让每一份真实断言
+// 永远匹配不上 —— 而现象是「所有管理员都进不去」，与「根本没配」一模一样。
+//
+// 形态来自 Google 的 IAP 文档：
+//
+//	/projects/<PROJECT_NUMBER>/global/backendServices/<BACKEND_SERVICE_ID>
+//
+// 两段都是**数字 ID**，不是名字：写项目 ID（oratis-491316）而不是项目编号
+// 是这里最容易犯的错，且同样表现为「永远匹配不上」。
+func parseAdminIAPAudience(raw string) (string, error) {
+	aud := strings.TrimSpace(raw)
+	if aud == "" {
+		return "", nil
+	}
+	const (
+		prefix = "/projects/"
+		middle = "/global/backendServices/"
+	)
+	bad := func(why string) error {
+		return fmt.Errorf("BP_ADMIN_IAP_AUDIENCE %q %s\n"+
+			"  正确形态：%s<PROJECT_NUMBER>%s<BACKEND_SERVICE_ID>（两段都是数字 ID，不是名字）\n"+
+			"  取值：gcloud compute backend-services describe <NAME> --global --format='value(id)'",
+			aud, why, prefix, middle)
+	}
+	// 显式拒绝 URL 形态：把 IAP 的 aud 写成服务 URL 是最常见的一种猜法
+	// （内部面的 aud 确实是 URL），而它永远匹配不上。
+	if strings.Contains(aud, "://") {
+		return "", bad("不是 URL —— 那是内部面 OIDC 的 aud 形态，IAP 断言用的是后端服务资源路径")
+	}
+	rest, ok := strings.CutPrefix(aud, prefix)
+	if !ok {
+		return "", bad("缺少 " + prefix + " 前缀")
+	}
+	projectNumber, serviceID, ok := strings.Cut(rest, middle)
+	if !ok {
+		return "", bad("缺少 " + middle + " 分段")
+	}
+	if !allDigits(projectNumber) {
+		return "", bad("的 PROJECT_NUMBER 段不是纯数字（写成项目 ID 了？要的是项目编号）")
+	}
+	if !allDigits(serviceID) {
+		return "", bad("的 BACKEND_SERVICE_ID 段不是纯数字（写成后端服务名了？要的是它的数字 id）")
+	}
+	return aud, nil
+}
+
+// allDigits 判断非空且全为十进制数字。
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// parseAdminTOTPEncKey 解码并校验 admin_users.totp_secret_enc 的 AES 密钥。
+//
+// 留空是允许的（缺失时 step-up 一律拒绝，危险操作做不了）。
+// 给了就必须解出**恰好 32 字节** —— AES-256 的密钥长度。
+//
+// 🔴 为什么不接受 16 / 24 字节：aes.NewCipher 会照单全收，于是一个被截断的密钥
+// 会安安静静地退化成 AES-128，而唯一的现象是……没有现象。密钥长度是我们能在
+// 启动期一次性确认的少数几件事之一，不该留给运行时。
+// 长度不对时也**不打印密钥内容**，只报长度。
+func parseAdminTOTPEncKey(raw string) ([]byte, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return nil, nil
+	}
+	// 两种 base64 都收：`openssl rand -base64 32` 出带填充的标准形态，
+	// 而从 Secret Manager 里取时可能已经去掉了填充。
+	key, err := base64.StdEncoding.DecodeString(v)
+	if err != nil {
+		key, err = base64.RawStdEncoding.DecodeString(v)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("BP_ADMIN_TOTP_ENC_KEY 不是合法 base64：%w\n"+
+			"  生成：openssl rand -base64 32", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf(
+			"BP_ADMIN_TOTP_ENC_KEY 解码后应为 32 字节（AES-256），实得 %d 字节\n"+
+				"  16 / 24 字节也能被 aes.NewCipher 收下，于是密钥被截断这件事完全没有现象 ——\n"+
+				"  所以这里拒绝启动。生成：openssl rand -base64 32", len(key))
+	}
+	return key, nil
 }
 
 // redactDSN 去掉连接串里的密码。Postgres DSN 的密码可能出现在 URL 形式或 kv 形式里，两种都处理。

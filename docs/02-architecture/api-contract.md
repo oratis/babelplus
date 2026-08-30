@@ -1,6 +1,18 @@
 # API 契约：三面五链，只有 UniProxy 是冻结的
 
-> 日期：2026-08-16 · 性质：**设计方案** · 状态：**设计稿 v1**（2026-08-16，未实施）
+> 日期：2026-08-16 · 性质：**设计方案** · 状态：**执行中**（2026-08-30 订正；原「设计稿 v1（2026-08-16，未实施）」。
+> `执行中` 取自 [docs/README §2.2](../README.md) 的受控词表 —— 「部分实施」不在词表里，不用）
+> 🔴 **「未实施」这三个字 2026-08-30 起是错的**：本文描述的契约已经冻结成
+> `openapi/openapi.yaml`（128 个 operation），并且 **18 个 operation 已在 Cloud Run 的
+> `bp-api` 上真实提供服务**（账户 10 · UniProxy 5 · 订阅 2 · healthz 1；
+> `api/internal/handler/` 里 `func (s *Server) X` 与 `handler/operations.txt` 取交集，2026-08-30 实数）。
+> 其中 **UniProxy 五链是本文里唯一「冻结」的那一套，它已经整套实现完了**。
+> ⚠️ **另外 110 个 operation 仍然 fail-closed 返 501**，其中 61 个 `/admin/*` 与 9 个
+> `/internal/tasks/*` 是在 `api/cmd/server/authmap.go` 的中间件层被硬性 501 的
+> （鉴权在 master `a4604c9396f` 上未接线，见 [roadmap B48](../00-overview/roadmap.md)；
+> **2026-08-30 同日更新**：并行工作流已在未提交的工作树里接上了，但**未提交**，
+> 且**接线 ≠ 端点可用**，61 个 admin handler 绝大多数仍是 `Unimplemented` 的 501）——
+> **所以「契约已冻结」与「端点可用」在本文里是两件事，不要混读。**
 > 事实基线：UniProxy 端点、载荷与字段名来自
 > [panels-and-market.md](../01-research/panels-and-market.md) §2.1（Xboard / XrayR 源码实测，2026-08-16）；
 > 鉴权链、ETag 实现约束、OpenAPI 工作流来自 [ADR 0006](../05-adr/0006-api-stack.md)；

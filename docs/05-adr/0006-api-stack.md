@@ -1,6 +1,18 @@
 # 0006 · 裁决：API 用 Go + net/http/chi + sqlc/pgx，OpenAPI spec 作唯一契约源
 
-> 日期：2026-08-16 · 性质：**架构裁决** · 状态：**设计稿 v1，待实施**（2026-08-16）
+> 日期：2026-08-16 · 性质：**架构裁决** · 状态：**执行中**（2026-08-30 订正；原状态「设计稿 v1，待实施」，2026-08-16）
+> 落地范围：§1 裁决的整套栈**已经在 Cloud Run 上跑着**，不再是「待实施」——
+> `api/go.mod` 里 `github.com/go-chi/chi/v5 v5.3.1` + `github.com/jackc/pgx/v5 v5.10.0` +
+> `github.com/oapi-codegen/runtime v1.7.0`；`openapi/openapi.yaml` 是唯一契约源，
+> `api/internal/gen/` 与 `web/shared/api/` 两处生成物入库、CI 用 `git diff --exit-code` 卡漂移；
+> sqlc 生成 **194 条**查询（`grep -c '^-- name:' api/db/queries/*.sql` 与
+> `api/db/gen/*.sql.go` 里的 SQL 常量数一致，2026-08-30 实数）；
+> `bp-api` 自 2026-08-17 起在 `us-central1` 运行（[as-built-gcp §10.1](../02-architecture/as-built-gcp.md)）。
+> **仍未实施的部分逐条留在 §15**，其中 §12 的「起真实 v2node 容器的契约测试」与真实 Postgres
+> 集成测试**一个都还不存在**（[CONTRIBUTING §8](../../CONTRIBUTING.md) 同步登记）。
+> ⚠️ **`执行中` 不等于「§1 八条全做完了」** —— 128 个 operation 里实现了 18 个，
+> 其余 110 个 fail-closed 返 501（2026-08-30 实数），见
+> [launch-readiness-review-20260830.md](../00-overview/launch-readiness-review-20260830.md) §2。
 > 事实基线：Cloud Run 官方文档（image streaming / startup CPU boost / 计费模型）；
 > pgx v5 官方 pkg.go.dev 文档；Prisma 官方博客（2025-01-30）；
 > Cloudflare Python Workers 冷启动基准（含 Cloud Run 对照）；
@@ -552,9 +564,13 @@ babel-plus/
 
 ## 15 · 这次没有解决的
 
-- [ ] 🔴 **v2node 是否发送 `If-None-Match` 未验证。** 见 §11.4。
+- [x] ~~🔴 **v2node 是否发送 `If-None-Match` 未验证。** 见 §11.4。
       不验证这一条，§11 的整套 ETag 设计与 §3.3 的降载算术全部悬空。
-      **这是本 ADR 里唯一一条「不验证就不能动工」的前置项**，且它与语言选型无关，应立即做。
+      **这是本 ADR 里唯一一条「不验证就不能动工」的前置项**，且它与语言选型无关，应立即做。~~
+      ⚠️ **2026-08-30 订正：本条与下一条是同一件事的正反两遍**，从 2026-08-17 起就在同一节里
+      并列写着「未验证」与「已解决：发」。原文保留不删（它是 2026-08-16 写下时的真实状态），
+      **但结论以下一条为准**。留下这个矛盾的原因值得记一笔：解决它的人是**追加**了一条已勾选项，
+      而没有回头把被推翻的那条划掉 —— 追加式更新保住了历史，却在同一节里留下了两个相反的现值。
 - [x] ~~🔴 v2node 是否发送 `If-None-Match`（最高优先级未知）~~ —— **✅ 2026-08-17 已解决：发。**
       v2node 完整实现条件请求（发送 → 304 短路 → 保存新 ETag），ETag 降载设计成立。
       证据 [v2node-contract-20260817 §2](../evidence/v2node-contract-20260817/)。

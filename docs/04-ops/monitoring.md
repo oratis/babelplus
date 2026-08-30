@@ -1,6 +1,16 @@
 # 监控与告警 · 不能只看 `request_count`，被拒绝的请求根本不在里面
 
-> 日期：2026-08-16 · 性质：**执行手册** · 状态：**待实施**（2026-08-16 —— 本文全部策略**一条都没有在 `oratis-491316` 上创建过**，全部阈值均为设定值而非实测值）
+> 日期：2026-08-16 · 性质：**执行手册** · 状态：**执行中**（2026-08-30 订正；原「待实施」，2026-08-16）
+> 🔴 **原状态那句「本文全部策略一条都没有在 `oratis-491316` 上创建过」2026-08-21 起就不成立了，
+> 而本文自己的 §3.2 就记着这件事** —— 同一份文档，头部说一条都没建，正文说 2026-08-21 建了 7 条。
+> **现值（逐条见 §3.2 的表）**：11 条 log-based metric 里 **7 条已建**
+> （`bp_api_5xx` · `bp_api_429` · `bp_uniproxy_auth_fail` · `bp_subscribe_404` ·
+> `bp_admin_authz_fail`〔占位〕· `bp_task_idem_skip`〔部分覆盖〕· `bp_db_pool_wait`〔近似〕），
+> **4 条未建**（`bp_mail_bounce` · `bp_cert_issuer_bad` · `bp_node_alive` · `bp_ratelimit_degraded`）。
+> ⚠️ **但「待实施」的那一半仍然大面积成立，改状态不是宣布做完了**：
+> §5 的 **17 条告警策略一条都没建**、§6 的 uptime check 没建、§7 的 Uptime Kuma 没买机器、
+> §8 的每日证书核对只有脚本没有调度器、**全部阈值仍是设定值而非实测值**，
+> 且本文全部告警链路的端到端演练**一次都没做过**（§14 末条）。
 > 事实基线：巡检项来自 [runbook-node-health.md](runbook-node-health.md) §5；
 > 部署参数（`--max-instances=8` 等）来自 [deploy.md](deploy.md) §5；
 > 连接数阈值来自 [ADR 0005](../05-adr/0005-database-selection.md) §6.3；
@@ -460,8 +470,18 @@ gcloud monitoring uptime create bp-api-healthz \
   --resource-labels=host=api.babel.plus,project_id=$P \
   --protocol=https --port=443 --path=/-/healthz \
   --period=1 --timeout=10 \
-  --matcher-type=contains-string --matcher-content='"ok":true'
+  --matcher-type=contains-string --matcher-content='ok'
 ```
+
+> 🔴 **2026-08-30 订正：`--matcher-content` 原写 `'"ok":true'`，那个串在响应体里根本不存在。**
+> `GetHealthz` 返回的是**三个字节的纯文本 `ok`**，不套信封 ——
+> `api/internal/handler/server.go`：`return gen.GetHealthz200TextResponse("ok"), nil`
+> （`openapi/openapi.yaml` 对该 operation 也写着「返回纯文本 `ok`。**不套信封**」）。
+> 照原文建出来的 uptime check **会从第一天起永久报红**，而且报的是一个健康的服务。
+> §7 的 Uptime Kuma 判据与 [deploy.md](deploy.md) 的健康检查描述是同一个错，已一并改。
+> ⚠️ 纯文本 `ok` 做 `contains-string` 判据比 JSON 弱：任何含 `ok` 子串的响应体都会通过。
+> 这是**当前实现的直接后果**，不是本文的选择；要更强的判据得先让 `/-/healthz` 返回结构化响应
+> （那会改契约，属 ADR 0006 §9 的范围），在那之前 `--matcher-content='ok'` 是唯一与实现一致的写法。
 
 > `gcloud monitoring uptime create` 的 flag 名在版本间调整过（`--period` 取分钟数 1/5/10/15），
 > **待核实**；报错时改用控制台或 `--uptime-check-config-from-file`。
@@ -512,7 +532,7 @@ docker run -d --restart=always -p 3001:3001 \
 | 检查 | 类型 | 周期 | 判据 |
 |---|---|---|---|
 | 三套域名池的**每一个**域名 | HTTP(s) | 60 s | 200 + 关键字 |
-| `bp-api` `/-/healthz` | HTTP(s) | 60 s | 200 + `"ok":true` |
+| `bp-api` `/-/healthz` | HTTP(s) | 60 s | 200 + 纯文本 `ok`（**2026-08-30 订正**，原写 `"ok":true`；实现返回三个字节 `ok`，理由见 §6.2 的订正块） |
 | 每个 `bp-node-*` 的 TCP 443 | TCP Port | 300 s | 能完成握手 |
 | 每个 `bp-node-*` 的证书剩余天数 | HTTP(s) 自带 | — | <14 天告警 |
 
@@ -636,9 +656,22 @@ gcloud billing budgets create --billing-account=<BILLING_ACCOUNT_ID> \
    这条要求源自 as-built §8 接受的「共享项目」取舍，是它的直接账单后果。
    `--filter-labels` 的确切行为与生效范围 **待核实**。
 2. ⚠️ **Budget 只发通知，不会自动停机。** 没有任何自动熔断。
-3. 🔴 **这一条现在建不了。** as-built §9 记录「计费账号与当前月度实际支出未查
+3. ~~🔴 **这一条现在建不了。** as-built §9 记录「计费账号与当前月度实际支出未查
    （`gcloud billing` 需要额外权限）」—— 我们连 `<BILLING_ACCOUNT_ID>` 都还不知道。
-   这是本文里唯一一条被前置条件卡死的告警。
+   这是本文里唯一一条被前置条件卡死的告警。~~
+   ✅ **2026-08-21 解开，且原来的前提是错的**（[roadmap B32](../00-overview/roadmap.md)、
+   证据 [evidence/gcp-inventory-20260821 §4](../evidence/gcp-inventory-20260821/)）：
+   计费账号是 **`0130C2-FA2146-786074`**，当前身份**本来就有** budget 读写权限，
+   **不需要申请**；账户上早就存在一条项目级预算。
+   **真正的缺口从来不是权限而是口径** —— 那条预算是 `INCLUDE_ALL_CREDITS`，
+   而项目 gross 被账户级推广抵扣全额冲平，**在抵扣用完之前它永远不会触发**。
+   已于 2026-08-21 改为 `EXCLUDE_ALL_CREDITS` / $500 月 / 加 forecasted 100%。
+   ⚠️ **仍然遗留两条**：`notificationsRule` 为空（只走默认账单管理员邮箱，
+   **没有接上面命令里的 `bp-alerts` Pub/Sub topic**），且这条预算告警
+   **从未端到端触发过** —— 按 §14 末条的口径，它应当默认视为不工作。
+   > 上面那条 `gcloud billing budgets create` 命令**保留原样不删**：它是「本文当初打算怎么建」的
+   > 记录，而实际落地走的是修改既有预算而不是新建。两者的差别（尤其
+   > `--filter-labels=app=babel-plus` 至今**待核实**）仍然有效。
 
 ---
 

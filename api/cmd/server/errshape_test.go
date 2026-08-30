@@ -11,6 +11,7 @@ import (
 
 	"github.com/oratis/babelplus/api/internal/config"
 	"github.com/oratis/babelplus/api/internal/handler"
+	"github.com/oratis/babelplus/api/internal/store"
 )
 
 // testRouter 用真实的 buildRouter 装配，只把 handler 换成全 501 的 Unimplemented。
@@ -19,8 +20,13 @@ import (
 // （HandlerFromMux 不接受 ErrorHandlerFunc，参数绑定失败因此落到生成代码的
 // http.Error 默认实现）。单独测那个函数抓不到这一类问题。
 //
-// db 传 nil 是安全的：参数绑定失败发生在 ServerInterfaceWrapper 里，
-// 早于 strict 中间件链，鉴权一次都不会跑，所以 nil *store.Store 不会被解引用。
+// db 传一个零值 *store.Store（Pool 为 nil）：buildRouter 会读 db.Pool 去装配
+// 管理面的 PgAdminStore，所以不能再传 nil 指针。零值是安全的 ——
+// 本组用例走到的三条路径（参数绑定失败、节点面缺 token、用户面缺 token）
+// 都在触碰数据库之前就返回了。
+//
+// cfg 里刻意不给 AdminIAPAudience / InternalOIDCAudience：那正是生产之外的默认形态，
+// 而它意味着管理面与内部面**整体拒绝**（fail-closed）。
 func testRouter(t *testing.T) http.Handler {
 	t.Helper()
 	cfg := &config.Config{
@@ -28,7 +34,7 @@ func testRouter(t *testing.T) http.Handler {
 		AllowedOrigins: []string{"https://web.babel.plus"},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return buildRouter(cfg, nil, logger, handler.Unimplemented{})
+	return buildRouter(cfg, &store.Store{}, logger, handler.Unimplemented{})
 }
 
 // 参数绑定失败以前返回 text/plain 400（生成代码的默认 ErrorHandlerFunc），

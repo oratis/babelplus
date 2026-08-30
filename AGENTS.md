@@ -7,11 +7,16 @@
 ## 1 · 这是什么项目
 
 内部使用的流量中转服务（中国 → Cloudflare 边缘 → Google Cloud → 全球）。
-当前处于 **P0 收尾 / P1 内核过半**：`api/`（Go，128 个 operation 里实现 18 个）、
-`web/`（双 SPA 脚手架，业务逻辑为零）、`infra/`（建机与部署脚本）都已入库，
+当前处于 **P0 收尾 / P1 内核过半**：`api/`（Go，128 个 operation 里实现 18 个，其余 110 个 fail-closed 返 501）、
+`web/`（双 SPA；**不再是「业务逻辑为零」**——2026-08-23 起有登录态、`RequireAuth` 路由守卫、
+16 条受保护路由与 108 个前端测试，2026-08-29 又接线了 dashboard 与工单列表两页；
+**但其余页面仍是空壳**，44 处 `TODO(P1)` 分布在 30 个文件里未接线）、
+`infra/`（建机与部署脚本，**全部带 dry-run，一台节点都没建过**）都已入库，
 `bp-api` 已在 Cloud Run 运行并计费。
 **「仓库中只有文档」这句话到 2026-08-21 为止已经不成立**，
-阶段判定见 [`docs/00-overview/launch-readiness-review-20260821.md`](docs/00-overview/launch-readiness-review-20260821.md)。
+阶段判定见 [`docs/00-overview/launch-readiness-review-20260830.md`](docs/00-overview/launch-readiness-review-20260830.md)
+（更早的时点快照：[`launch-readiness-review-20260821.md`](docs/00-overview/launch-readiness-review-20260821.md)，
+As-Built，不回改）。
 
 先读 [`docs/00-overview/product-brief.md`](docs/00-overview/product-brief.md)（做什么、不做什么），
 再读 [`docs/README.md`](docs/README.md)（文档体系约定）。

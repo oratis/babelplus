@@ -5,8 +5,11 @@
 
 > **状态：P0 设计已完成，P1 脚手架已落地，GCP 控制面已部署，但产品尚未上线。**
 > 契约（`openapi/`）、API 骨架（`api/`）、前端工作区（`web/`）、部署脚本（`infra/`）都已建起来，
-> 但 128 个 operation 里仍有 122 个返回 `501`
-> （[local-development.md §4](docs/04-ops/local-development.md)）。
+> 但 128 个 operation 里**已实现 18 个、仍有 110 个返回 `501`**
+> （2026-08-30 实数：`api/internal/handler/` 里 `func (s *Server) X` 与
+> `handler/operations.txt` 取交集得 18，128 − 18 = 110；
+> 此前写「122 个返回 501」是 2026-08-17 只实现 6 个时的旧数，未随 P1 内核上线更新。
+> 另见 [local-development.md §4](docs/04-ops/local-development.md)）。
 > **GCP 上已经有 `bp-` 资源**：`bp-api`（Cloud Run，`us-central1`，2026-08-17 创建）、
 > `bp-db`（Cloud SQL PostgreSQL 17，`db-f1-micro`）、`bp-api-sa` 与 4 个 `bp-` secret，
 > 2026-08-20 `gcloud` 复核时都在运行 —— 清单与参数见
@@ -20,8 +23,14 @@
 > 这是 **Premium 网络层**下、跨两个区域、Internet Data Transfer 与 Carrier Peering
 > 两类 SKU 的**混合**单价，不对应目录里任何单独一档。
 > 竞品零售约 $0.042/GB —— **按竞品价卖每 GB 净亏约 $0.06**。
-> [ADR 0008](docs/05-adr/0008-network-tier-standard.md) 裁决改用 Standard，
-> 但 2026-08-20 实查：两个节点与两个静态 IP **全在 `PREMIUM` 层，该裁决至今未实施**。
+> [ADR 0008](docs/05-adr/0008-network-tier-standard.md) 裁决改用 Standard。
+> **它的落地是半边的，两半都要说**：`infra/node/create-node.sh` 已硬编码
+> `NETWORK_TIER="STANDARD"` 并在建完之后读回断言一次（PR #10，2026-08-21 合并），
+> 所以**今后每一台新节点都是 Standard**；而 2026-08-20 实查的两台既有节点
+> `vpn-us` / `vpn-jp` 与它们的两个静态 IP **仍全在 `PREMIUM` 层且裁决明定不迁**。
+> 于是**现在在花钱的那部分流量，一分钱都还没省下来** —— 自有 Standard 节点是 0 台。
+> （此前本行写「该裁决至今未实施」，只说了后半边；ADR 0008 头部写「已实施（仅新节点）」，
+> 只说了前半边。两种读法各对一半，这里合成一句。）
 > 单位经济与这个待评估的成本杠杆见
 > [pricing-and-plans.md §2](docs/03-product/pricing-and-plans.md)。
 
@@ -54,7 +63,7 @@ babel.plus/
 │   ├── cmd/server/        # 入口
 │   ├── internal/gen/      # oapi-codegen 生成物，禁止手改
 │   ├── internal/handler/  # 实现；unimplemented.gen.go 是生成的 501 兜底
-│   ├── db/migrations/     # 12 组 up/down
+│   ├── db/migrations/     # 17 组 up/down（0001–0017，2026-08-30 实数）
 │   ├── db/queries/        # sqlc 输入
 │   ├── db/gen/            # sqlc 生成物，禁止手改
 │   └── Makefile           # 全部目标走容器，本机不需要装 Go

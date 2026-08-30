@@ -806,8 +806,14 @@ type IAPKeySet struct {
 	mu        sync.Mutex
 	keys      map[string]*ecdsa.PublicKey
 	fetchedAt time.Time
-	// lastMiss 记录上一次「kid 未命中触发的强制刷新」时刻，用于限速 —— 见 PublicKey。
+	// lastMiss 记录上一次「缓存新鲜但 kid 未命中」触发的强制刷新时刻，用于限速 —— 见 PublicKey。
 	lastMiss time.Time
+	// lastFetch 记录上一次**尝试**拉取 JWKS 的时刻（成功与否都更新），用于限速 —— 见 PublicKey。
+	//
+	// 记「尝试」而不是「成功」是关键：只记成功的话，gstatic 一旦不可达，
+	// fetchedAt 永远不前进 → 缓存永远算过期 → 每个请求都去拉一次，
+	// 我们就成了对 gstatic 的重试风暴。与 GoogleJWKS.refreshLocked 同一条纪律。
+	lastFetch time.Time
 }
 
 const (
@@ -818,11 +824,11 @@ const (
 	// 不影响新密钥的接纳速度。
 	defaultJWKSTTL = time.Hour
 
-	// jwksMissRefreshInterval 是「kid 未命中」触发强制刷新的最小间隔。
+	// jwksRefetchInterval 是两次**拉取尝试**之间的最小间隔。
 	//
 	// 没有这道闸的话，任何人用一个随机 kid 连发请求就能让我们
 	// 对 gstatic 发起等量的出站请求 —— 一个反射式放大器，而且是我们付账。
-	jwksMissRefreshInterval = time.Minute
+	jwksRefetchInterval = time.Minute
 
 	// jwksMaxBytes 是响应体上限。远端不受我们控制，不能无上限地读进内存。
 	jwksMaxBytes = 1 << 20
@@ -869,18 +875,37 @@ func (s *IAPKeySet) PublicKey(ctx context.Context, kid string) (*ecdsa.PublicKey
 	defer s.mu.Unlock()
 
 	now := s.now()
-	stale := s.keys == nil || now.Sub(s.fetchedAt) > s.ttl()
-	if !stale {
+	fresh := s.keys != nil && now.Sub(s.fetchedAt) <= s.ttl()
+	switch {
+	case fresh:
 		if k, ok := s.keys[kid]; ok {
 			return k, nil
 		}
-		// 缓存里没有这个 kid：可能是刚轮换的新密钥，也可能是伪造的 kid。
-		// 强制刷新一次，但要限速（见 jwksMissRefreshInterval）。
-		if now.Sub(s.lastMiss) < jwksMissRefreshInterval {
+		// 缓存新鲜但没有这个 kid：可能是刚轮换的新密钥，也可能是伪造的 kid。
+		// 强制刷新一次以尽快接纳新密钥（这正是「TTL 不影响新密钥接纳速度」的来源），
+		// 但要限速（见 jwksRefetchInterval）。
+		if now.Sub(s.lastMiss) < jwksRefetchInterval {
 			return nil, fmt.Errorf("未知 kid %q（刷新被限速）", kid)
 		}
 		s.lastMiss = now
+
+	case now.Sub(s.lastFetch) < jwksRefetchInterval:
+		// 🔴 缓存过期（或从未拉取成功）这条路径原本**一次节流都不过**。
+		//
+		// 于是 gstatic 一抖，fetchedAt 就永远不再前进，每个进来的请求都变成一次出站请求 ——
+		// 与 lastMiss 挡的是同一个反射式放大器，只是触发条件从「随机 kid」
+		// 换成了「远端不可达」。而管理面在公网上（--ingress=all），谁都能敲。
+		if k, ok := s.keys[kid]; ok {
+			// 缓存过期但 kid 命中：用略旧的公钥，不因为「该刷新了」就把请求挡掉。
+			// 公钥过期 ≠ 失效（Google 是「先公布新的，旧的再挂一段时间」），
+			// 而 exp 仍然在管住 token 寿命。
+			return k, nil
+		}
+		return nil, fmt.Errorf("未知 kid %q（JWKS 刚拉取过，刷新被限速）", kid)
 	}
+
+	// 先记「尝试过」再发请求 —— 见 lastFetch 的注释。
+	s.lastFetch = now
 
 	keys, err := fetchJWKS(ctx, s.client(), s.url())
 	if err != nil {
