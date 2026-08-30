@@ -451,7 +451,7 @@ guard_project() {
      在错误的上下文里操作监控配置的代价不是「脚本报错」，是「动到别人的资源」。
      改法二选一：
        gcloud config set project $EXPECTED_PROJECT_ID
-       CLOUDSDK_CORE_PROJECT=$EXPECTED_PROJECT_ID $0 $*"
+       CLOUDSDK_CORE_PROJECT=$EXPECTED_PROJECT_ID $0 ..."
   fi
 }
 
@@ -703,7 +703,9 @@ apply_one() {
     return 0
   fi
 
-  if ! "${cmd[@]}" >/dev/null; then
+  # </dev/null 不能省：apply_all 是 `while read < plan.tsv` 驱动的，
+  # 子命令若读走一口 stdin，剩下的指标会被**静默跳过**（跳过的那条不会有任何输出）。
+  if ! "${cmd[@]}" >/dev/null </dev/null; then
     fail "$name  gcloud logging metrics $verb 失败"
     return 1
   fi
@@ -842,8 +844,11 @@ report_gaps() {
 
   printf '\n' >&2
   warn "两条 BLOCKED 各差一个外部动作，不差代码："
-  log "     · bp_cert_issuer_bad —— infra/scripts/check-cert-issuer.sh 在，但"
-  log "       (a) 三套域名池一个域名都还没注册，(b)「每日」的调度器未裁决、无脚本。"
+  log "     · bp_cert_issuer_bad —— infra/scripts/check-cert-issuer.sh 在，"
+  log "       每日调度也已经有脚本了（infra/scripts/setup-scheduler.sh --only=cert，形态已裁决："
+  log "       Cloud Run Job + Scheduler）。但那个脚本**现在同样建不出来**，卡在两件事上："
+  log "       (a) 三套域名池一个域名都还没注册 —— 清单为空的每日核对是一条天天报红的 P0；"
+  log "       (b) 缺一个装了 bash + openssl + gcloud 且带着该脚本的镜像，本仓库没有构建它的路径。"
   log "       🔴 顺序不能反：**先建指标，再挂调度器**。反了就丢掉挂上去到建指标之间的信号。"
   log "     · bp_node_alive —— api/internal/handler/nodealive.go 在写，但第一台 bp-node-* 还没建成。"
   log "       🔴 monitoring §5.1 坑一：metric absence **需要那条 time series 曾经有过数据**。"

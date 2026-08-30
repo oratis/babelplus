@@ -54,7 +54,7 @@ UPDATE orders SET
   address_watch_until = $7,
   status = 'paying', updated_at = now()
 WHERE id = $1 AND status = 'pending'
-RETURNING id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at
+RETURNING id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at, pay_amount_usdt6, covers_from, covers_to, prev_order_id, price_monthly_at_order, pay_from_address
 `
 
 type AttachPaymentAddressParams struct {
@@ -115,6 +115,12 @@ func (q *Queries) AttachPaymentAddress(ctx context.Context, arg AttachPaymentAdd
 		&i.CancelledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PayAmountUsdt6,
+		&i.CoversFrom,
+		&i.CoversTo,
+		&i.PrevOrderID,
+		&i.PriceMonthlyAtOrder,
+		&i.PayFromAddress,
 	)
 	return i, err
 }
@@ -394,27 +400,32 @@ const createOrder = `-- name: CreateOrder :one
 INSERT INTO orders (
   trade_no, user_id, type, plan_id, period, currency,
   amount_gross, amount_discount, surplus_amount, amount_balance, amount_due,
-  surplus_order_ids, coupon_id, invited_by, expires_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-RETURNING id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at
+  surplus_order_ids, coupon_id, invited_by, expires_at,
+  covers_from, covers_to, prev_order_id, price_monthly_at_order
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+RETURNING id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at, pay_amount_usdt6, covers_from, covers_to, prev_order_id, price_monthly_at_order, pay_from_address
 `
 
 type CreateOrderParams struct {
-	TradeNo         string             `json:"trade_no"`
-	UserID          int64              `json:"user_id"`
-	Type            OrderType          `json:"type"`
-	PlanID          *int64             `json:"plan_id"`
-	Period          *OrderPeriod       `json:"period"`
-	Currency        string             `json:"currency"`
-	AmountGross     int64              `json:"amount_gross"`
-	AmountDiscount  int64              `json:"amount_discount"`
-	SurplusAmount   int64              `json:"surplus_amount"`
-	AmountBalance   int64              `json:"amount_balance"`
-	AmountDue       int64              `json:"amount_due"`
-	SurplusOrderIds []int64            `json:"surplus_order_ids"`
-	CouponID        *int64             `json:"coupon_id"`
-	InvitedBy       *int64             `json:"invited_by"`
-	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	TradeNo             string             `json:"trade_no"`
+	UserID              int64              `json:"user_id"`
+	Type                OrderType          `json:"type"`
+	PlanID              *int64             `json:"plan_id"`
+	Period              *OrderPeriod       `json:"period"`
+	Currency            string             `json:"currency"`
+	AmountGross         int64              `json:"amount_gross"`
+	AmountDiscount      int64              `json:"amount_discount"`
+	SurplusAmount       int64              `json:"surplus_amount"`
+	AmountBalance       int64              `json:"amount_balance"`
+	AmountDue           int64              `json:"amount_due"`
+	SurplusOrderIds     []int64            `json:"surplus_order_ids"`
+	CouponID            *int64             `json:"coupon_id"`
+	InvitedBy           *int64             `json:"invited_by"`
+	ExpiresAt           pgtype.Timestamptz `json:"expires_at"`
+	CoversFrom          pgtype.Timestamptz `json:"covers_from"`
+	CoversTo            pgtype.Timestamptz `json:"covers_to"`
+	PrevOrderID         *int64             `json:"prev_order_id"`
+	PriceMonthlyAtOrder *int64             `json:"price_monthly_at_order"`
 }
 
 // ============================================================
@@ -424,6 +435,23 @@ type CreateOrderParams struct {
 //
 //	amount_due = amount_gross - amount_discount - surplus_amount - amount_balance
 //	在插入时就成立 —— 「三行金额加起来对不上」是数据库拒绝，不是对账时才发现。
+//
+// 后四个参数是 0016 加的服务区间与窗口链（ADR 0013 §2.1），按 type 写死，**没有第四种写法**：
+//
+//	type      covers_from($16)              covers_to($17)      prev_order_id($18)
+//	new       paid_at                       covers_from+period  NULL（窗口的根）
+//	renew     greatest(paid_at, 旧covers_to) covers_from+period  旧的那一单
+//	upgrade   paid_at                       旧 covers_to（不变） 被折抵掉的那一单
+//	traffic_pack / reset_pack / wallet_topup 三列全 NULL
+//
+// renew 取 greatest 而不是 paid_at：提前 10 天续年付的用户，他买的那一年是从**旧到期日**开始的；
+// 用 paid_at 会把每日单价摊薄 10/375 = 2.7%，而退款按天折算读的就是这个单价。
+// upgrade 的 covers_from 取 paid_at（不继承）：升级不买时间只换档位，D_total 必须是**本段**的长度，
+// 继承会让链式升级的折抵额凭空缩水（ADR 0013 §2.1 第 2 条的算例：1600 变成 800）。
+//
+// price_monthly_at_order($19) 是下单时 plans.price_monthly 的快照（分）。退款扣减必须用它、
+// 不能读活列 —— 否则涨价之后老订单的退款额跟着变小，用户会认为我们改价来少退钱
+// （user-journey §10.2 硬要求 1）。这一列同时是 GetRefundBasis 里 consumed_time 的乘数。
 func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error) {
 	row := q.db.QueryRow(ctx, createOrder,
 		arg.TradeNo,
@@ -441,6 +469,10 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		arg.CouponID,
 		arg.InvitedBy,
 		arg.ExpiresAt,
+		arg.CoversFrom,
+		arg.CoversTo,
+		arg.PrevOrderID,
+		arg.PriceMonthlyAtOrder,
 	)
 	var i Order
 	err := row.Scan(
@@ -477,6 +509,12 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		&i.CancelledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PayAmountUsdt6,
+		&i.CoversFrom,
+		&i.CoversTo,
+		&i.PrevOrderID,
+		&i.PriceMonthlyAtOrder,
+		&i.PayFromAddress,
 	)
 	return i, err
 }
@@ -485,9 +523,9 @@ const createPlan = `-- name: CreatePlan :one
 INSERT INTO plans (
   code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method,
   price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset,
-  renewable, sellable, visible, sort_order, content_md
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-RETURNING id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at
+  renewable, sellable, visible, sort_order, content_md, kind
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+RETURNING id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at, kind
 `
 
 type CreatePlanParams struct {
@@ -509,8 +547,13 @@ type CreatePlanParams struct {
 	Visible            bool        `json:"visible"`
 	SortOrder          int32       `json:"sort_order"`
 	ContentMd          string      `json:"content_md"`
+	Kind               string      `json:"kind"`
 }
 
+// kind 是第 19 个参数，且**必须显式传**（ADR 0013 §4.6）。
+// 0016 刻意没给它 DEFAULT：若默认成 'cycle'，每一个通过后台建出来的加油包都会被默默写成周期套餐，
+// 于是 POST /orders 把它推导成 new/renew/upgrade，走进周期套餐的开通逻辑并凭空触发一次折抵 ——
+// 一次静默的错误分类。无默认值意味着「建套餐时忘了填 kind」是数据库拒绝，当场就知道。
 func (q *Queries) CreatePlan(ctx context.Context, arg CreatePlanParams) (Plan, error) {
 	row := q.db.QueryRow(ctx, createPlan,
 		arg.Code,
@@ -531,6 +574,7 @@ func (q *Queries) CreatePlan(ctx context.Context, arg CreatePlanParams) (Plan, e
 		arg.Visible,
 		arg.SortOrder,
 		arg.ContentMd,
+		arg.Kind,
 	)
 	var i Plan
 	err := row.Scan(
@@ -556,33 +600,41 @@ func (q *Queries) CreatePlan(ctx context.Context, arg CreatePlanParams) (Plan, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
 	)
 	return i, err
 }
 
 const createRefund = `-- name: CreateRefund :one
-
-INSERT INTO refunds (order_id, amount, destination, reason, operator_id)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, order_id, amount, destination, status, gateway_ref, reason, operator_id, created_at
+INSERT INTO refunds (order_id, user_id, amount, destination, rule, reason, operator_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, order_id, amount, destination, status, gateway_ref, reason, operator_id, created_at, rule, user_id
 `
 
 type CreateRefundParams struct {
 	OrderID     int64   `json:"order_id"`
+	UserID      int64   `json:"user_id"`
 	Amount      int64   `json:"amount"`
 	Destination string  `json:"destination"`
+	Rule        string  `json:"rule"`
 	Reason      *string `json:"reason"`
 	OperatorID  *int64  `json:"operator_id"`
 }
 
-// ============================================================
-// 退款
-// ============================================================
+// ⚠️ user_id 是 0016 加的**冗余**列（NOT NULL，无默认值），必须显式写 ——
+//
+//	它存在的唯一理由是让 refunds_cooling_off_once 这条部分唯一索引成立，
+//	「冷静期退款一生一次」因此是数据库拒绝，而不是应用代码的自觉（ADR 0013 §6.1）。
+//	调用方必须传 orders.user_id，两者不一致会让那条唯一索引失效。
+//	rule 有 DEFAULT 'manual'，但同样显式传：走的是哪一档退款规则是审计要回答的问题，
+//	让它默认成 'manual' 等于把 cooling_off 的一生一次悄悄绕过去。
 func (q *Queries) CreateRefund(ctx context.Context, arg CreateRefundParams) (Refund, error) {
 	row := q.db.QueryRow(ctx, createRefund,
 		arg.OrderID,
+		arg.UserID,
 		arg.Amount,
 		arg.Destination,
+		arg.Rule,
 		arg.Reason,
 		arg.OperatorID,
 	)
@@ -597,6 +649,8 @@ func (q *Queries) CreateRefund(ctx context.Context, arg CreateRefundParams) (Ref
 		&i.Reason,
 		&i.OperatorID,
 		&i.CreatedAt,
+		&i.Rule,
+		&i.UserID,
 	)
 	return i, err
 }
@@ -714,7 +768,7 @@ func (q *Queries) GetLedgerAccountByCode(ctx context.Context, code string) (Ledg
 }
 
 const getOrderByID = `-- name: GetOrderByID :one
-SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at FROM orders WHERE id = $1
+SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at, pay_amount_usdt6, covers_from, covers_to, prev_order_id, price_monthly_at_order, pay_from_address FROM orders WHERE id = $1
 `
 
 func (q *Queries) GetOrderByID(ctx context.Context, id int64) (Order, error) {
@@ -754,12 +808,18 @@ func (q *Queries) GetOrderByID(ctx context.Context, id int64) (Order, error) {
 		&i.CancelledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PayAmountUsdt6,
+		&i.CoversFrom,
+		&i.CoversTo,
+		&i.PrevOrderID,
+		&i.PriceMonthlyAtOrder,
+		&i.PayFromAddress,
 	)
 	return i, err
 }
 
 const getOrderByTradeNo = `-- name: GetOrderByTradeNo :one
-SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at FROM orders WHERE trade_no = $1
+SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at, pay_amount_usdt6, covers_from, covers_to, prev_order_id, price_monthly_at_order, pay_from_address FROM orders WHERE trade_no = $1
 `
 
 func (q *Queries) GetOrderByTradeNo(ctx context.Context, tradeNo string) (Order, error) {
@@ -799,12 +859,18 @@ func (q *Queries) GetOrderByTradeNo(ctx context.Context, tradeNo string) (Order,
 		&i.CancelledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PayAmountUsdt6,
+		&i.CoversFrom,
+		&i.CoversTo,
+		&i.PrevOrderID,
+		&i.PriceMonthlyAtOrder,
+		&i.PayFromAddress,
 	)
 	return i, err
 }
 
 const getOrderForUpdate = `-- name: GetOrderForUpdate :one
-SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at FROM orders WHERE id = $1 FOR UPDATE
+SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at, pay_amount_usdt6, covers_from, covers_to, prev_order_id, price_monthly_at_order, pay_from_address FROM orders WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetOrderForUpdate(ctx context.Context, id int64) (Order, error) {
@@ -844,12 +910,18 @@ func (q *Queries) GetOrderForUpdate(ctx context.Context, id int64) (Order, error
 		&i.CancelledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PayAmountUsdt6,
+		&i.CoversFrom,
+		&i.CoversTo,
+		&i.PrevOrderID,
+		&i.PriceMonthlyAtOrder,
+		&i.PayFromAddress,
 	)
 	return i, err
 }
 
 const getPlan = `-- name: GetPlan :one
-SELECT id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at FROM plans WHERE id = $1
+SELECT id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at, kind FROM plans WHERE id = $1
 `
 
 func (q *Queries) GetPlan(ctx context.Context, id int64) (Plan, error) {
@@ -878,12 +950,13 @@ func (q *Queries) GetPlan(ctx context.Context, id int64) (Plan, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
 	)
 	return i, err
 }
 
 const getPlanByCode = `-- name: GetPlanByCode :one
-SELECT id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at FROM plans WHERE code = $1 AND archived_at IS NULL
+SELECT id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at, kind FROM plans WHERE code = $1 AND archived_at IS NULL
 `
 
 func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plan, error) {
@@ -912,8 +985,163 @@ func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plan, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.Kind,
 	)
 	return i, err
+}
+
+const getRefundBasis = `-- name: GetRefundBasis :many
+
+WITH RECURSIVE win AS (
+    SELECT o.id, o.type, o.status, o.covers_from, o.covers_to, o.prev_order_id,
+           o.amount_paid, o.amount_balance, o.price_monthly_at_order
+    FROM orders o
+    WHERE o.id = $1
+  UNION ALL
+    SELECT p.id, p.type, p.status, p.covers_from, p.covers_to, p.prev_order_id,
+           p.amount_paid, p.amount_balance, p.price_monthly_at_order
+    FROM orders p
+    JOIN win w ON p.id = w.prev_order_id
+    WHERE p.status = 'completed'
+), seg AS (
+  -- ⚠️ 显式 ::timestamptz 不是多余的：递归 CTE 里 sqlc 推不出窗口函数的返回类型，
+  --    不写这个 cast，生成的 Go 字段会退化成 interface{}，调用方就得做类型断言。
+  SELECT w.id, w.type, w.status, w.covers_from, w.covers_to, w.prev_order_id, w.amount_paid, w.amount_balance, w.price_monthly_at_order,
+         (lead(w.covers_from) OVER (ORDER BY w.covers_from, w.id))::timestamptz AS next_from
+  FROM win w
+), calc AS (
+  SELECT seg.id, seg.type, seg.status, seg.covers_from, seg.covers_to, seg.prev_order_id, seg.amount_paid, seg.amount_balance, seg.price_monthly_at_order, seg.next_from,
+         (seg.amount_paid + seg.amount_balance)::bigint AS segment_value,
+         floor(coalesce(seg.price_monthly_at_order, 0)
+               * greatest(0, extract(epoch FROM
+                   (least(coalesce(seg.next_from, now()), now()) - seg.covers_from)) / 86400)
+               / 30)::bigint AS segment_consumed_time
+  FROM seg
+), basis AS (
+  -- consumed_data 只与「本周期已用的**套餐**流量」有关，与窗口链无关，所以整条链上是个常数。
+  -- 分子截到 transfer_enable_plan：加油包的字节不参与退款扣减，因为加油包本来就不退（Class C）。
+  -- 分母用 users.transfer_enable_plan（本周期实际发放的量，升级后按剩余天数折算过）而不是
+  -- plans.transfer_enable；greatest(1, ·) 防除零（新注册用户配额是 0）。
+  SELECT least(coalesce(ut.u, 0) + coalesce(ut.d, 0), u.transfer_enable_plan)::bigint AS plan_used,
+         u.transfer_enable_plan,
+         floor(coalesce(s.price_monthly_at_order, 0)
+               * least(coalesce(ut.u, 0) + coalesce(ut.d, 0), u.transfer_enable_plan)::numeric
+               / greatest(1, u.transfer_enable_plan))::bigint AS consumed_data
+  FROM orders s
+  JOIN users u          ON u.id = s.user_id
+  LEFT JOIN user_traffic ut ON ut.user_id = u.id
+  WHERE s.id = $1
+)
+SELECT
+  calc.id   AS order_id,
+  calc.type AS order_type,
+  calc.covers_from,
+  calc.covers_to,
+  calc.next_from,
+  calc.price_monthly_at_order,
+  calc.segment_value,
+  calc.segment_consumed_time,
+  (sum(calc.segment_value)         OVER ())::bigint AS v_window,
+  (sum(calc.segment_consumed_time) OVER ())::bigint AS consumed_time,
+  basis.plan_used,
+  basis.transfer_enable_plan,
+  basis.consumed_data,
+  -- Class B 的退款额。归零（refund_b = 0）即 Class C 的「不予退款」，不需要另写阈值表：
+  -- 年付 75 折的用户恰好在第 270 天（9 个月）归零，与法务页的措辞逐字一致（§3.2）。
+  -- Class A（首单 7 天善意窗口）豁免 consumed_time + consumed_data 两项扣减，即直接退 v_window，
+  -- 那四道闸门由调用方判定，不在本查询里。
+  greatest(0, (sum(calc.segment_value)         OVER ())
+            - (sum(calc.segment_consumed_time) OVER ())
+            - basis.consumed_data)::bigint AS refund_b
+FROM calc
+CROSS JOIN basis
+ORDER BY calc.covers_from, calc.id
+`
+
+type GetRefundBasisRow struct {
+	OrderID             int64              `json:"order_id"`
+	OrderType           OrderType          `json:"order_type"`
+	CoversFrom          pgtype.Timestamptz `json:"covers_from"`
+	CoversTo            pgtype.Timestamptz `json:"covers_to"`
+	NextFrom            pgtype.Timestamptz `json:"next_from"`
+	PriceMonthlyAtOrder *int64             `json:"price_monthly_at_order"`
+	SegmentValue        int64              `json:"segment_value"`
+	SegmentConsumedTime int64              `json:"segment_consumed_time"`
+	VWindow             int64              `json:"v_window"`
+	ConsumedTime        int64              `json:"consumed_time"`
+	PlanUsed            int64              `json:"plan_used"`
+	TransferEnablePlan  int64              `json:"transfer_enable_plan"`
+	ConsumedData        int64              `json:"consumed_data"`
+	RefundB             int64              `json:"refund_b"`
+}
+
+// ============================================================
+// 退款
+// ============================================================
+// 退款基数：沿 prev_order_id 把整条订阅窗口链回溯出来，一次算清 V_window / consumed_time /
+// consumed_data / refund_B（ADR 0013 §3.2 的公式逐行落地）。
+//
+// 🔴 **基数是 V_window（整条链的实付求和），不是 source.amount_paid、不是 V_source**（§4.3 边界 3）：
+//
+//	amount_paid 会吞掉被折抵掉的那部分（用户实实在在付过），amount_gross 会退他没付过的钱，
+//	V_source 只覆盖最后一段。V_window 是唯一处处正确的量。
+//	求和刻意**不含** surplus_amount（那是窗口内部的价值回收，算进去等于把同一笔钱数两遍，§2.2）
+//	也**不含** amount_discount（优惠码面值不该被洗成可退现的信用）。
+//
+// 为什么必须递归而不是按时间区间猜连续性：升级会在窗口中间插入新的一段，
+// 而「最后一笔已完成订单的 paid_at」这个锚点**会被升级重置**，退款基数因此每升级一次就凭空缩水一次
+// （ADR 0013 §7.1 C2 的原始缺陷）。prev_order_id 让窗口成为一条可以走完的链表。
+//
+// 分段口径：每一段的时间价值按**该段自己的**月付标价快照折算，段末取 lead(covers_from)
+// （最后一段取 now()）。按比例、不取整到月 —— ceil 会制造一个 24 小时的全额退款窗口
+// （now() = paid_at 时 ceil(0/30) = 0，refund = V），而那个口子不受 Class A 四道闸门管辖。
+//
+// ⚠️ price_monthly_at_order 允许为 NULL（0016 之前的历史订单没有快照）。求和里 coalesce 成 0
+//
+//	是因为 sum() 会**静默忽略** NULL —— 一条 NULL 会让整条链的 consumed_time 少算而没有任何迹象。
+//	原始列一并返回，调用方看见 NULL **必须拒绝退款并转人工**，而不是当成 0 接着算。
+//
+// ⚠️ 调用方必须传一笔 status = 'completed' 的周期订单 id（§2.2 的 source 选取）。
+//
+//	锚点不过滤 status 是照 ADR 原文；祖先则显式过滤，避免把一笔未完成的历史单算进实付。
+//	传 traffic_pack / reset_pack / wallet_topup 一律不退（Class C），不该走到这里。
+//
+// 每行是窗口链上的一段（按 covers_from 升序）；v_window / consumed_time / consumed_data /
+// refund_b 四列在所有行上取值相同，是整条链的汇总 —— 一次查询同时拿到明细与结论，
+// 结算页那三行（user-journey §10.2）与审计都读它。
+func (q *Queries) GetRefundBasis(ctx context.Context, id int64) ([]GetRefundBasisRow, error) {
+	rows, err := q.db.Query(ctx, getRefundBasis, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetRefundBasisRow{}
+	for rows.Next() {
+		var i GetRefundBasisRow
+		if err := rows.Scan(
+			&i.OrderID,
+			&i.OrderType,
+			&i.CoversFrom,
+			&i.CoversTo,
+			&i.NextFrom,
+			&i.PriceMonthlyAtOrder,
+			&i.SegmentValue,
+			&i.SegmentConsumedTime,
+			&i.VWindow,
+			&i.ConsumedTime,
+			&i.PlanUsed,
+			&i.TransferEnablePlan,
+			&i.ConsumedData,
+			&i.RefundB,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getWalletBalance = `-- name: GetWalletBalance :one
@@ -1267,7 +1495,7 @@ func (q *Queries) ListOrderTransitions(ctx context.Context, orderID int64) ([]Or
 }
 
 const listRefundsByOrder = `-- name: ListRefundsByOrder :many
-SELECT id, order_id, amount, destination, status, gateway_ref, reason, operator_id, created_at FROM refunds WHERE order_id = $1 ORDER BY created_at DESC
+SELECT id, order_id, amount, destination, status, gateway_ref, reason, operator_id, created_at, rule, user_id FROM refunds WHERE order_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) ListRefundsByOrder(ctx context.Context, orderID int64) ([]Refund, error) {
@@ -1289,6 +1517,8 @@ func (q *Queries) ListRefundsByOrder(ctx context.Context, orderID int64) ([]Refu
 			&i.Reason,
 			&i.OperatorID,
 			&i.CreatedAt,
+			&i.Rule,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -1303,7 +1533,7 @@ func (q *Queries) ListRefundsByOrder(ctx context.Context, orderID int64) ([]Refu
 const listSellablePlans = `-- name: ListSellablePlans :many
 
 
-SELECT id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at FROM plans
+SELECT id, code, name, group_id, transfer_enable, device_limit, speed_limit_mbps, reset_traffic_method, price_monthly, price_quarterly, price_half_yearly, price_yearly, price_onetime, price_reset, renewable, sellable, visible, sort_order, content_md, created_at, updated_at, archived_at, kind FROM plans
 WHERE visible = true AND archived_at IS NULL
 ORDER BY sort_order, id
 `
@@ -1352,6 +1582,7 @@ func (q *Queries) ListSellablePlans(ctx context.Context) ([]Plan, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ArchivedAt,
+			&i.Kind,
 		); err != nil {
 			return nil, err
 		}
@@ -1364,7 +1595,7 @@ func (q *Queries) ListSellablePlans(ctx context.Context) ([]Plan, error) {
 }
 
 const listUserOrders = `-- name: ListUserOrders :many
-SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at FROM orders
+SELECT id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at, pay_amount_usdt6, covers_from, covers_to, prev_order_id, price_monthly_at_order, pay_from_address FROM orders
 WHERE user_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -1419,6 +1650,12 @@ func (q *Queries) ListUserOrders(ctx context.Context, arg ListUserOrdersParams) 
 			&i.CancelledAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PayAmountUsdt6,
+			&i.CoversFrom,
+			&i.CoversTo,
+			&i.PrevOrderID,
+			&i.PriceMonthlyAtOrder,
+			&i.PayFromAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -1634,7 +1871,7 @@ UPDATE orders SET
   cancelled_at = CASE WHEN $2::order_status IN ('cancelled','expired') THEN coalesce(cancelled_at, now()) ELSE cancelled_at END,
   updated_at = now()
 WHERE id = $1
-RETURNING id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at
+RETURNING id, trade_no, user_id, type, plan_id, period, status, currency, amount_gross, amount_discount, surplus_amount, amount_balance, amount_due, amount_paid, amount_refunded, surplus_order_ids, coupon_id, invited_by, gateway, gateway_ref, pay_chain, pay_address, pay_amount_raw, pay_amount_received, fx_usdt_per_cny, fx_locked_at, expires_at, address_watch_until, paid_at, completed_at, cancelled_at, created_at, updated_at, pay_amount_usdt6, covers_from, covers_to, prev_order_id, price_monthly_at_order, pay_from_address
 `
 
 type UpdateOrderStatusParams struct {
@@ -1681,6 +1918,12 @@ func (q *Queries) UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusPa
 		&i.CancelledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PayAmountUsdt6,
+		&i.CoversFrom,
+		&i.CoversTo,
+		&i.PrevOrderID,
+		&i.PriceMonthlyAtOrder,
+		&i.PayFromAddress,
 	)
 	return i, err
 }
@@ -1688,7 +1931,7 @@ func (q *Queries) UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusPa
 const updateRefundStatus = `-- name: UpdateRefundStatus :one
 UPDATE refunds SET status = $2, gateway_ref = coalesce($3, gateway_ref)
 WHERE id = $1
-RETURNING id, order_id, amount, destination, status, gateway_ref, reason, operator_id, created_at
+RETURNING id, order_id, amount, destination, status, gateway_ref, reason, operator_id, created_at, rule, user_id
 `
 
 type UpdateRefundStatusParams struct {
@@ -1710,6 +1953,8 @@ func (q *Queries) UpdateRefundStatus(ctx context.Context, arg UpdateRefundStatus
 		&i.Reason,
 		&i.OperatorID,
 		&i.CreatedAt,
+		&i.Rule,
+		&i.UserID,
 	)
 	return i, err
 }

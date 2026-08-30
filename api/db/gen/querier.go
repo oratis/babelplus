@@ -45,22 +45,56 @@ type Querier interface {
 	AddServerToGroup(ctx context.Context, arg AddServerToGroupParams) error
 	// 单用户累加（后台手工调整 / 补账用；正常路径一律走批量版本）
 	AddUserTraffic(ctx context.Context, arg AddUserTrafficParams) (AddUserTrafficRow, error)
-	// 流量包：只叠加配额。
-	// ⚠️ 已知缺口（data-model §16）：当前 transfer_enable 是单列，周期重置时会被套餐值整个覆盖，
-	//    所以流量包在重置时**保不住**。修复需要拆成 transfer_enable_plan + transfer_enable_pack
-	//    两列，而那依赖一条尚未裁决的产品规则（user-journey §10.1 标为待裁决）。
+	// 流量包：只叠加**加油包**分量（trigger_source = 'pack'）。
+	//
+	// 加油包会跨周期结转，套餐配额每个周期被覆写清零 —— 两者语义不同，所以必须落在不同的列上。
+	// 加在 _pack 上，AdvanceUserResetCycle 才碰不到它；加在 _plan 上就会在下一次重置时被套餐值抹掉，
+	// 而那是**静默的**：用户买的包凭空消失，没有任何报错（ADR 0013 §5.1 第 2 条，这也是本仓库
+	// 此前三处独立登记的同一个缺口，§5.1 的裁决把它关掉了）。
+	//
+	// pack_expire_at 顺延到 12 个月后（ADR 0013 §5.4）：结转本身是一笔无限期负债，
+	// 这一列是它唯一的封口。取 greatest 而不是直接赋值，是为了让「已经买过一个更晚到期的包」
+	// 不会被一次新购买**缩短**有效期。12 个月的出处是最长售卖周期（年付），
+	// 这样「买年付时顺手买的包」在整个订阅期内都有效。
 	AddUserTransferQuota(ctx context.Context, arg AddUserTransferQuotaParams) (AddUserTransferQuotaRow, error)
-	// 下一次重置时刻：从固定锚点乘算，避免月末漂移（data-model §6.2）。
+	// 周期重置：归零当期用量 + 推进重置时刻 + 重发套餐配额 + 结转加油包，**一条语句做完**。
+	//
+	// 下一次重置时刻从固定锚点乘算，避免月末漂移（data-model §6.2）：
 	// 2026-01-31 + 1month + 1month = 2026-03-28（漂移）；anchor + 2*1month = 2026-03-31（不漂移）。
-	// ⚠️ 本语句会触发 users_bump_user_rev_trg，但只改 reset_seq/reset_at 这两列，
-	//    不在触发器的监视列表里 —— 所以配额恢复**不会**自动传播到节点，
-	//    调用方必须显式 BumpUserRevForUser（data-model §6.2 的 ⚠️）。
-	AdvanceUserResetCycle(ctx context.Context, id int64) (AdvanceUserResetCycleRow, error)
+	//
+	// 🔴 **为什么归零必须并进来，而不是让调用方先跑 ResetUserTraffic**（ADR 0013 §5.3）：
+	//    carry_pack 要用「本周期已用量」算，而 ResetUserTraffic 会把它清成 0。
+	//    两条语句放在 Querier 上就是两个互不相干的方法，**先跑哪条无从表达**；
+	//    先跑归零的那个顺序会让 carry_pack 恒等于 transfer_enable_pack，
+	//    于是加油包只增不减 —— 而且**完全静默**，没有报错、没有告警，只有账对不上。
+	//    合并成一条 CTE 之后，「顺序」这件事在类型层面不存在了。
+	//    cur 上的 FOR UPDATE 取的是同一个快照，同时挡住并发的节点上报把 u/d 改到中途。
+	//
+	// 消耗顺序是先套餐后加油包（ADR 0013 §5.3）：套餐配额**会过期**（本语句就在清它），
+	// 加油包**会结转**。先消耗会过期的那份，对用户永远不亏。所以
+	//   pack_used  = greatest(0, (u + d) - transfer_enable_plan)
+	//   carry_pack = greatest(0, transfer_enable_pack - pack_used)
+	// 外层那个 greatest(0, …) 不是防御性代码：v2node 每 60 秒才上报一次，
+	// u+d 会**越过** transfer_enable 若干字节才被判定耗尽，pack_used 因此可能大于 transfer_enable_pack。
+	//
+	// ⚠️ transfer_enable_plan 与 transfer_enable_pack 都在 users_bump_user_rev_trg 的监视列表里，
+	//    所以本语句自己就会 bump user_rev，配额恢复会自动传播到节点 ——
+	//    调用方**不需要**再显式 BumpUserRevForUser（0016 之前需要，那条要求已随本语句作废）。
+	//    唯一的例外是 reset_traffic_method = 'never'：两列都不变时不 bump，而那种用户本来也不需要。
+	AdvanceUserResetCycle(ctx context.Context, userID int64) (AdvanceUserResetCycleRow, error)
 	// 「删除账号」= 匿名化，不是 DELETE（data-model §13 / §13.1）。
 	// 可识别信息被抹掉，行本身留下 —— 既满足「按请求删除个人数据」的实质，又不破坏账与统计。
 	AnonymizeUser(ctx context.Context, id int64) (AnonymizeUserRow, error)
 	// 开通 / 续费 / 升级后写权利。subscription_anchor_at 首次开通才写，续费与升级都不改
 	// —— 从固定锚点乘算重置日才不会月末漂移（data-model §6.2）。
+	//
+	// 🔴 写的是 transfer_enable_plan，**不是 transfer_enable**（ADR 0013 §6.5）。
+	//    0016 之后 transfer_enable 是 GENERATED ALWAYS AS (_plan + _pack) STORED，
+	//    PostgreSQL 拒绝对它赋值（`column ... can only be updated to DEFAULT`），
+	//    而 sqlc generate 与 go build **都不会报错** —— 写错了要到「用户付款成功、
+	//    订单进 paid、开通权利」那一刻才炸成 500（ADR 0013 §6.3 实测）。
+	//    语义上这里本来就只该写套餐配额：开通/续费/升级卖的是套餐，
+	//    加油包分量归 AddUserTransferQuota 管，两者相加由数据库自己算。
 	ApplyUserEntitlement(ctx context.Context, arg ApplyUserEntitlementParams) (User, error)
 	// 下架 ≠ 删除：历史订单引用 plans（data-model §13）
 	ArchivePlan(ctx context.Context, id int64) error
@@ -254,11 +288,33 @@ type Querier interface {
 	// ⚠️ orders_amount_balance CHECK 保证
 	//    amount_due = amount_gross - amount_discount - surplus_amount - amount_balance
 	//    在插入时就成立 —— 「三行金额加起来对不上」是数据库拒绝，不是对账时才发现。
+	//
+	// 后四个参数是 0016 加的服务区间与窗口链（ADR 0013 §2.1），按 type 写死，**没有第四种写法**：
+	//   type      covers_from($16)              covers_to($17)      prev_order_id($18)
+	//   new       paid_at                       covers_from+period  NULL（窗口的根）
+	//   renew     greatest(paid_at, 旧covers_to) covers_from+period  旧的那一单
+	//   upgrade   paid_at                       旧 covers_to（不变） 被折抵掉的那一单
+	//   traffic_pack / reset_pack / wallet_topup 三列全 NULL
+	// renew 取 greatest 而不是 paid_at：提前 10 天续年付的用户，他买的那一年是从**旧到期日**开始的；
+	// 用 paid_at 会把每日单价摊薄 10/375 = 2.7%，而退款按天折算读的就是这个单价。
+	// upgrade 的 covers_from 取 paid_at（不继承）：升级不买时间只换档位，D_total 必须是**本段**的长度，
+	// 继承会让链式升级的折抵额凭空缩水（ADR 0013 §2.1 第 2 条的算例：1600 变成 800）。
+	//
+	// price_monthly_at_order($19) 是下单时 plans.price_monthly 的快照（分）。退款扣减必须用它、
+	// 不能读活列 —— 否则涨价之后老订单的退款额跟着变小，用户会认为我们改价来少退钱
+	// （user-journey §10.2 硬要求 1）。这一列同时是 GetRefundBasis 里 consumed_time 的乘数。
 	CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error)
+	// kind 是第 19 个参数，且**必须显式传**（ADR 0013 §4.6）。
+	// 0016 刻意没给它 DEFAULT：若默认成 'cycle'，每一个通过后台建出来的加油包都会被默默写成周期套餐，
+	// 于是 POST /orders 把它推导成 new/renew/upgrade，走进周期套餐的开通逻辑并凭空触发一次折抵 ——
+	// 一次静默的错误分类。无默认值意味着「建套餐时忘了填 kind」是数据库拒绝，当场就知道。
 	CreatePlan(ctx context.Context, arg CreatePlanParams) (Plan, error)
-	// ============================================================
-	// 退款
-	// ============================================================
+	// ⚠️ user_id 是 0016 加的**冗余**列（NOT NULL，无默认值），必须显式写 ——
+	//    它存在的唯一理由是让 refunds_cooling_off_once 这条部分唯一索引成立，
+	//    「冷静期退款一生一次」因此是数据库拒绝，而不是应用代码的自觉（ADR 0013 §6.1）。
+	//    调用方必须传 orders.user_id，两者不一致会让那条唯一索引失效。
+	//    rule 有 DEFAULT 'manual'，但同样显式传：走的是哪一档退款规则是审计要回答的问题，
+	//    让它默认成 'manual' 等于把 cooling_off 的一生一次悄悄绕过去。
 	CreateRefund(ctx context.Context, arg CreateRefundParams) (Refund, error)
 	CreateSLAPolicy(ctx context.Context, arg CreateSLAPolicyParams) (SlaPolicy, error)
 	CreateServer(ctx context.Context, arg CreateServerParams) (Server, error)
@@ -361,6 +417,38 @@ type Querier interface {
 	GetOrderForUpdate(ctx context.Context, id int64) (Order, error)
 	GetPlan(ctx context.Context, id int64) (Plan, error)
 	GetPlanByCode(ctx context.Context, code string) (Plan, error)
+	// ============================================================
+	// 退款
+	// ============================================================
+	// 退款基数：沿 prev_order_id 把整条订阅窗口链回溯出来，一次算清 V_window / consumed_time /
+	// consumed_data / refund_B（ADR 0013 §3.2 的公式逐行落地）。
+	//
+	// 🔴 **基数是 V_window（整条链的实付求和），不是 source.amount_paid、不是 V_source**（§4.3 边界 3）：
+	//    amount_paid 会吞掉被折抵掉的那部分（用户实实在在付过），amount_gross 会退他没付过的钱，
+	//    V_source 只覆盖最后一段。V_window 是唯一处处正确的量。
+	//    求和刻意**不含** surplus_amount（那是窗口内部的价值回收，算进去等于把同一笔钱数两遍，§2.2）
+	//    也**不含** amount_discount（优惠码面值不该被洗成可退现的信用）。
+	//
+	// 为什么必须递归而不是按时间区间猜连续性：升级会在窗口中间插入新的一段，
+	// 而「最后一笔已完成订单的 paid_at」这个锚点**会被升级重置**，退款基数因此每升级一次就凭空缩水一次
+	// （ADR 0013 §7.1 C2 的原始缺陷）。prev_order_id 让窗口成为一条可以走完的链表。
+	//
+	// 分段口径：每一段的时间价值按**该段自己的**月付标价快照折算，段末取 lead(covers_from)
+	// （最后一段取 now()）。按比例、不取整到月 —— ceil 会制造一个 24 小时的全额退款窗口
+	// （now() = paid_at 时 ceil(0/30) = 0，refund = V），而那个口子不受 Class A 四道闸门管辖。
+	//
+	// ⚠️ price_monthly_at_order 允许为 NULL（0016 之前的历史订单没有快照）。求和里 coalesce 成 0
+	//    是因为 sum() 会**静默忽略** NULL —— 一条 NULL 会让整条链的 consumed_time 少算而没有任何迹象。
+	//    原始列一并返回，调用方看见 NULL **必须拒绝退款并转人工**，而不是当成 0 接着算。
+	//
+	// ⚠️ 调用方必须传一笔 status = 'completed' 的周期订单 id（§2.2 的 source 选取）。
+	//    锚点不过滤 status 是照 ADR 原文；祖先则显式过滤，避免把一笔未完成的历史单算进实付。
+	//    传 traffic_pack / reset_pack / wallet_topup 一律不退（Class C），不该走到这里。
+	//
+	// 每行是窗口链上的一段（按 covers_from 升序）；v_window / consumed_time / consumed_data /
+	// refund_b 四列在所有行上取值相同，是整条链的汇总 —— 一次查询同时拿到明细与结论，
+	// 结算页那三行（user-journey §10.2）与审计都读它。
+	GetRefundBasis(ctx context.Context, id int64) ([]GetRefundBasisRow, error)
 	// 注册时 users.group_id 是 NOT NULL 外键，必须给一个值。
 	// 这个值只是**占位**：新用户 transfer_enable = 0，在 ListAvailableUsersByServer 的
 	// 「u + d < transfer_enable」判定里天然为假，所以他落在哪个分组都看不到节点。
@@ -428,6 +516,31 @@ type Querier interface {
 	// ============================================================
 	// 单用户 N 天曲线（走主键前缀，≤ 300 行）
 	GetUserDailyTraffic(ctx context.Context, arg GetUserDailyTrafficParams) ([]GetUserDailyTrafficRow, error)
+	// account.sql · 账户设置：通知偏好与用户侧 2FA
+	//
+	// 事实源：openapi/openapi.yaml（已冻结）的 getNotificationPrefs / updateNotificationPrefs /
+	//         enrollUserTotp / verifyUserTotp / disableUserTotp 五个 operation；
+	//         api-contract.md §5.3（给出了响应的逐字形状）与 §6.1 表格第 1022–1023 行；
+	//         data-model.md §4；users 表的真身在 0003_accounts.up.sql。
+	//
+	// 🔴 users 永不硬删（data-model §1.2 裁决 8）：本文件每一条都带 deleted_at IS NULL。
+	//    漏掉它的后果是「已注销的账号还能读写自己的设置」—— 而且不会有任何报错，
+	//    因为软删的行在表里长得和正常行一模一样。
+	// ============================================================
+	// 通知偏好（getNotificationPrefs / updateNotificationPrefs）
+	// ============================================================
+	//
+	// 🔴 这里只有两列，没有第三列 —— 那不是遗漏，那就是裁决本身。
+	//    响应里的 service_broadcast 是 API 层的常量（LockedBoolean，value/locked 恒 true），
+	//    0003_accounts.up.sql 在 users 的通知偏好段落上逐字写着：
+	//    「schema 上表达这条裁决的方式就是不提供『全部通知』总开关那一列」。
+	//    所以**不要**为了跟响应体「对称」而给 users 加一列 notify_broadcast 再在 handler 里忽略它：
+	//    那一列一旦存在，总有一天会有人把它接到 PUT 上，而失联广播是 ADR 0002 认定的
+	//    唯一失联恢复通道 —— 用户把它关掉的那天，就是我们再也够不到他的那天。
+	// 刻意不复用 users.sql 的 GetUserByID：那条是 SELECT *，会把 password_hash、
+	// uuid（节点侧的连接凭据）、last_login_ip 一并带进一个只需要两个布尔值的 handler。
+	// 「设置页把 uuid 顺手序列化进响应」这类事故的代价，远高于在这里多写一条窄查询。
+	GetUserNotificationPrefs(ctx context.Context, id int64) (GetUserNotificationPrefsRow, error)
 	GetUserSessionByHash(ctx context.Context, refreshHash []byte) (GetUserSessionByHashRow, error)
 	// 单用户按节点拆分（「我的流量都花在哪个节点上」）
 	GetUserTrafficByServer(ctx context.Context, arg GetUserTrafficByServerParams) ([]GetUserTrafficByServerRow, error)
@@ -451,6 +564,10 @@ type Querier interface {
 	// 🔴 每次拉取都写一条，包括 304 与 404。status_code / client_flag / node_count
 	//    是事后判断「他到底拿到了什么」的全部依据。
 	InsertSubscriptionFetchLog(ctx context.Context, arg InsertSubscriptionFetchLogParams) (InsertSubscriptionFetchLogRow, error)
+	// 重置审计。new_transfer_enable 是**总额**（_plan + _pack），new_transfer_enable_pack 是其中的结转分量。
+	// 两个都要写：只留总额的话，「加油包被吃掉了还是结转了」正好落在总额里看不见 ——
+	// 而那恰恰是 ADR 0013 ③ 要防的那个静默失败（§5.3：顺序错了会让加油包只增不减，且完全无报错）。
+	// 事后要判断结转算没算对，只能靠这两个数配合 old_u/old_d 反推。
 	InsertTrafficResetLog(ctx context.Context, arg InsertTrafficResetLogParams) (TrafficResetLog, error)
 	// 🔴 UNIQUE (gateway, event_id) 是重放防护的核心：易支付回调可被伪造
 	//    （NewAPI 的真实漏洞），幂等靠数据库唯一约束比靠应用层判断可靠。
@@ -534,6 +651,7 @@ type Querier interface {
 	ListTicketsBreachingFirstResponse(ctx context.Context, limit int32) ([]ListTicketsBreachingFirstResponseRow, error)
 	// 流量榜（后台找异常大户）
 	ListTopTrafficUsers(ctx context.Context, arg ListTopTrafficUsersParams) ([]ListTopTrafficUsersRow, error)
+	// 直接喂给 InsertTrafficResetLog，不用二次查询
 	ListTrafficResetLog(ctx context.Context, arg ListTrafficResetLogParams) ([]TrafficResetLog, error)
 	// 某用户的在线设备（面板「在线设备」列表 / 踢下线前的展示）
 	ListUserDevices(ctx context.Context, userID int64) ([]UserDeviceState, error)
@@ -588,7 +706,17 @@ type Querier interface {
 	// invite_codes_uses CHECK 保证 used_count 不会越过 max_uses
 	RedeemInviteCode(ctx context.Context, id int64) (InviteCode, error)
 	RemoveServerFromGroup(ctx context.Context, arg RemoveServerFromGroupParams) error
-	// 归零本周期，lifetime 不清零
+	// 归零本周期，lifetime 不清零。
+	//
+	// 🔴 **只用于管理员手工重置与 reset_pack（`plans.price_reset`）两条路径**（ADR 0013 §5.3 裁决）。
+	//    周期重置**不要**调它 —— 走 AdvanceUserResetCycle，那条已经把归零并进了同一条语句。
+	//    原因不是洁癖：这两条语句曾经是 Querier 上两个互不相干的方法，**顺序没有定死**，
+	//    而先跑本语句（u=0, d=0）会让 carry_pack 恒等于 transfer_enable_pack，
+	//    于是**加油包永远不被消耗、只增不减，且完全静默**。合并之后那个错误不可表达，
+	//    但前提是周期重置这条路径上不再有人单独调用本语句。
+	//
+	//    这两条路径的语义与周期重置也确实不同：它们只清当期用量、**不动配额、不推进 reset_seq**
+	//    （reset_pack 卖的就是「把 u/d 清零」，不卖时间也不卖配额）。
 	ResetUserTraffic(ctx context.Context, userID int64) (UserTraffic, error)
 	// subscriptions.sql · 订阅 token 与拉取审计
 	//
@@ -665,6 +793,28 @@ type Querier interface {
 	//    status='resolved'|'closed' ⟺ resolved_at IS NOT NULL；status='closed' ⟺ closed_at IS NOT NULL。
 	//    这里用 CASE 一次算对，否则 UPDATE 会被 CHECK 拒绝。
 	UpdateTicketStatus(ctx context.Context, arg UpdateTicketStatusParams) (Ticket, error)
+	// 部分更新：NotificationPrefsUpdate 的两个字段**都是可选的**（openapi 里没有 required 列表，
+	// 只有 additionalProperties: false），所以「只发 expire_remind」是一个合法请求。
+	//
+	// ⚠️ 不要用 users.sql 里既有的 UpdateUserNotifyPrefs（:exec，两个参数都必填）。
+	//    用它就必须让 handler 先读一遍再整体回写，而 read-modify-write 在用户于两个设备上
+	//    同时改设置时，会把后到的那次读到的旧值写回去 ——
+	//    现象是「刚关掉的开关过一会儿自己又开了」，没有报错、没有日志、无法复现。
+	//    coalesce(narg, 旧值) 把「没传 = 不改」下沉进同一条语句，两次并发修改互不覆盖。
+	//
+	// 用 :one 而不是 :exec：PUT 要回 200 + 修改后的完整 NotificationPrefs。
+	// RETURNING 拿的是本次写入的后像；改成「UPDATE 完再 SELECT 一次」不只是多一次往返 ——
+	// 两次之间插进另一个 PUT 时，返回的组合会是一个数据库里从未同时存在过的状态。
+	//
+	// ℹ️ 这两列不在 0012_user_rev_triggers 盯着的列里（group_id / uuid / banned / expired_at /
+	//    transfer_enable / speed_limit_mbps / device_limit / deleted_at / expiry_applied_at），
+	//    所以改通知偏好**不会** bump node_rev.user_rev，节点的 ETag 不会因为用户点了个开关而失效。
+	//    这是对的：节点不关心谁要收邮件。（触发器在生成的 Go 代码里是隐形的，sqlc.yaml 已登记这个代价。）
+	//
+	// 空请求体 `{}` 会走到这里并原地重写一行 users（updated_at 前进、产生一个死元组）。
+	// 接受这个代价：换取的是 handler 只有一条路径。想靠 WHERE ... IS DISTINCT FROM 把无变化的
+	// 请求挡掉的话，返回 0 行会和「用户不存在」撞成同一个 ErrNoRows，而 PUT 必须回 200 + 当前值。
+	UpdateUserNotificationPrefs(ctx context.Context, arg UpdateUserNotificationPrefsParams) (UpdateUserNotificationPrefsRow, error)
 	UpdateUserNotifyPrefs(ctx context.Context, arg UpdateUserNotifyPrefsParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserRemarks(ctx context.Context, arg UpdateUserRemarksParams) error

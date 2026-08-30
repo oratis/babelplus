@@ -181,13 +181,28 @@ WHERE u.reset_at IS NOT NULL
 ORDER BY u.reset_at
 LIMIT $1;
 
+-- 重置审计。new_transfer_enable 是**总额**（_plan + _pack），new_transfer_enable_pack 是其中的结转分量。
+-- 两个都要写：只留总额的话，「加油包被吃掉了还是结转了」正好落在总额里看不见 ——
+-- 而那恰恰是 ADR 0013 ③ 要防的那个静默失败（§5.3：顺序错了会让加油包只增不减，且完全无报错）。
+-- 事后要判断结转算没算对，只能靠这两个数配合 old_u/old_d 反推。
 -- name: InsertTrafficResetLog :one
 INSERT INTO traffic_reset_log (
-  user_id, trigger_source, reset_method, old_u, old_d, new_transfer_enable, order_id, admin_user_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  user_id, trigger_source, reset_method, old_u, old_d,
+  new_transfer_enable, new_transfer_enable_pack, order_id, admin_user_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
--- 归零本周期，lifetime 不清零
+-- 归零本周期，lifetime 不清零。
+--
+-- 🔴 **只用于管理员手工重置与 reset_pack（`plans.price_reset`）两条路径**（ADR 0013 §5.3 裁决）。
+--    周期重置**不要**调它 —— 走 AdvanceUserResetCycle，那条已经把归零并进了同一条语句。
+--    原因不是洁癖：这两条语句曾经是 Querier 上两个互不相干的方法，**顺序没有定死**，
+--    而先跑本语句（u=0, d=0）会让 carry_pack 恒等于 transfer_enable_pack，
+--    于是**加油包永远不被消耗、只增不减，且完全静默**。合并之后那个错误不可表达，
+--    但前提是周期重置这条路径上不再有人单独调用本语句。
+--
+--    这两条路径的语义与周期重置也确实不同：它们只清当期用量、**不动配额、不推进 reset_seq**
+--    （reset_pack 卖的就是「把 u/d 清零」，不卖时间也不卖配额）。
 -- name: ResetUserTraffic :one
 UPDATE user_traffic
 SET u_lifetime = u_lifetime + u,
@@ -196,12 +211,44 @@ SET u_lifetime = u_lifetime + u,
 WHERE user_id = $1
 RETURNING *;
 
--- 下一次重置时刻：从固定锚点乘算，避免月末漂移（data-model §6.2）。
+-- 周期重置：归零当期用量 + 推进重置时刻 + 重发套餐配额 + 结转加油包，**一条语句做完**。
+--
+-- 下一次重置时刻从固定锚点乘算，避免月末漂移（data-model §6.2）：
 -- 2026-01-31 + 1month + 1month = 2026-03-28（漂移）；anchor + 2*1month = 2026-03-31（不漂移）。
--- ⚠️ 本语句会触发 users_bump_user_rev_trg，但只改 reset_seq/reset_at 这两列，
---    不在触发器的监视列表里 —— 所以配额恢复**不会**自动传播到节点，
---    调用方必须显式 BumpUserRevForUser（data-model §6.2 的 ⚠️）。
+--
+-- 🔴 **为什么归零必须并进来，而不是让调用方先跑 ResetUserTraffic**（ADR 0013 §5.3）：
+--    carry_pack 要用「本周期已用量」算，而 ResetUserTraffic 会把它清成 0。
+--    两条语句放在 Querier 上就是两个互不相干的方法，**先跑哪条无从表达**；
+--    先跑归零的那个顺序会让 carry_pack 恒等于 transfer_enable_pack，
+--    于是加油包只增不减 —— 而且**完全静默**，没有报错、没有告警，只有账对不上。
+--    合并成一条 CTE 之后，「顺序」这件事在类型层面不存在了。
+--    cur 上的 FOR UPDATE 取的是同一个快照，同时挡住并发的节点上报把 u/d 改到中途。
+--
+-- 消耗顺序是先套餐后加油包（ADR 0013 §5.3）：套餐配额**会过期**（本语句就在清它），
+-- 加油包**会结转**。先消耗会过期的那份，对用户永远不亏。所以
+--   pack_used  = greatest(0, (u + d) - transfer_enable_plan)
+--   carry_pack = greatest(0, transfer_enable_pack - pack_used)
+-- 外层那个 greatest(0, …) 不是防御性代码：v2node 每 60 秒才上报一次，
+-- u+d 会**越过** transfer_enable 若干字节才被判定耗尽，pack_used 因此可能大于 transfer_enable_pack。
+--
+-- ⚠️ transfer_enable_plan 与 transfer_enable_pack 都在 users_bump_user_rev_trg 的监视列表里，
+--    所以本语句自己就会 bump user_rev，配额恢复会自动传播到节点 ——
+--    调用方**不需要**再显式 BumpUserRevForUser（0016 之前需要，那条要求已随本语句作废）。
+--    唯一的例外是 reset_traffic_method = 'never'：两列都不变时不 bump，而那种用户本来也不需要。
 -- name: AdvanceUserResetCycle :one
+WITH cur AS (
+  SELECT ut.user_id, ut.u, ut.d
+  FROM user_traffic ut
+  WHERE ut.user_id = $1
+  FOR UPDATE
+), zeroed AS (
+  UPDATE user_traffic ut
+  SET u_lifetime = ut.u_lifetime + cur.u,
+      d_lifetime = ut.d_lifetime + cur.d,
+      u = 0, d = 0, updated_at = now()
+  FROM cur WHERE ut.user_id = cur.user_id
+  RETURNING ut.user_id
+)
 UPDATE users u SET
   reset_seq = u.reset_seq + 1,
   reset_at = CASE p.reset_traffic_method
@@ -212,11 +259,15 @@ UPDATE users u SET
     WHEN 'yearly_on_order_day'  THEN u.subscription_anchor_at + (u.reset_seq + 1) * interval '1 year'
     ELSE u.subscription_anchor_at + (u.reset_seq + 1) * interval '1 month'  -- follow_system
   END,
-  transfer_enable = p.transfer_enable,
+  transfer_enable_plan = p.transfer_enable,                        -- 只覆盖套餐分量
+  transfer_enable_pack = greatest(0, u.transfer_enable_pack
+                          - greatest(0, (cur.u + cur.d) - u.transfer_enable_plan)),   -- carry_pack
   updated_at = now()
-FROM plans p
-WHERE p.id = u.plan_id AND u.id = $1
-RETURNING u.id, u.reset_seq, u.reset_at, u.transfer_enable;
+FROM plans p, cur
+WHERE p.id = u.plan_id AND u.id = cur.user_id
+RETURNING u.id, u.reset_seq, u.reset_at,
+          u.transfer_enable_plan, u.transfer_enable_pack, u.transfer_enable,
+          cur.u AS old_u, cur.d AS old_d;   -- 直接喂给 InsertTrafficResetLog，不用二次查询
 
 -- name: ListTrafficResetLog :many
 SELECT * FROM traffic_reset_log

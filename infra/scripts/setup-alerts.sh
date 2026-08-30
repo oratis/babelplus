@@ -31,7 +31,9 @@
 #    曾经有过数据。monitoring §5.1 原话：一个从未上报过的新节点「它在监控眼里根本不存在」。
 #    所以每次新节点首次上报之后，必须人工确认 series 已出现 —— 脚本会在结尾再喊一次。
 #
-# 本脚本默认 dry-run，且 dry-run 模式下**一条 gcloud 都不发**（连只读的都不发）。
+# 本脚本默认 dry-run，且 dry-run 模式下**不发任何触达 GCP 的 gcloud 调用**（连只读的都不发）。
+# 唯一的例外是 guard_project 里那条 `gcloud config get-value project` ——
+# 它读的是本机 gcloud 配置文件，不联网、不需要凭据、也不碰项目里的任何东西。
 # 理由：这个 GCP 项目是共享的（AGENTS.md §4：lisa-cloud / lisa-web 不要碰），
 # 而 dry-run 的用途是「看看它打算干什么」，不该以任何形式依赖对生产项目的访问权。
 
@@ -1057,7 +1059,8 @@ usage() {
 按 ADR 0014（**提案，未批准**）的 A/B/C 三级，在 oratis-491316 上建通知渠道与告警策略。
 
 ⚠️ ADR 0014 状态是「提案，未批准」（2026-08-23）。**批准之前不应该跑 --apply。**
-   dry-run 是安全的：它一条 gcloud 都不发（连只读的都不发）。
+   dry-run 是安全的：它不发任何触达 GCP 的调用（连只读的都不发）；
+   唯一例外是读本机 gcloud 配置的 `gcloud config get-value project`。
 
 模式（默认 dry-run）:
   --dry-run          只打印将要执行的命令与策略清单。**默认**

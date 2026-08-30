@@ -148,6 +148,10 @@ readonly CERT_SCHED="bp-cert-issuer-check-daily"  # 触发它的 Scheduler 任�
 # 危险操作的确认串。**不是 y/N** —— y/N 是肌肉记忆，手打这些字符串不是。
 readonly CONFIRM_APPLY="setup-scheduler"
 readonly CONFIRM_DELETE="delete-bp-scheduler"
+# step_cert 单独一个串：它做的事**超出** CONFIRM_APPLY 那句提示的范围 ——
+# 它要授一条**项目级** roles/logging.logWriter（全项目只有两处项目级绑定，这是第二处）。
+# 用同一个串再问一遍不增加任何安全性，只会训练人无脑重敲；换一个串才是真的第二道闸。
+readonly CONFIRM_CERT_JOB="create-cert-job-project-iam"
 readonly CONFIRM_DELETE_QUEUES="delete-bp-queues-7d"
 
 # ───────────────────────── 八条 Scheduler 任务 ─────────────────────────
@@ -188,7 +192,14 @@ TASKS_ONLY_ENDPOINTS=(
 # ───────────────────────── 运行时开关 ─────────────────────────
 
 PROJECT_ID="${PROJECT_ID:-$EXPECTED_PROJECT_ID}"
-MODE="dry-run"          # dry-run（默认）| apply | delete
+# 🔴 「要做哪件事」与「是不是真的做」是**两个**变量，不是一个。
+# 合成一个（MODE=dry-run|apply|delete）会得到一个静默的坑：`--delete --dry-run` 里
+# 后给的那个赢，于是「我想预演一次删除」实际得到的是**一次创建的预演** ——
+# 看起来一切正常，而你想看的那件事一行都没打印。
+# 拆开之后：--delete 单独给 = 删除的预演；真的删要 --delete --apply。
+# 「默认 dry-run」这条纪律对删除同样成立，而且在删除上它更要紧。
+ACTION="apply"          # apply（默认）| delete
+DRY_RUN=1               # 🔴 默认 dry-run。要真的动 GCP 必须显式 --apply。
 ONLY="all"              # all | queues | scheduler | cert
 ASSUME_YES=0
 INCLUDE_QUEUES=0        # --delete 时是否连队列一起删（见 step_delete 的 7 天墓碑警告）
@@ -224,7 +235,7 @@ qq() {
 # 只读查询（describe / list）**不**走 run —— dry-run 下照常执行，
 # 这样预演也能看到「哪些已存在、要 create 还是 update」的真实状态。
 run() {
-  if [ "$MODE" = "dry-run" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
     local _a
     printf '  [dry-run] ' >&2
     for _a in "$@"; do qq "$_a" >&2; printf ' ' >&2; done
@@ -237,7 +248,7 @@ run() {
 # confirm_typed · 危险操作的二次确认：必须原样敲出确认串，回车不算数。
 confirm_typed() {
   local expect="$1" what="$2" answer=""
-  if [ "$MODE" = "dry-run" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
     skip "[dry-run] 跳过确认：$what"
     return 0
   fi
@@ -301,7 +312,9 @@ usage() {
 选项:
   --dry-run          只打印将要执行的写操作（默认；只读探测照常执行）
   --apply            真的创建/更新。要求手打 setup-scheduler 确认
-  --delete           删除本脚本建的 Scheduler 任务。要求手打 delete-bp-scheduler
+  --delete           删除本脚本建的 Scheduler 任务。**它同样默认 dry-run** ——
+                     单独给 = 只打印会删什么；真的删要 --delete --apply，
+                     并手打 delete-bp-scheduler
   --include-queues   配合 --delete：连两个 Cloud Tasks 队列一起删。
                      ⚠️ 队列名删除后有 **7 天墓碑期**，期间无法用同名重建（GCP 行为）。
                      需要第二次确认 delete-bp-queues-7d
@@ -323,6 +336,9 @@ usage() {
   ./infra/scripts/setup-scheduler.sh                              # 看一遍要做什么
   ./infra/scripts/setup-scheduler.sh --apply
   gcloud scheduler jobs list --project=oratis-491316 --location=us-central1   # 人工复核
+
+  ./infra/scripts/setup-scheduler.sh --delete            # 先看会删哪些（不删）
+  ./infra/scripts/setup-scheduler.sh --delete --apply    # 真的删
 
 为什么 audience 必须是 *.run.app（这是踩过的坑）:
   --oidc-token-audience 是签发时写死进 token 的字符串，校验方做等值比较，
@@ -379,7 +395,7 @@ resolve_audience() {
   fi
 
   if [ -z "$AUDIENCE" ]; then
-    if [ "$MODE" = "dry-run" ]; then
+    if [ "$DRY_RUN" -eq 1 ]; then
       # 占位符也必须形如 run.app，否则下面的断言会把 dry-run 自己拦下来。
       AUDIENCE="https://${RUN_SERVICE}-PLACEHOLDER-uc.a.run.app"
       warn "[dry-run] 取不到 $RUN_SERVICE 的 URL，用占位符 $AUDIENCE 继续打印命令"
@@ -413,13 +429,14 @@ preflight() {
   step "前置检查"
   log "  项目 : $PROJECT_ID"
   log "  区域 : $REGION"
-  log "  模式 : $MODE（$( [ "$MODE" = "dry-run" ] && printf '不做任何写操作' || printf '**会真的改 GCP**' )）"
+  log "  动作 : $ACTION"
+  log "  模式 : $( [ "$DRY_RUN" -eq 1 ] && printf 'DRY-RUN（默认）—— 不做任何写操作' || printf '\033[31mAPPLY —— 会真的改 GCP\033[0m' )"
   log "  范围 : --only=$ONLY"
 
   local sa_email="${SA_TASKS}@${PROJECT_ID}.iam.gserviceaccount.com"
   if gcloud iam service-accounts describe "$sa_email" --project="$PROJECT_ID" >/dev/null 2>&1; then
     ok "服务账号 $SA_TASKS 存在"
-  elif [ "$MODE" = "dry-run" ]; then
+  elif [ "$DRY_RUN" -eq 1 ]; then
     warn "服务账号 $SA_TASKS 不存在（dry-run 继续）。先跑 ./infra/deploy/setup-infra.sh --step=iam"
   else
     die "服务账号 $SA_TASKS 不存在。先跑 ./infra/deploy/setup-infra.sh --step=iam。
@@ -610,7 +627,11 @@ step_cert() {
     job_ready=1
   elif [ -n "$CERT_IMAGE" ]; then
     guard_bp_prefix "$CERT_JOB"
-    confirm_typed "$CONFIRM_APPLY" "将创建 Cloud Run Job $CERT_JOB（镜像 $CERT_IMAGE）"
+    confirm_typed "$CONFIRM_CERT_JOB" \
+      "将创建 Cloud Run Job $CERT_JOB（镜像 $CERT_IMAGE），
+     并给 ${SA_TASKS} 授一条**项目级** roles/logging.logWriter。
+     项目级绑定的作用域是整个共享项目（vpn-us / vpn-jp / lisa-* 都在里面），
+     不只是 babel.plus 的资源 —— 这就是它值一个单独确认串的原因。"
 
     # 🔴 Job 的运行时身份要能写 Cloud Logging，否则 cert_issuer_bad 这条日志写不出去，
     #    而 bp_cert_issuer_bad 的**唯一**信号源就是它 —— 没有这个绑定，整条 P0 链路是死的。
@@ -759,7 +780,16 @@ step_delete() {
 # ───────────────────────── 结尾清单 ─────────────────────────
 
 print_summary() {
-  step "清单 · 建了什么"
+  # 抬头随模式变。dry-run 下写「建了什么」是不诚实的 ——
+  # 下面每一行前面都有个 ✓，而 ✓ 在这个仓库的其它输出里一律表示「已经成立」。
+  # 光靠列表底下那句免责声明不够：读清单的人常常只读清单。
+  local _verb="建"
+  [ "$ACTION" = "delete" ] && _verb="删"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    step "清单 · **将要**${_verb}什么（dry-run，一条都还没执行）"
+  else
+    step "清单 · ${_verb}了什么"
+  fi
   if [ "${#SUMMARY_DONE[@]}" -eq 0 ]; then
     log "  （没有任何变更）"
   else
@@ -768,16 +798,23 @@ print_summary() {
       log "  ✓ $item"
     done
   fi
-  if [ "$MODE" = "dry-run" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
     log ""
     log "  ⚠️ 以上是 **dry-run**，一条都没有真的执行。加 --apply 才会动 GCP。"
   fi
 
   step "清单 · 下一步人工要做什么"
-  local item
-  for item in "${SUMMARY_TODO[@]}"; do
-    log "  ☐ $item"
-  done
+  # ⚠️ `for x in "${ARR[@]}"` 在**空数组**上会被 `set -u` 判成 unbound variable ——
+  #    bash 3.2 的行为，而 3.2 正是 macOS 自带的那个（本仓库的操作机就是 macOS）。
+  #    CI 的 ubuntu 是 bash 5，不会报 —— 所以这类崩溃**过得了 CI**，只在真人跑的时候炸。
+  #    2026-08-30 实测：`--delete` 且没有任何任务存在时，SUMMARY_TODO 为空，脚本在
+  #    打完全部删除结果之后、最后一行崩掉。所以这里与上面的 SUMMARY_DONE 一样先数个数。
+  if [ "${#SUMMARY_TODO[@]}" -gt 0 ]; then
+    local item
+    for item in "${SUMMARY_TODO[@]}"; do
+      log "  ☐ $item"
+    done
+  fi
   cat >&2 <<EOF
   ☐ 复核：gcloud scheduler jobs list --project=$PROJECT_ID --location=$REGION
           gcloud tasks queues list   --project=$PROJECT_ID --location=$REGION
@@ -799,12 +836,12 @@ EOF
 # ───────────────────────── 主流程 ─────────────────────────
 
 main() {
-  local arg
+  local arg want_apply=0 explicit_dry_run=0
   for arg in "$@"; do
     case "$arg" in
-      --dry-run)        MODE="dry-run" ;;
-      --apply)          MODE="apply" ;;
-      --delete)         MODE="delete" ;;
+      --dry-run)        explicit_dry_run=1 ;;
+      --apply)          want_apply=1 ;;
+      --delete)         ACTION="delete" ;;
       --include-queues) INCLUDE_QUEUES=1 ;;
       --only=*)         ONLY="${arg#*=}" ;;
       --audience=*)     AUDIENCE="${arg#*=}" ;;
@@ -821,11 +858,23 @@ main() {
     *) die "--only 只能是 all / queues / scheduler / cert，当前是 \"$ONLY\"" ;;
   esac
 
+  # --apply 是「真的做」，--delete 是「做哪件事」。两者正交：
+  #   （无参数）        创建/更新的预演
+  #   --apply           真的创建/更新
+  #   --delete          删除的预演      ← 没有这一支的话，「先看看会删什么」无从做起
+  #   --delete --apply  真的删除
+  if [ "$want_apply" -eq 1 ]; then
+    if [ "$explicit_dry_run" -eq 1 ]; then
+      die "--apply 与 --dry-run 同时给了。想看计划就别给 --apply（dry-run 本来就是默认）。"
+    fi
+    DRY_RUN=0
+  fi
+
   guard_project
   need_cmd gcloud
   need_cmd jq
 
-  if [ "$MODE" = "delete" ]; then
+  if [ "$ACTION" = "delete" ]; then
     step_delete
     print_summary
     [ "$FAIL_N" -eq 0 ] || exit 1
@@ -836,10 +885,10 @@ main() {
 
   # 写操作的总闸：一次确认覆盖本次全部创建/更新。
   # 单条任务不再逐个问 —— 逐个问会训练人无脑敲确认串，那就退化成 y/N 了。
-  if [ "$MODE" = "apply" ]; then
-    confirm_typed "$CONFIRM_APPLY" \
-      "将在 $PROJECT_ID / $REGION 建或更新：8 条 Scheduler + 2 个 Cloud Tasks 队列（范围 --only=$ONLY）"
-  fi
+  # 唯一的例外是 step_cert 里那条**项目级** IAM 绑定：它不在这句话的范围内，
+  # 所以它有自己的确认串（CONFIRM_CERT_JOB），不是同一个串再敲一遍。
+  confirm_typed "$CONFIRM_APPLY" \
+    "将在 $PROJECT_ID / $REGION 建或更新：8 条 Scheduler + 2 个 Cloud Tasks 队列（范围 --only=$ONLY）"
 
   if want queues; then
     step_queues

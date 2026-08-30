@@ -13,30 +13,46 @@ import (
 )
 
 const addUserTransferQuota = `-- name: AddUserTransferQuota :one
-UPDATE users SET transfer_enable = transfer_enable + $2, updated_at = now()
+UPDATE users SET
+  transfer_enable_pack = transfer_enable_pack + $2,
+  pack_expire_at       = greatest(coalesce(pack_expire_at, now()), now() + interval '12 months'),
+  updated_at           = now()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, transfer_enable
+RETURNING id, transfer_enable_plan, transfer_enable_pack, transfer_enable
 `
 
 type AddUserTransferQuotaParams struct {
-	ID             int64 `json:"id"`
-	TransferEnable int64 `json:"transfer_enable"`
+	ID                 int64 `json:"id"`
+	TransferEnablePack int64 `json:"transfer_enable_pack"`
 }
 
 type AddUserTransferQuotaRow struct {
-	ID             int64 `json:"id"`
-	TransferEnable int64 `json:"transfer_enable"`
+	ID                 int64 `json:"id"`
+	TransferEnablePlan int64 `json:"transfer_enable_plan"`
+	TransferEnablePack int64 `json:"transfer_enable_pack"`
+	TransferEnable     int64 `json:"transfer_enable"`
 }
 
-// 流量包：只叠加配额。
-// ⚠️ 已知缺口（data-model §16）：当前 transfer_enable 是单列，周期重置时会被套餐值整个覆盖，
+// 流量包：只叠加**加油包**分量（trigger_source = 'pack'）。
 //
-//	所以流量包在重置时**保不住**。修复需要拆成 transfer_enable_plan + transfer_enable_pack
-//	两列，而那依赖一条尚未裁决的产品规则（user-journey §10.1 标为待裁决）。
+// 加油包会跨周期结转，套餐配额每个周期被覆写清零 —— 两者语义不同，所以必须落在不同的列上。
+// 加在 _pack 上，AdvanceUserResetCycle 才碰不到它；加在 _plan 上就会在下一次重置时被套餐值抹掉，
+// 而那是**静默的**：用户买的包凭空消失，没有任何报错（ADR 0013 §5.1 第 2 条，这也是本仓库
+// 此前三处独立登记的同一个缺口，§5.1 的裁决把它关掉了）。
+//
+// pack_expire_at 顺延到 12 个月后（ADR 0013 §5.4）：结转本身是一笔无限期负债，
+// 这一列是它唯一的封口。取 greatest 而不是直接赋值，是为了让「已经买过一个更晚到期的包」
+// 不会被一次新购买**缩短**有效期。12 个月的出处是最长售卖周期（年付），
+// 这样「买年付时顺手买的包」在整个订阅期内都有效。
 func (q *Queries) AddUserTransferQuota(ctx context.Context, arg AddUserTransferQuotaParams) (AddUserTransferQuotaRow, error) {
-	row := q.db.QueryRow(ctx, addUserTransferQuota, arg.ID, arg.TransferEnable)
+	row := q.db.QueryRow(ctx, addUserTransferQuota, arg.ID, arg.TransferEnablePack)
 	var i AddUserTransferQuotaRow
-	err := row.Scan(&i.ID, &i.TransferEnable)
+	err := row.Scan(
+		&i.ID,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.TransferEnable,
+	)
 	return i, err
 }
 
@@ -74,7 +90,7 @@ const applyUserEntitlement = `-- name: ApplyUserEntitlement :one
 UPDATE users SET
   plan_id                = $2,
   group_id               = $3,
-  transfer_enable        = $4,
+  transfer_enable_plan   = $4,
   expired_at             = $5,
   speed_limit_mbps       = $6,
   device_limit           = $7,
@@ -83,14 +99,14 @@ UPDATE users SET
   expiry_applied_at      = NULL,
   updated_at             = now()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, transfer_enable, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at
+RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at, transfer_enable_plan, transfer_enable_pack, pack_expire_at, transfer_enable
 `
 
 type ApplyUserEntitlementParams struct {
 	ID                   int64              `json:"id"`
 	PlanID               *int64             `json:"plan_id"`
 	GroupID              int64              `json:"group_id"`
-	TransferEnable       int64              `json:"transfer_enable"`
+	TransferEnablePlan   int64              `json:"transfer_enable_plan"`
 	ExpiredAt            pgtype.Timestamptz `json:"expired_at"`
 	SpeedLimitMbps       *int32             `json:"speed_limit_mbps"`
 	DeviceLimit          *int32             `json:"device_limit"`
@@ -100,12 +116,21 @@ type ApplyUserEntitlementParams struct {
 
 // 开通 / 续费 / 升级后写权利。subscription_anchor_at 首次开通才写，续费与升级都不改
 // —— 从固定锚点乘算重置日才不会月末漂移（data-model §6.2）。
+//
+// 🔴 写的是 transfer_enable_plan，**不是 transfer_enable**（ADR 0013 §6.5）。
+//
+//	0016 之后 transfer_enable 是 GENERATED ALWAYS AS (_plan + _pack) STORED，
+//	PostgreSQL 拒绝对它赋值（`column ... can only be updated to DEFAULT`），
+//	而 sqlc generate 与 go build **都不会报错** —— 写错了要到「用户付款成功、
+//	订单进 paid、开通权利」那一刻才炸成 500（ADR 0013 §6.3 实测）。
+//	语义上这里本来就只该写套餐配额：开通/续费/升级卖的是套餐，
+//	加油包分量归 AddUserTransferQuota 管，两者相加由数据库自己算。
 func (q *Queries) ApplyUserEntitlement(ctx context.Context, arg ApplyUserEntitlementParams) (User, error) {
 	row := q.db.QueryRow(ctx, applyUserEntitlement,
 		arg.ID,
 		arg.PlanID,
 		arg.GroupID,
-		arg.TransferEnable,
+		arg.TransferEnablePlan,
 		arg.ExpiredAt,
 		arg.SpeedLimitMbps,
 		arg.DeviceLimit,
@@ -122,7 +147,6 @@ func (q *Queries) ApplyUserEntitlement(ctx context.Context, arg ApplyUserEntitle
 		&i.Uuid,
 		&i.PlanID,
 		&i.GroupID,
-		&i.TransferEnable,
 		&i.ExpiredAt,
 		&i.SpeedLimitMbps,
 		&i.DeviceLimit,
@@ -144,6 +168,10 @@ func (q *Queries) ApplyUserEntitlement(ctx context.Context, arg ApplyUserEntitle
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.PackExpireAt,
+		&i.TransferEnable,
 	)
 	return i, err
 }
@@ -151,7 +179,7 @@ func (q *Queries) ApplyUserEntitlement(ctx context.Context, arg ApplyUserEntitle
 const banUser = `-- name: BanUser :one
 UPDATE users SET banned = true, banned_reason = $2, banned_at = now(), updated_at = now()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, transfer_enable, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at
+RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at, transfer_enable_plan, transfer_enable_pack, pack_expire_at, transfer_enable
 `
 
 type BanUserParams struct {
@@ -172,7 +200,6 @@ func (q *Queries) BanUser(ctx context.Context, arg BanUserParams) (User, error) 
 		&i.Uuid,
 		&i.PlanID,
 		&i.GroupID,
-		&i.TransferEnable,
 		&i.ExpiredAt,
 		&i.SpeedLimitMbps,
 		&i.DeviceLimit,
@@ -194,6 +221,10 @@ func (q *Queries) BanUser(ctx context.Context, arg BanUserParams) (User, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.PackExpireAt,
+		&i.TransferEnable,
 	)
 	return i, err
 }
@@ -449,7 +480,7 @@ func (q *Queries) CreateInviteCode(ctx context.Context, arg CreateInviteCodePara
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, password_hash, group_id, invited_by)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, transfer_enable, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at
+RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at, transfer_enable_plan, transfer_enable_pack, pack_expire_at, transfer_enable
 `
 
 type CreateUserParams struct {
@@ -478,7 +509,6 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Uuid,
 		&i.PlanID,
 		&i.GroupID,
-		&i.TransferEnable,
 		&i.ExpiredAt,
 		&i.SpeedLimitMbps,
 		&i.DeviceLimit,
@@ -500,6 +530,10 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.PackExpireAt,
+		&i.TransferEnable,
 	)
 	return i, err
 }
@@ -752,7 +786,7 @@ func (q *Queries) GetRegistrationGroupID(ctx context.Context) (int64, error) {
 const getUserByEmail = `-- name: GetUserByEmail :one
 
 
-SELECT id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, transfer_enable, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at FROM users
+SELECT id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at, transfer_enable_plan, transfer_enable_pack, pack_expire_at, transfer_enable FROM users
 WHERE lower(email) = lower($1) AND deleted_at IS NULL
 `
 
@@ -782,7 +816,6 @@ func (q *Queries) GetUserByEmail(ctx context.Context, lower string) (User, error
 		&i.Uuid,
 		&i.PlanID,
 		&i.GroupID,
-		&i.TransferEnable,
 		&i.ExpiredAt,
 		&i.SpeedLimitMbps,
 		&i.DeviceLimit,
@@ -804,12 +837,16 @@ func (q *Queries) GetUserByEmail(ctx context.Context, lower string) (User, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.PackExpireAt,
+		&i.TransferEnable,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, transfer_enable, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at, transfer_enable_plan, transfer_enable_pack, pack_expire_at, transfer_enable FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
@@ -824,7 +861,6 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.Uuid,
 		&i.PlanID,
 		&i.GroupID,
-		&i.TransferEnable,
 		&i.ExpiredAt,
 		&i.SpeedLimitMbps,
 		&i.DeviceLimit,
@@ -846,12 +882,16 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.PackExpireAt,
+		&i.TransferEnable,
 	)
 	return i, err
 }
 
 const getUserByUUID = `-- name: GetUserByUUID :one
-SELECT id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, transfer_enable, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at FROM users WHERE uuid = $1 AND deleted_at IS NULL
+SELECT id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at, transfer_enable_plan, transfer_enable_pack, pack_expire_at, transfer_enable FROM users WHERE uuid = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByUUID(ctx context.Context, uuid pgtype.UUID) (User, error) {
@@ -866,7 +906,6 @@ func (q *Queries) GetUserByUUID(ctx context.Context, uuid pgtype.UUID) (User, er
 		&i.Uuid,
 		&i.PlanID,
 		&i.GroupID,
-		&i.TransferEnable,
 		&i.ExpiredAt,
 		&i.SpeedLimitMbps,
 		&i.DeviceLimit,
@@ -888,6 +927,10 @@ func (q *Queries) GetUserByUUID(ctx context.Context, uuid pgtype.UUID) (User, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.PackExpireAt,
+		&i.TransferEnable,
 	)
 	return i, err
 }
@@ -1410,7 +1453,7 @@ func (q *Queries) TouchUserLogin(ctx context.Context, arg TouchUserLoginParams) 
 const unbanUser = `-- name: UnbanUser :one
 UPDATE users SET banned = false, banned_reason = NULL, banned_at = NULL, updated_at = now()
 WHERE id = $1 AND deleted_at IS NULL
-RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, transfer_enable, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at
+RETURNING id, email, password_hash, password_algo, email_verified_at, uuid, plan_id, group_id, expired_at, speed_limit_mbps, device_limit, banned, banned_reason, banned_at, subscription_anchor_at, reset_seq, reset_at, expiry_applied_at, sub_revoked_at, invited_by, commission_rate_bps, notify_expire, notify_traffic, last_login_at, last_login_ip, remarks, created_at, updated_at, deleted_at, transfer_enable_plan, transfer_enable_pack, pack_expire_at, transfer_enable
 `
 
 func (q *Queries) UnbanUser(ctx context.Context, id int64) (User, error) {
@@ -1425,7 +1468,6 @@ func (q *Queries) UnbanUser(ctx context.Context, id int64) (User, error) {
 		&i.Uuid,
 		&i.PlanID,
 		&i.GroupID,
-		&i.TransferEnable,
 		&i.ExpiredAt,
 		&i.SpeedLimitMbps,
 		&i.DeviceLimit,
@@ -1447,6 +1489,10 @@ func (q *Queries) UnbanUser(ctx context.Context, id int64) (User, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.TransferEnablePlan,
+		&i.TransferEnablePack,
+		&i.PackExpireAt,
+		&i.TransferEnable,
 	)
 	return i, err
 }

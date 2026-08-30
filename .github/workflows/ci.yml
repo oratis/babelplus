@@ -285,11 +285,43 @@ jobs:
             exit 1
           fi
 
-      - name: 逆序回滚全部 down migration
+      # ─────────────────────────────────────────────────────────
+      # 语义校验：对每一条真正会发到 Postgres 的 SQL 跑一次 EXPLAIN。
+      #
+      # 这一步补的是一个具体的盲区（ADR 0013 §6.4）：`api/sqlc.yaml` 没有 `database:` 段，
+      # 内置引擎只做语法与列名解析，所以「往 GENERATED ALWAYS 列上写值」这种错误
+      # **sqlc generate 与 go build 都是 exit 0**，一路躺进生成物。第一次暴露点是
+      # 生产环境里第一笔付款成功之后的 ApplyUserEntitlement —— 用户付了钱，开通权利时 500。
+      #
+      # 本步骤有过一次自证（2026-08-30，postgres:17）：把 ApplyUserEntitlement 改回
+      # `transfer_enable = $4` 之后，psql 以 exit 3 失败并指名那条 query；改对之后 exit 0。
+      # ⚠️ EXPLAIN 不执行语句，所以它抓不到 NOT NULL / CHECK / 外键这类运行期约束 ——
+      #    那一类由下面「回滚后真的写一行」那步抓。
+      # ─────────────────────────────────────────────────────────
+      - name: 语义校验全部 SQL（EXPLAIN，不执行）
+        run: |
+          python3 scripts/db_explain.py > /tmp/db_explain.sql
+          if ! psql -v ON_ERROR_STOP=1 -f /tmp/db_explain.sql; then
+            echo "::error::有 SQL 通不过语义校验（上一行 [W]/[r] 标记的就是它）。本地复现：cd api && make db-explain"
+            exit 1
+          fi
+
+      # 回滚：在 0016_billing_rules.down.sql 跑完之后立刻插一次**真的写数据**的探针，
+      # 然后才继续往下回滚。位置是硬要求 —— 再往下一步 0012_user_rev_triggers.down.sql
+      # 的第一句就是 DROP TRIGGER + DROP FUNCTION users_bump_user_rev()，证物会被销毁。
+      - name: 逆序回滚全部 down migration（0016.down 之后插入写探针）
         run: |
           for f in $(ls db/migrations/*.down.sql | sort -r); do
             echo "  → $(basename "$f")"
             psql -v ON_ERROR_STOP=1 -q -f "$f"
+
+            if [ "$(basename "$f")" = "0016_billing_rules.down.sql" ]; then
+              echo "──── 回滚写探针：真塞一行 users，再真打到那一行上 ────"
+              if ! psql -v ON_ERROR_STOP=1 -f scripts/ci_post_rollback_write.sql; then
+                echo "::error::0016.down 之后 users 表写不进去 —— 多半是 down 忘了先把 users_bump_user_rev() 换回 0012 的函数体就删掉了分量列（ADR 0013 §6.2 第 1 步）"
+                exit 1
+              fi
+            fi
           done
 
       - name: 断言回滚后归零

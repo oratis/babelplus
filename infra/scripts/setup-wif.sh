@@ -42,6 +42,26 @@
 # 不会变红、不会有任何现象 —— 它只是**安静地把生产项目的部署权限交给全世界**。
 # 这类「错了也没有反馈」的操作，默认值必须站在安全那一侧。
 #
+# ───────────────────────── 🔴 项目里**已经有**一个 GitHub 的 pool（2026-08-30 只读实查）─────────────────────────
+#
+#   projects/2360090741/locations/global/workloadIdentityPools/github     （displayName "GitHub Actions"，ACTIVE）
+#     └─ providers/oratisbase   attributeCondition: assertion.repository=='oratis/oratisbase'
+#
+# 它**不是**本脚本建的，也不归本仓库管 —— 又一次印证 roadmap R7：这是个共享项目。
+# 两件事要说清楚：
+#
+#   1. **本脚本刻意另建 `bp-github-pool`，不往那个 `github` 池里加 provider。**
+#      理由不是命名洁癖：SA 绑定的 principalSet 是按 **pool + attribute.repository** 写的，
+#      共用一个池意味着 babel.plus 的部署身份与 oratisbase 的身份**住在同一个信任域**里。
+#      那道「即使 condition 被放宽也拦得住」的第二层防线（见上文），前提就是池不共享。
+#      as-built §2.1 的 bp- 前缀隔离在这里不是约定，是那层防线的实现方式。
+#   2. 那个已存在的 provider **条件是写对了的**（钉到具体仓库，不是 repository_owner，
+#      也不是空条件）。所以它不构成「全世界都能换凭据」那个失效模式 —— 这一条只是登记事实，
+#      不是告警。真要动它请去问它的主人，本脚本一个字都不会碰它。
+#
+# ⚠️ 代价：项目里会有两个 GitHub pool。看控制台的人会问「为什么有两个」——
+#    答案就是上面第 1 条，写在这里免得下一个人「顺手合并一下」。
+#
 # ───────────────────────── 排障备忘（写在这里免得有人靠删重建来试）─────────────────────────
 #
 # ⚠️ 删掉的 pool / provider 是**软删除**：名字在 30 天内不能重用（gcloud 提供 undelete）。
@@ -284,7 +304,7 @@ resolve_project_number() {
     PROJECT_NUMBER="$EXPECTED_PROJECT_NUMBER"
     warn "取不到项目编号（权限不足？），退回写死的 ${EXPECTED_PROJECT_NUMBER}。
      ⚠️ 若它与线上不符，本脚本最后打印的 GCP_WIF_PROVIDER 就是错的 —— 配上去会得到一句
-        难懂的 403。真跑前请用 `gcloud projects describe ${PROJECT_ID}` 自行核对一次。"
+        难懂的 403。真跑前请用「gcloud projects describe ${PROJECT_ID}」自行核对一次。"
     return 0
   fi
   if [ "$PROJECT_NUMBER" != "$EXPECTED_PROJECT_NUMBER" ]; then
