@@ -1405,3 +1405,45 @@ func TestProcessDepositUnderpaidDoesNotRecordAmountPaid(t *testing.T) {
 		t.Fatalf("未付清不应记 amount_paid，实际记了 %d 次", len(f.payments))
 	}
 }
+
+// 🔴 `orders.surplus_order_ids` 是 `bigint[] NOT NULL DEFAULT '{}'`，而 CreateOrder 把它
+//
+//	作为显式参数传进 INSERT —— **显式 NULL 会覆盖 DEFAULT**，于是 nil slice = 违反非空约束。
+//	只有 upgrade 单会填这个字段，所以现象是「升级能下、所有新购与续费一律 500」。
+//	进程内单测抓不到它（假的 CreateOrder 不执行 NOT NULL），它是在真库上下第一单时暴露的。
+//	这条测试守的是 handler 侧的不变量：**永远不要往这一列传 nil**。
+func TestWriteOrderNeverPassesNilSurplusOrderIDs(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+
+	t.Run("新购单：nil 必须被填成空切片而不是原样传下去", func(t *testing.T) {
+		f := &fakeOrderWriter{order: dbgen.Order{ID: 21}}
+		draft := &orderDraft{
+			Type: dbgen.OrderTypeNew, Period: dbgen.OrderPeriodMonthly, PlanID: 1,
+			AmountGross: 7200, AmountDue: 7200,
+			// SurplusOrderIDs 刻意不设 —— 这正是新购与续费单的真实形态。
+		}
+		if _, err := writeOrder(context.Background(), f, 7, "T21", draft, now); err != nil {
+			t.Fatalf("不应报错：%v", err)
+		}
+		if f.createParams.SurplusOrderIds == nil {
+			t.Fatal("传给 CreateOrder 的 SurplusOrderIds 是 nil —— 真库上这是 23502，下单必 500")
+		}
+		if len(f.createParams.SurplusOrderIds) != 0 {
+			t.Fatalf("新购单不该有折抵源，实际 %v", f.createParams.SurplusOrderIds)
+		}
+	})
+
+	t.Run("升级单：已有的折抵源原样保留", func(t *testing.T) {
+		f := &fakeOrderWriter{order: dbgen.Order{ID: 22}}
+		draft := &orderDraft{
+			Type: dbgen.OrderTypeUpgrade, Period: dbgen.OrderPeriodMonthly, PlanID: 2,
+			AmountGross: 15900, AmountDue: 8700, SurplusOrderIDs: []int64{99},
+		}
+		if _, err := writeOrder(context.Background(), f, 7, "T22", draft, now); err != nil {
+			t.Fatalf("不应报错：%v", err)
+		}
+		if len(f.createParams.SurplusOrderIds) != 1 || f.createParams.SurplusOrderIds[0] != 99 {
+			t.Fatalf("折抵源被改坏了：%v", f.createParams.SurplusOrderIds)
+		}
+	})
+}

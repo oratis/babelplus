@@ -1360,6 +1360,21 @@ func writeOrder(ctx context.Context, q createOrderWriter, userID int64, tradeNo 
 
 	period := draft.Period
 	planID := draft.PlanID
+
+	// 🔴 `orders.surplus_order_ids` 是 `bigint[] NOT NULL DEFAULT '{}'`，而这里把它作为
+	//    **显式参数**传进 INSERT —— 显式 NULL 会覆盖掉 DEFAULT，不会退回 '{}'。
+	//    `draft.SurplusOrderIDs` 只有 upgrade 单会填（buildUpgradeDraft），
+	//    new / renew 单它是 nil slice → SQL NULL → 23502 非空约束违反 → **下单必 500**。
+	//
+	//    也就是说：升级单能下，而**所有新购与续费都下不了单**，且失败得毫无线索
+	//    （用户看到「内部错误」，日志里是一句 constraint 名）。
+	//    1,263 个进程内单测一个都抓不到它 —— 假的 CreateOrder 不执行 NOT NULL。
+	//    它是在真库上下第一单的那一刻暴露的。
+	surplusOrderIDs := draft.SurplusOrderIDs
+	if surplusOrderIDs == nil {
+		surplusOrderIDs = []int64{}
+	}
+
 	order, err := q.CreateOrder(ctx, dbgen.CreateOrderParams{
 		TradeNo:         tradeNo,
 		UserID:          userID,
@@ -1372,7 +1387,7 @@ func writeOrder(ctx context.Context, q createOrderWriter, userID int64, tradeNo 
 		SurplusAmount:   draft.SurplusAmount,
 		AmountBalance:   draft.AmountBalance,
 		AmountDue:       draft.AmountDue,
-		SurplusOrderIds: draft.SurplusOrderIDs,
+		SurplusOrderIds: surplusOrderIDs,
 		CouponID:        draft.CouponID,
 		InvitedBy:       draft.InvitedBy,
 		ExpiresAt:       tstz(now.Add(orderPayWindow)),
