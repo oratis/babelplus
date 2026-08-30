@@ -439,8 +439,24 @@ WHERE id = @id::bigint AND status = 'sent';
 -- ============================================================
 --
 -- ⚠️ ADR 0012 的状态是「提案，未批准」。本轮**不接任何第三方 RPC**：
---    链上拉取做成可注入接口，默认实现返回「未配置」。下面的查询只负责
---    「拿到一批链上转账之后该怎么落库」，那一半与用哪家 RPC 无关。
+--    链上拉取做成可注入接口，默认实现返回「未配置」。
+--
+-- 🔴 **本节没有任何入账语句，这是刻意的。**
+--    「拿到一批链上转账之后怎么落库」全部在 orders_user.sql 的第六节
+--    （InsertPaymentIfNew / AttributePayment / SumAddressReceipts / TransitionOrderStatus …），
+--    由 handler 的 processDeposit 串起来 —— ADR 0012 §8.4 硬约束 1：
+--    webhook / recheck / chain-scan / D6 四条触发路径**共用同一段入账代码**。
+--
+--    这里曾经有过第二套（RecordChainPayment / SetOrderPayFromAddress，已删）。
+--    它按 order_id 累计、且 order_id 是非空参数，于是**结构上写不下**
+--    §8.4 分支 ②「钱打到了我们的地址、但归属不到任何订单」——
+--    而那正是 §1 要消灭的「钱进黑洞」。两套并存时它们还会在
+--    「累计口径」（order_id vs to_address）上给出不同的付清判定，
+--    差异只在少付补足这种场景里显形，且不报错。
+--    ⚠️ 在本节新增任何写 payments / orders.status 的语句之前，先回答
+--    「为什么 processDeposit 装不下它」——多半装得下。
+--
+-- 所以本节只剩两条：**扫谁**、以及**扫到哪了**。
 --
 -- 归属**只看地址不看金额**（ADR 0012 §5.4 推翻了 EPUSDT 的金额尾数递增法；
 -- 0015 的 orders_pay_addr_uk 是它在 schema 上的表达）。所以这条查询直接
@@ -468,80 +484,15 @@ LIMIT @batch::integer;
 -- timestamptz，因为要原样回传给 TronGrid，转成 timestamptz 再转回去会在毫秒边界丢事件）。
 -- 传 NULL 表示这一轮没拿到新游标（例如拉取失败），保持原值 —— 绝不能写成 0，
 -- 那等于把游标重置到 1970 年，下一轮会把这个地址的全部历史重扫一遍。
+--
+-- ⚠️ 与 orders_user.sql 的 `UpdatePayAddressCursor` 看着像重复，但**不能合并**：
+--    那条的 cursor_ts 是必填（recheck 只在真的拿到新游标时才调它），
+--    而定时扫链**每扫一个地址都要写 last_scanned_at**（它同时是
+--    ListScannableChainAddresses 的排序键，不写会让同一批地址被反复优先扫），
+--    偏偏在「有转账但入账失败」时又必须让 cursor_ts 原地不动。
+--    「刷新扫描时刻但不推进游标」这个组合只有可空参数表达得出来。
 -- name: TouchPayAddressScan :exec
 UPDATE pay_addresses
 SET last_scanned_at = now(),
     cursor_ts = coalesce(sqlc.narg(cursor_ts)::bigint, cursor_ts)
 WHERE id = sqlc.arg(id)::bigint;
-
--- 落一条链上入账流水。
---
--- 🔴 幂等由 0014 的 `UNIQUE (provider, external_id)` 强制，external_id = `txid:log_index`
---    （ADR 0012 §8.2：取值来源**只有链上事件**，与录入者无关）。
---    DO NOTHING 返回 0 行 → :one 报 pgx.ErrNoRows → 调用方按「这笔已经记过」处理。
---    §10.5 的「游标往回退 10 分钟重扫」正是靠这条唯一索引兜底，所以重复是**设计内的常态**。
---
--- state 的判定放在 SQL 里而不是 Go 里，因为它要读 prior（同一订单此前的累计到账），
--- 而 ADR 0012 §6.3 的累计口径就是「按地址/订单求和」—— 拉回 Go 侧算意味着
--- 先查一次再插一次，两步之间另一笔到账落库就会算错。
---
--- 三个分支，顺序不能换：
---   1. 未固化 → confirming。ADR 0012 §10.5：TRON 的最终性是「固化」而不是 N 个确认，
---      openapi 的 confirmations_required = 19 **只用于前端展示进度**，不是服务端判据。
---      把没固化的钱记成 paid，等于在链重组时开通一个没付钱的订阅。
---   2. 应收未知（orders.pay_amount_usdt6 为 NULL）→ 也记 confirming。
---      这是数据缺陷（0015 §17.3 加的这一列是判定的唯一依据），
---      但「钱收到了却因为我们自己的字段缺失而不落库」比记一条待人工处理的流水糟得多。
---   3. 累计 ≥ 应收 → paid，否则 underpaid。判定**一律在 1e-6 USDT 的整数域做**
---      （ADR 0012 §17.3：pay_amount_raw 是 numeric(38,18)，类型本身容得下噪声）。
---
--- prior 里带上 'confirming' 是刻意的：同一笔钱先以 confirming 记入、后续固化后
--- 由别的路径改状态，若这里不计入，补足判定会把它当成没收到过。
---
--- entered_by 恒为 'scanner'：0014 的列注释说它只区分**录入者**、不参与幂等，
--- 手工与自动因此天然互斥（谁先到谁插入成功）。
---
--- ⚠️ 本语句**只记录收到了钱，不开通任何权利、不写任何账本分录**。
---    开通与入余额属于 ADR 0012 §8.4 的入账路径，那条路径本轮未实现。
---    这个分工是安全的方向：多记一条流水没有副作用，少开通一次订阅有工单兜底；
---    反过来（先开通后记账）则会在重投时开通两次。
--- name: RecordChainPayment :one
-WITH prior AS (
-  SELECT coalesce(sum(p.amount_usdt6), 0)::bigint AS received
-  FROM payments p
-  WHERE p.order_id = @order_id::bigint
-    AND p.state IN ('confirming','underpaid','paid')
-)
-INSERT INTO payments (
-  provider, external_id, entered_by, order_id, user_id,
-  chain, txid, log_index, from_address, to_address,
-  amount_usdt6, state, confirmations, raw
-)
-SELECT @provider::text, @external_id::text, 'scanner',
-       @order_id::bigint, @user_id::bigint,
-       @chain::text, @txid::text, @log_index::integer,
-       @from_address::text, @to_address::text,
-       @amount_usdt6::bigint,
-       CASE
-         WHEN NOT @solidified::boolean                THEN 'confirming'::payment_state
-         WHEN sqlc.narg(expected_usdt6)::bigint IS NULL THEN 'confirming'::payment_state
-         WHEN prior.received + @amount_usdt6::bigint
-              >= sqlc.narg(expected_usdt6)::bigint    THEN 'paid'::payment_state
-         ELSE 'underpaid'::payment_state
-       END,
-       @confirmations::integer,
-       @raw::jsonb
-FROM prior
-ON CONFLICT (provider, external_id) DO NOTHING
-RETURNING id, state, order_id;
-
--- 回填付款方地址。ADR 0013 §9 的失效条件靠这一列执行（0016 的列注释：
--- 「链上付款方地址，归集时按 txid 回填」），而**扫链是唯一看得见付款方的地方** ——
--- 不在这里落下来，之后任何时候都拿不回来了。
---
--- coalesce 语义：只写第一次。补足支付可能来自另一个地址，
--- 而「这张订单是谁付的」应当锁定在首笔，后续的在 payments.from_address 里逐笔可查。
--- name: SetOrderPayFromAddress :exec
-UPDATE orders
-SET pay_from_address = @from_address::text, updated_at = now()
-WHERE id = @id::bigint AND pay_from_address IS NULL;

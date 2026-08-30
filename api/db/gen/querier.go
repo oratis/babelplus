@@ -57,6 +57,898 @@ type Querier interface {
 	// 不会被一次新购买**缩短**有效期。12 个月的出处是最长售卖周期（年付），
 	// 这样「买年付时顺手买的包」在整个订阅期内都有效。
 	AddUserTransferQuota(ctx context.Context, arg AddUserTransferQuotaParams) (AddUserTransferQuotaRow, error)
+	// ---------- §3.3 调整佣金（adjustAdminCommission，D11：L2 必填原因） ----------
+	//
+	// 🔴 **只允许调 `pending` 与 `confirmed` 两态，`transferred` 与 `voided` 一律拒绝。**
+	//    `transferred` 意味着这笔钱**已经变成用户余额了**（wallet.sql §5：划转会写一条
+	//    `expense:commission ↔ liability:user_wallet` 的分录）。事后改 `commissions.amount`
+	//    不会动分录，于是佣金表说 ¥15.90、账本说 ¥7.20，而**两边都不会报错** ——
+	//    `FindUnbalancedLedgerEntries` 只检查每条分录自己平不平，它对「分录与业务表不一致」是瞎的。
+	//    要改一笔已划转的佣金，唯一正确的做法是写一条**冲正分录**（0007 的 reverses_id 就是为它建的），
+	//    那是另一个端点、另一次裁决。
+	//    `voided` 是退款套利被作废的，复活它需要先解释为什么当初作废 —— 同样不该由一个 +/- 数字完成。
+	//
+	// 🔴 **LEFT JOIN upd 是刻意的：要让「不存在」与「状态不对」在 handler 侧可区分。**
+	//    写成 INNER JOIN 的话，两种情况都返回 0 行 → sqlc 的 :one 给出同一个 ErrNoRows →
+	//    handler 只能二选一地回 404 或 409，而两者对操作者的意义完全不同
+	//    （前者「你打错 id 了」，后者「这笔钱已经付出去了，去走冲正」）。
+	//    现在：0 行 = 404；`after_amount IS NULL` = 409 + 把 `before_status` 写进 message。
+	//
+	// ⚠️ `amount >= 0` 是 0007 的 CHECK。负向调整调过头会抛 23514 → handler 翻 422。
+	//    **不要**先读一次再在 Go 里比大小：那是一次 TOCTOU（同 §1.6）。
+	// ⚠️ `commissions` 上**没有 updated_at 列**（0007 逐列核过），所以本条不写时间戳。
+	//    「什么时候被调过」的证据在 audit_logs 上 —— 对一条钱的记录来说，那才是该看的地方。
+	AdjustAdminCommissionAmount(ctx context.Context, arg AdjustAdminCommissionAmountParams) (AdjustAdminCommissionAmountRow, error)
+	// 「删除」套餐（D8）= **下架**（archived_at + sellable/visible 置 false），不是 DELETE。
+	// `orders.plan_id` 是 ON DELETE RESTRICT：只要有一张历史订单引用它，硬删就是数据库拒绝；
+	// 而没有订单引用它的时候硬删也是错的 —— `stat_user_server` 之类的历史与 `sla_policies.plan_id`
+	// 都会跟着断（后者是 ON DELETE CASCADE，一次删套餐会静默带走它的 SLA 策略）。
+	//
+	// 与 orders.sql 的 `ArchivePlan` 的区别，和节点那对一样：那条是 `:exec`，
+	// 分不出「下架成功」与「本来就是下架状态」（→ 404 无从判断），也拿不到审计的前后像。
+	//   TODO(P2): 调用点切到本条之后删掉 `ArchivePlan`。
+	//
+	// 契约给 deleteAdminPlan 留了 409：handler 应当在 `open_order_count > 0`
+	// （有人正在结算这个套餐）时返回 409 而不是直接下架 —— 下架会让那些人的支付链路走进
+	// 「套餐不存在」，而他们的钱可能已经在路上了。`subscriber_count > 0` **不该**拦：
+	// 下架的常规语义就是「老用户继续用、新用户买不到」（0002 把 sellable / renewable 拆开就是为了它）。
+	AdminArchivePlan(ctx context.Context, planID int64) (AdminArchivePlanRow, error)
+	// ---------- §1.5 封禁 / 解封（banAdminUser · unbanAdminUser，D2：L2 必填原因） ----------
+	//
+	// before/after 同 §1.4 的一条语句两 CTE，理由不重复。这里只记 D2 独有的三件事：
+	//
+	// 🔴 **`banned` 与 `banned_at` 由 `users_banned_consistency` 这条 CHECK 绑死**
+	//    （0003:56：`(banned) = (banned_at IS NOT NULL)`）。所以封禁必须同时写两列、
+	//    解封必须同时清两列 —— 只写其一会被数据库拒绝（23514），而不是留下一个
+	//    「banned=true 但不知道什么时候封的」的行。
+	//
+	// ⚠️ **重复封禁不是错误，但改前值会变成 (true → true)**。本条不加
+	//    `AND banned = false` 的 CAS：加了之后重复点击返回 0 行，而 0 行与「用户不存在」
+	//    在 sqlc 的 :one 里是同一个 ErrNoRows，handler 会把它翻成 404 —— 对一个
+	//    **已经被封**的用户回 404 是谎话。让它成功、让审计记下 (true → true)，
+	//    多一条审计记录的代价远小于一次错误的 404。
+	//    `banned_at` 用 `coalesce(u.banned_at, now())` 保住**第一次**被封的时刻：
+	//    重复封禁不该把「他从什么时候起被封」改写成今天。
+	//
+	// ⚠️ **生效延迟 60 秒**（openapi 在这个端点上逐字写了这句）：触发器 bump 了 user_rev，
+	//    但节点每 60 秒才拉一次用户表。前端的成功提示必须说出这一点，否则管理员会
+	//    在 30 秒后看到「他还在线」并再点一次。
+	AdminBanUser(ctx context.Context, arg AdminBanUserParams) (AdminBanUserRow, error)
+	// 客服回复后的计数与时钟推进。
+	// 消息本身**复用 tickets.sql 的 `CreateTicketMessage`**（9 个参数，含 is_internal）。
+	//
+	// 🔴 **为什么不能直接用 `BumpTicketMessageCount`：它按 `actor_type` 判 SLA 首次响应，
+	//    而管理面写的消息 actor_type 恒为 'agent' —— 包括 `is_internal = true` 的内部备注。**
+	//    于是客服给自己写一句「这个先放着，等节点商回复」就会把 `first_response_at` 打上，
+	//    SLA 的首次响应被判为已达成，而**用户那边一个字都没收到**（内部备注永远不出现在
+	//    用户面的响应里，用户面的类型上根本没有这个字段）。
+	//    后果不是少一个告警，是**告警系统开始撒谎**：`ListTicketsBreachingFirstResponse`
+	//    的谓词是 `first_response_at IS NULL`，被内部备注填上之后，这张单再也不会被判违约。
+	//    SLA 数字会因此系统性变好看，而变好看的方向恰好是没人会去质疑的那个方向。
+	//
+	//    本查询把判据从 `actor_type` 换成 `is_internal`：只有**公开**的客服回复才推进
+	//    `first_response_at` 与 `last_agent_reply_at`；内部备注只加 `message_count`。
+	//    `message_count` 内部备注也算 —— 它是「这张单有多少条消息」，不是「用户看得到几条」，
+	//    而管理面的详情页显示的正是全部消息。
+	//
+	// ⚠️ 调用方必须与 `CreateTicketMessage` 在**同一事务**里调这一条：
+	//    `message_count` 是冗余计数，data-model §10.1 修改 4 明确「写消息时在同一事务内 UPDATE，
+	//    **不用触发器**」（本表写频率低，漏了只是计数不准，不是静默故障）。
+	//    ⚠️ 但 SLA 时钟不属于「只是计数不准」那一类，所以这两条的同事务是硬要求，不是建议。
+	AdminBumpTicketOnAgentMessage(ctx context.Context, arg AdminBumpTicketOnAgentMessageParams) (AdminBumpTicketOnAgentMessageRow, error)
+	// 签发前的闸（D5 第 1 步）。
+	// 与 servers.sql 的 `CountActiveServerKeysPerServer` 的区别：那条是**全表巡检**
+	// （`GROUP BY server_id HAVING count(*) > 2`，供每日告警用，正常返回空集）；
+	// 这条是**单节点、签发路径上同步问的那一次**。用巡检那条来做签发闸会有两个问题：
+	// 它返回 0 行既可能是「这台机器有 1 把」也可能是「这台机器有 0 把」，分不出来；
+	// 而且它扫全表 —— 一次签发不该为此付全表扫描。
+	AdminCountActiveNodeKeys(ctx context.Context, serverID int64) (AdminCountActiveNodeKeysRow, error)
+	// ############################################################
+	// 八、邮件（模块 15）—— ListAdminMailTemplates / UpdateAdminMailTemplate /
+	//     BroadcastAdminMail（D11b）/ ListAdminMailLogs
+	// ############################################################
+	//
+	// 🔴 **`mail_templates` 表在 18 支迁移里不存在**（`CREATE TABLE` 全仓核过一遍）。
+	//    契约的 `MailTemplate {id, key, subject, body, enabled}` 与 `MailTemplatePatch` 没有落点：
+	//    `email_log.template` 只是一个**模板键的字符串快照**（'verify_code' / 'domain_broadcast' /
+	//    'expire_remind'），不是模板正文的存储。
+	//    所以 `ListAdminMailTemplates` 与 `UpdateAdminMailTemplate` 在本文件里**没有查询**，
+	//    这不是遗漏。缺口已在 `missing_schema` 里报告，本文件按任务书的规矩**不自己加迁移**。
+	//    在它落地之前，这两个 operation 的诚实实现是 501（或返回一份写死在 Go 里的模板清单，
+	//    且 PATCH 一律 501）—— **不要**把模板塞进 `settings` 的 JSONB 再假装它是表：
+	//    `MailTemplatePatch` 要求前后像进审计，而 JSONB 里的部分更新拿不到干净的字段级快照。
+	// ---------- D11b · 群发邮件 ----------
+	//
+	// 🔴 **收件人筛选表达式尚未设计**（roadmap B37，契约自己也用 🔴 标着「未裁决」）。
+	//    所以这里**不发明一套查询语言**，只做契约给的那个粗粒度 `audience` 枚举 + `plan_ids`，
+	//    并且**先给出命中人数**用于二次确认（page-inventory §4.4 D11b 的要求原文：
+	//    「二次确认 + 强制先发测试件 + **确认框显示收件人数** + 频率上限 + 审计」）。
+	//    缺口已在 `missing_schema` 里登记。
+	//
+	// 🔴 **另一个缺口，它让 BroadcastAdminMail 只能实现一半**：`email_log` **没有正文列**。
+	//    它有 `template`（模板键）和 `subject`，没有 `body`。而 `MailBroadcastRequest.body`
+	//    是一段**临时写的正文**，不是模板键 —— 它没有地方可存，`ClaimQueuedMail`
+	//    （mail-send 任务唯一的取件查询）也只返回 template/subject，取不到正文。
+	//    也就是说：以模板键驱动的群发（传一个已存在的 template）这两条查询就够了；
+	//    带自定义正文的群发**结构上做不到**，handler 必须 501 —— 契约自己留了这个出口
+	//    （「服务端对未实现的组合返回 501 并 // TODO(P1)」）。缺口已登记。
+	//
+	// 🔴 **为什么退信过滤是硬要求而不是优化**：D11b 的危害栏原文是
+	//    「AWS SES 退信率 **≥ 5% 进入审查、≥ 10% 可能暂停发信**」，而邮件是 ADR 0002 定的
+	//    **唯一失联恢复通道**。一次群发把发信资格打掉，代价不是这封信没发出去，
+	//    是下一次域名被封时我们没有任何办法通知用户。所以两条排除是判定的一部分：
+	//      · `u.deleted_at IS NULL` —— `AnonymizeUser` 把邮箱改写成 `deleted+<id>@invalid`
+	//        并同时置 deleted_at。往 `@invalid` 发信是**保证硬退**的，一批注销用户足以把比例拉爆。
+	//      · `NOT EXISTS (… bounce_type = 'hard')` —— 已经硬退过的地址再发一次仍然硬退。
+	//        这是行业通行的 suppression list，只是我们把它做成了查询条件而不是一张新表。
+	//    ⚠️ 刻意**不**过滤 `email_verified_at IS NULL`：验证流程的实际覆盖率现在没有数据，
+	//    拿它当条件有可能把整个受众静默清零 —— 而「命中 0 人」正是这个确认数字要防的那种意外。
+	//
+	// 🔴 `ELSE false` 不是兜底装饰：audience 传了一个我们不认识的值时，命中人数是 **0**，不是全部。
+	//    反过来写（`ELSE true`）意味着一次拼错的枚举 = 一次全站群发。
+	//
+	// ⚠️ 本文件**不**读 `users.notify_expire` / `notify_traffic`：0003 的列注释写明这两个开关
+	//    「只管到期与流量两类；失联广播不受此控制」，而 schema 上刻意**没有**「全部通知」总开关。
+	//    也就是说：**一次运营性质的群发在这个 schema 上无法尊重用户的退订意愿** ——
+	//    数据模型里根本没有那个位。缺口已登记（补法是加一列 `notify_broadcast`，
+	//    并让本查询与下面的入队查询同时加上它）。
+	// 群发前的命中人数（二次确认用）。WHERE 与下面的入队查询**逐字一致**。
+	// 🔴 两处 WHERE 是刻意的重复：sqlc 不做动态查询（ADR 0006 §15.4），没有办法共享一个谓词。
+	//    改一处必须改另一处 —— 漂移的现象是「确认框说 312 人，实际发给了 1100 人」，
+	//    而这个数字正是 D11b 唯一的人工闸门。
+	AdminCountBroadcastAudience(ctx context.Context, arg AdminCountBroadcastAudienceParams) (int64, error)
+	AdminCountCouponsFiltered(ctx context.Context) (int64, error)
+	// WHERE 与 AdminListMailLogsPage 逐字一致（去掉游标）。
+	AdminCountMailLogsFiltered(ctx context.Context, recipientDomain *string) (int64, error)
+	// `?count=true` 用。WHERE 必须与 AdminListNodesPage 逐字一致（去掉游标那一行）。
+	AdminCountNodesFiltered(ctx context.Context) (int64, error)
+	// WHERE 与 AdminListOrdersPage 逐字一致（去掉游标）。改一处必须改另一处。
+	AdminCountOrdersFiltered(ctx context.Context, qLike *string) (int64, error)
+	// WHERE 与 AdminListPaymentsPage 逐字一致（去掉游标）。
+	// 不需要 join / lateral：过滤条件只用到 payments 自己的列。
+	AdminCountPaymentsFiltered(ctx context.Context, state *PaymentState) (int64, error)
+	// WHERE 与 AdminListTicketsPage 逐字一致（去掉游标）。
+	AdminCountTicketsFiltered(ctx context.Context, status *TicketStatus) (int64, error)
+	// WHERE 与 AdminListUnderpaidPaymentsPage 逐字一致（去掉游标）。
+	AdminCountUnderpaidPayments(ctx context.Context) (int64, error)
+	// 建优惠码（D8）。
+	// ⚠️ `code` 存**大写**（0006 的列注释「存 upper(code)」，唯一索引是 `upper(code)`）。
+	//    这里显式 `upper()` 而不是指望调用方：唯一索引是 `upper(code)` 的表达式索引，
+	//    存进去一个小写串不会撞索引、但会让**列表页显示的码与用户要输的码大小写不一致**，
+	//    而 `VerifyCouponForUser` 两侧都 upper()，所以兑换其实是好的 —— 这种「只有显示不对」
+	//    的错最难被发现。
+	// ⚠️ `value > 0` 是 CHECK：percent 类型传 0（想表达「不打折」）是数据库拒绝。
+	AdminCreateCoupon(ctx context.Context, arg AdminCreateCouponParams) (Coupon, error)
+	// 删优惠码（D8）。这里是**真删**，因为 `coupons` 上没有任何软删列。
+	//
+	// 🔴 所以 handler **必须先看 `AdminGetCouponForUpdate` 的 `referencing_order_count`，
+	//    非零一律拒绝**（契约给 deleteAdminCoupon 只留了 403/404/500，没有 409 ——
+	//    这处缺口已登记；在补上之前建议返回 409 并接受它不在契约响应列表里，
+	//    因为另外两种选择都更糟：404 是撒谎，静默删除是毁证据）。
+	//    理由：`orders.coupon_id` 是 **ON DELETE SET NULL**（0006）。删掉一张用过的优惠码，
+	//    历史订单的 `amount_discount` 还在（钱少收了多少查得到），但**「为什么少收」凭空消失**，
+	//    而且是无声的 —— 没有报错、没有级联失败，只是若干张订单的 coupon_id 变成了 NULL。
+	//    对账的人会看到一批「打了折但不知道用了什么码」的订单，再也查不回来。
+	//
+	// 返回整行是审计的 before 快照：删除操作没有 after（§6.3 第 2 条对删除的形态就是 after 为 nil）。
+	// 0 行 = 不存在 → 404。
+	AdminDeleteCoupon(ctx context.Context, couponID int64) (Coupon, error)
+	// 群发入队。一条 `INSERT … SELECT` 吃下整批，**不逐条 CreateEmailLog** ——
+	// 群发可能是几百上千人，逐条就是几百次往返，而连接池每实例只有 2 条连接（ADR 0005）。
+	// 也不走 tasks.sql 的 `EnqueueReminderMails`：那条要调用方先把 user_id/email 两个等长数组
+	// 拼出来（它服务的是「已经算好了名单」的提醒任务）；群发的名单就是这条谓词本身，
+	// 把它取回 Go 再传回来，中间那一趟就是名单可能变化的窗口。
+	//
+	// 🔴 **`queued` 的真相是本语句返回的行数，不是上面那条 count 的结果。**
+	//    确认框里的数字和真正入队的数字之间隔着管理员点确认的那几秒，
+	//    期间可能有人注册、有人到期。契约的 `MailBroadcastResult.queued` 必须取这一条的行数。
+	//
+	// `to_domain` 取 `lower(split_part(email,'@',2))`：0011 的列注释说它的用途是
+	// 「按域名分组统计送达率」，而 ADR 0002 §7 关心的正是 qq.com / 163.com 这几个域。
+	// 不 lower() 的话 QQ.com 与 qq.com 会分成两组，那个统计就废了
+	// （口径与 `users_email_uk` 的 lower(email) 以及 EnqueueReminderMails 一致）。
+	//
+	// `status` 恒为 'queued'：本语句只入队，真正发信在 `/internal/tasks/mail-send` 里，
+	// 抢占走 `ClaimQueuedMail`（`WHERE id = $1 AND status = 'queued'`，抢占即幂等）。
+	AdminEnqueueBroadcastMails(ctx context.Context, arg AdminEnqueueBroadcastMailsParams) ([]AdminEnqueueBroadcastMailsRow, error)
+	// 改 / 删优惠码前的读：审计前像 + 删除的 409 判据（`used_count`）。
+	AdminGetCouponForUpdate(ctx context.Context, couponID int64) (AdminGetCouponForUpdateRow, error)
+	// 节点详情。投影与 AdminListNodesPage **逐字相同**，只换 WHERE ——
+	// 让「列表里显示在线、点进去显示离线」这类不一致在结构上不可能出现。
+	AdminGetNode(ctx context.Context, serverID int64) (AdminGetNodeRow, error)
+	// D4 的前置读：删节点前 handler 必须拿到的三样东西。
+	//
+	// ① `name` —— L1 确认串的**期望值**。契约写明 `confirmation` 必须等于该节点的 `name`，
+	//    而 §6.2 要求这个期望值由**服务端自己查出来**再常数时间比对。
+	//    前端的确认弹窗对一个直接 curl 的人是零，所以这一步不能省。
+	//
+	// ②③ 两个在线人数，**刻意都给，而且刻意不合并成一个数**（page-inventory §4.4 D4：
+	//    「确认框内必须显示当前在线人数」）：
+	//    · `reported_online_users` 是节点自己上报的（POST /status），
+	//      🔴 它在**节点已经失联**时是一个不会变的旧值，而 server_online_state 是 UNLOGGED 表，
+	//         数据库重启后它是 **0**。「0 人在线」恰恰是让运维放心点下删除的那个数字。
+	//    · `observed_online_users` 是我们自己观测到的（user_device_state 近 2 分钟的去重用户数，
+	//      口径与 servers.sql 的 ListAliveDeviceCounts 一致：**按 IP 去重后再按用户去重**）。
+	//      它同样会偏小（alivelist 拉取失败时 v2node 静默降级为「零在线设备」，B16 实证），
+	//      但它与上报值的**偏差**本身就是信息：两个数差很多 = 这台机器的状态不可信，别删。
+	//    handler 必须把两个数都放进确认框。合并成一个「在线人数」等于把这条信息扔掉。
+	//
+	// ④ `active_key_count` 一并带出：删节点会 CASCADE 掉它的 server_keys（0004 的外键），
+	//    也就是说这些密钥会**无声消失**。确认框应当把它说出来。
+	//
+	// `FOR UPDATE OF s` 只锁 servers 那一行，**不锁 users / user_device_state**：
+	// 后两者在读路径上每 60 秒被写一次，把它们卷进一次管理操作的锁里是在给节点面制造阻塞。
+	AdminGetNodeForDangerOp(ctx context.Context, serverID int64) (AdminGetNodeForDangerOpRow, error)
+	// 签发本身**复用 servers.sql 的 `CreateServerKey`**（7 个参数与本表的列一一对应，没有重写的余地）。
+	// 调用方在同一事务里还要做的事：
+	//   · 明文只在 201 响应里出现一次，**不落库、不进日志、不进审计的 after 快照**
+	//     （审计里放 key_prefix 与 scopes 就够了 —— 审计表是 append-only 且永不删除的）；
+	//   · `scopes` 缺省是契约里那五个（不含 `node:status:write`），白名单是 Go 里的常量 map，
+	//     不从 DB 读、也不做前缀匹配（契约 `NodeScope`：**精确匹配，非前缀**）。
+	//     ⚠️ 0004 给 scopes 的 DEFAULT 是 `'{uniproxy}'` —— 那是个**与契约枚举完全不同的旧值**，
+	//     所以这一列必须显式传，靠默认值会签发出一把 scope 谁也不认识的密钥。
+	// 吊销前的读：一次拿到 404 / 409 / 审计前像所需的全部事实（D5 第 2 步）。
+	//
+	// 为什么不把判定塞进吊销那条 UPDATE 就完事：那条 UPDATE 影响 0 行有**三种**互不相同的原因 ——
+	// 密钥不存在（→ 404）、已经吊销过（→ 409 或幂等 204）、见证密钥不满足（→ 409，且 message 要写明
+	// 「新密钥尚未被节点使用过，现在吊销旧密钥会导致节点失联」）。
+	// 只有 UPDATE 的话这三种全都塌成「0 行」，于是错误码只能瞎猜，而这条 message 是契约逐字要求的。
+	// **两条都要**：这条负责说清楚为什么，下面那条负责在并发下真的不出事。
+	//
+	// `witness_count` 就是契约那句前置条件的直译：同一节点上**另一把**未吊销、未过期、
+	// 且 `last_used_at > 自己的 issued_at`（= 节点真的用过它）的密钥有几把。
+	// ⚠️ 契约原文是「`last_used_at > 新密钥签发时刻`」。这里比的是**见证密钥自己的** issued_at，
+	//    不是被吊销那把的 —— 两者在正常轮换里等价（新密钥后签发），但当运维签发了两把新密钥、
+	//    或者签发顺序被打乱时，只有「用过它自己」这个口径是对的：我们要问的是
+	//    「节点现在认不认这把新密钥」，不是「时间戳谁大」。
+	AdminGetNodeKeyByPrefix(ctx context.Context, keyPrefix string) ([]AdminGetNodeKeyByPrefixRow, error)
+	// 订单详情（只读）。与用户面的 `GetUserOrder` 的关键区别：**不按 user_id 过滤**。
+	// 用户面必须按 (trade_no, user_id) 双条件定位，否则是越权读单；管理面按单号查就是它的职责。
+	// 这两条查询长得像但语义相反，所以刻意分开写而不是加一个可空的 user_id 参数 ——
+	// 一个「传 NULL 就不过滤」的参数，只要有一处调用点忘了传，用户面就变成了管理面。
+	//
+	// 一并带出收款侧的三个汇总，后台的订单详情页要它们来回答「钱到底到没到」：
+	//   payment_count / received_usdt6（链上累计实收）/ refunded_to_balance（退到余额的总额）。
+	// ⚠️ `refunds.amount` 与 `orders.amount_refunded` 是**两个不同的量**（0016 的列 COMMENT）：
+	//    前者是退款总额的唯一真相源，后者只记真的退出去的现金（destination='original'）。
+	//    退到余额时 `amount_refunded` 恒为 0 —— 拿它当「退了多少」会在对账页上少算一大截。
+	AdminGetOrder(ctx context.Context, tradeNo string) (AdminGetOrderRow, error)
+	// ============================================================
+	// 🔴 D6 · 手工标记订单已支付 —— 全系统最大的内部欺诈面
+	// ============================================================
+	//
+	// 本查询是 D6 的**前置读**，也是 D6 在数据层留下的审计前像。
+	// 四层强制（§6.2）里有三层要在 handler 做、且**都需要这条查询的输出**：
+	//   L1 确认串 —— 期望值是 `user_email`（**由服务端查出来**，常数时间比对，不一致 → 422）
+	//   L2 原因   —— handler 校验 ≥ 8 字符，进审计
+	//   L3 TOTP   —— `used_totp` 表（0015）防重放，与本查询无关
+	//   L4 权限位 —— `admin_users.perm_mark_order_paid`，**默认 false**（0002:62）。
+	//                🔴 ADR 0012 §16.3 另加一道闸：在带外 sink 被端到端验证通过之前，
+	//                这个权限位对**所有**管理员保持 false，即 D6 不可用。
+	//
+	// 🔴 D6 **不是**「把 status 改成 paid」这么一件事。ADR 0012 §8.4 硬约束 1：
+	//    chain-scan / recheck / D6 / webhook **四条路径必须调用同一个 `ProcessDeposit`**。
+	//    所以 D6 的写侧**完全复用**已有的那一组查询，本文件一条都不重写：
+	//      `InsertPaymentIfNew`（§8.4 分支 0，唯一的入账幂等锁）
+	//        → provider='chain_tron'、external_id = txid||':'||log_index、entered_by='admin:<id>'（§16.1）
+	//      `RecordOrderPayment` → `TransitionOrderStatus`（DB 层 CAS）→ `InsertOrderTransition`
+	//      记账走 `GetLedgerAccountByCode('asset:manual_reconcile')` + `CreateLedgerEntry/Line`：
+	//        Dr asset:manual_reconcile / Cr liability:deferred_revenue（§16.2）
+	//        —— **不是** asset:crypto:tron:<addr>，因为手工标记的那一刻钱可能根本没到。
+	//        这个科目的余额长期非零 = 有人标了「已支付」但钱没进来，是把这个欺诈面变成
+	//        「每天看一眼的数字」的**唯一**手段。冲正由 ProcessDeposit 分支 ① 自动写，没有人工动作。
+	//
+	// 🔴 **一处冻结契约与 ADR 0012 §16.1 的硬冲突，必须在 handler 里显式处理**：
+	//    §16.1 要求 D6 **必须携带真实 txid**（「没有 txid 的手工入账走 D10 调整余额，不走 D6」），
+	//    而冻结的 `MarkPaidRequest` 只有 `confirmation` / `reason` / `evidence_url` ——
+	//    **没有 txid 字段**。契约不能改，所以 txid 只能从 `evidence_url` 里解出来
+	//    （示例给的是 `https://tronscan.org/#/transaction/<txid>`）。
+	//    ⚠️ 解不出 txid 时**必须拒绝**（422），不能退化成「随便造一个 external_id」——
+	//    0014 的表注释逐字推翻过 `'D6:' || audit_logs.id` 这种写法：它根本不幂等
+	//    （点两次 = 两次入账、两次开通），而且与扫链跨 provider 不去重。
+	//
+	// `payment_row_count` / `received_usdt6` 在这里返回，是为了让 handler 在**标记之前**就能看见
+	// 「这张单其实已经有链上到账了」——那种情况下正确的动作是等扫描，不是手工标。
+	//
+	// `FOR UPDATE OF o`：写法乙（先读一份再复用既有 CAS）。只锁订单行，
+	// **刻意不锁 `u`** —— 用户行在开通路径上会被写，把它卷进来会与 ProcessDeposit 抢同一批行。
+	AdminGetOrderForMarkPaid(ctx context.Context, tradeNo string) (AdminGetOrderForMarkPaidRow, error)
+	// ============================================================
+	// D7 · 退款 —— 一律进**不可提现余额**（ADR 0013 §3.5）
+	// ============================================================
+	//
+	// 退款额的计算**复用 orders.sql 的 `GetRefundBasis`**（WITH RECURSIVE 沿 prev_order_id 走完
+	// 整条订阅窗口链，一次算清 V_window / consumed_time / consumed_data / refund_B）。
+	// 本文件**不重写它**，理由不只是「别重复」：那条查询里有三处非显然的正确性
+	// （V_window 不含 surplus_amount 与 amount_discount、分段按各自的月付标价快照折算、
+	// `floor(...)::bigint` 两步不能省），抄一份就是给这三处各留一次抄错的机会。
+	//
+	// 这条查询负责 `GetRefundBasis` 回答不了的、**判档与拒绝**要用的事实：
+	//
+	//   · `user_email`          —— D7 只要求 L2（必填原因），不要求 L1；邮箱是给审计与通知邮件用的
+	//   · `cooling_off_used`    —— Class A「冷静期退款一生一次」。
+	//        🔴 这个数**只是给 UI 提前说人话用的**，不是闸门。真正的闸门是
+	//        `refunds_cooling_off_once`（0016 的部分唯一索引）：第二次插 rule='cooling_off'
+	//        由**数据库拒绝**。handler 收到唯一索引冲突时必须映射成 409，
+	//        **不要**因为这里读到 0 就以为可以插 —— 读与插之间有窗口，而并发退款请求是真实场景
+	//        （用户连点两次「申请退款」）。
+	//   · `settled_order_count` —— Class A 的「首单」判定输入（口径与 orders_user.sql 的
+	//        GetUserOrderContext 逐字一致：paid/completed，不数 pending）
+	//   · `refunded_to_balance` / `amount_refunded` —— 已退过多少。两个量不同，见 AdminGetOrder 的注释。
+	//   · 用户订阅现状六列 —— 下面 `AdminTerminateSubscriptionForRefund` 的**审计前像**。
+	//        必须在这里一起读出来：终止那条语句自己也返回前像，但两者读的是不同时刻；
+	//        把「退款前用户手上有什么」记进审计，需要的是**决定退多少钱那一刻**的状态。
+	//
+	// ⚠️ `RefundRequest.amount` 可选（缺省全额）。handler 必须把它与 `GetRefundBasis` 的
+	//    `refund_b` 比较：超过就是 422，而不是「按用户说的退」。
+	//    Class C（加油包 / 重置包 / 钱包充值，`orders.type IN ('traffic_pack','reset_pack','wallet_topup')`）
+	//    一律不退，在这里就该拒绝，不要走到 GetRefundBasis（那条查询的注释也写了它不该收到这种单）。
+	//
+	// `FOR UPDATE OF o`：同 D6，只锁订单行。
+	AdminGetOrderForRefund(ctx context.Context, tradeNo string) (AdminGetOrderForRefundRow, error)
+	// 改支付记录前的读（D13：L2 必填原因）。
+	// 与 `GetPaymentByExternalID` 的区别：那条按幂等键查（入账路径用），这条按主键查（后台用），
+	// 且带 FOR UPDATE 与关联订单，因为改 state 有可能要连带动订单。
+	AdminGetPaymentForUpdate(ctx context.Context, paymentID int64) (AdminGetPaymentForUpdateRow, error)
+	// 改套餐 / 下架前的读：审计前像 + 409 判据。
+	// 与 orders.sql 的 `GetPlan` 的区别：那条是 `SELECT *`（内部逻辑用），
+	// 这条多了三个引用计数与 `FOR UPDATE`，且它们必须与写在同一事务里才有意义
+	// —— 「读到 0 个未支付订单，写的时候有人正好下了单」在下架路径上是真实的：
+	// 下架按钮点下去的那一刻，正是有人在结算页上的时候。
+	AdminGetPlanForUpdate(ctx context.Context, planID int64) (AdminGetPlanForUpdateRow, error)
+	// 工单会话头（`AdminTicketDetail` 的 ticket + user_id + user_email + context）。
+	// 消息列表复用 `ListTicketMessagesInternal`。
+	//
+	// ⚠️ 管理面按**数字 id** 定位（契约的路径参数是 `IdPath`），用户面按 `public_id`
+	//    （'BP-7K2M9Q'，对外只暴露短码防枚举）。两套定位方式并存是契约定的，不是疏漏。
+	//
+	// `JOIN users` 而不是 LEFT：`tickets.user_id` 是 NOT NULL 外键（ON DELETE RESTRICT），
+	// 而 users 永不硬删（data-model §13），所以 INNER 不会吞行。
+	// 一并带出用户的订阅现状四列 —— 客服回工单时第一句要问的就是「他现在是什么状态」，
+	// 少这四列就得再点一次「查用户」，而那正是竞品工单系统最被诟病的地方。
+	AdminGetTicketDetail(ctx context.Context, ticketID int64) (AdminGetTicketDetailRow, error)
+	// ############################################################
+	// 六、优惠码（模块 13）—— ListAdminCoupons / CreateAdminCoupon /
+	//     UpdateAdminCoupon / DeleteAdminCoupon（D8）
+	// ############################################################
+	//
+	// 🔴 **契约的 `Coupon` 与库里的 `coupons` 有四处对不上，第三处是会出事故的：**
+	//
+	//  ① `type`：契约 `[fixed, percent]` ← 库 `('fixed_amount','percentage')`。纯改名，handler 映射。
+	//  ② `value`：契约说 percent 时「是百分点整数（如 20 = 8 折）」，
+	//     库里 percentage 存的是 **bps**（0006 列注释：`1000 = 10%`）。
+	//     所以 `20` 要写成 `2000`，读出来要除以 100。
+	//     🔴 少乘这一下的现象是：管理员填「打 8 折」，系统按 **0.2% 的折扣**去算 —— 用户几乎没优惠；
+	//     反过来多乘一下是白送。两个方向都不会报错。折扣额的计算一律在 Go 侧用整数做
+	//     （`floor(gross × value / 10000)`，与 catalog.sql 的口径逐字一致），绝不引入 float。
+	//  ③ 🔴 **`enabled` 在库里没有对应列，而 `visible` 不是它。**
+	//     `VerifyCouponForUser`（catalog.sql，用户面校验优惠码的唯一入口）**从头到尾不读 `visible`**
+	//     —— 也就是说把 `visible` 置 false **一点也不会让优惠码失效**，它照样能被兑换。
+	//     后台若把「禁用」开关接到 `visible` 上，得到的是一个**看起来禁用了、实际还在打折**的优惠码，
+	//     而这件事只会在对账时以「收入比预期少」的形态出现。
+	//     正确的读写口径（handler 必须照这个来）：
+	//        读 `enabled` ← 计算得出，本文件的列表/详情已经算好，见 `enabled` 列；
+	//        写 `enabled = false` ← **设 `ends_at = now()`**（唯一真的能停掉它的机制）；
+	//        写 `enabled = true`  ← 只有在 `ends_at` 已过期时才把它清成 NULL 或推后，
+	//                               否则**不要动** —— 盲目清 ends_at 会让一个真的到期的活动复活。
+	//     缺口已登记（补法：`ALTER TABLE coupons ADD COLUMN enabled boolean NOT NULL DEFAULT true`，
+	//     并把它加进 VerifyCouponForUser 的判定）。
+	//  ④ `started_at` / `ended_at` / `use_limit` / `plan_ids`
+	//     ← `starts_at` / `ends_at` / `total_uses` / `scope_plan_ids`。纯改名。
+	//
+	// ⚠️ `CouponUpsert` 里**没有** `name` / `min_amount` / `uses_per_user` / `first_order_only` /
+	//    `scope_periods`。建码时它们落到 0006 的默认值（''、0、1、false、'{}'），
+	//    方向都是保守的（`uses_per_user = 1` 而不是无限）。改码时本文件**不写**它们 ——
+	//    契约里没有这些字段，PATCH 时它们的值是「没提」不是「要清空」。
+	// 优惠码列表。`enabled` 是算出来的，口径与 catalog.sql 的 `VerifyCouponForUser`
+	// 那三个布尔位（not_started / ended / exhausted）**逐字互补** —— 两处必须同源，
+	// 否则后台显示「可用」而用户兑换时被拒，工单里没有任何可以对质的东西。
+	AdminListCouponsPage(ctx context.Context, arg AdminListCouponsPageParams) ([]AdminListCouponsPageRow, error)
+	// ---------- 邮件送达日志 ----------
+	//
+	// 这个端点兼 ADR 0002 §7 的**送达率实测数据源**（0011 把 email_log 与 user-journey §3.3 的
+	// email_probe 合并成一张表，理由是「恰恰是『其他邮件』（域名广播）的送达率才是生死攸关的那一个」）。
+	//
+	// ⚠️ 契约的 `MailLogEntry.sent_at` 在 required 列表里，而库里 `email_log.sent_at` 可空
+	//    （'queued' 状态的信还没发出去，就是 NULL；`MarkMailSendFailed` 还会把它清回 NULL）。
+	//    handler 必须回落到 `created_at`，**不要**把 NULL 序列化成零值时间 ——
+	//    `1970-01-01` 出现在送达率报表里会被当成一封「很久以前就发了但没到」的信。
+	// ⚠️ `to_domain` 走 `email_log_domain_idx (to_domain, template, created_at DESC)`；
+	//    **不带域名过滤时没有可用索引**（这张表上没有单独的 created_at 索引），
+	//    是一次顺序扫 + 排序。登记，别当成走了索引。
+	// ⚠️ 过滤值 `lower()`：to_domain 入库时已经 lower 过，两侧同形才不会「按 QQ.com 查不到东西」。
+	AdminListMailLogsPage(ctx context.Context, arg AdminListMailLogsPageParams) ([]EmailLog, error)
+	// ############################################################
+	// 二、节点密钥（模块 6）—— ListAdminNodeKeys / CreateAdminNodeKey / RevokeAdminNodeKey
+	//     🔴 D5：轮换强制两步，且**拒绝发生在 API 层不是 UI 层**
+	// ############################################################
+	//
+	// 表是 **`server_keys`**（0004），不是契约描述文字里的 `node_keys`。字段映射：
+	//
+	//   NodeKey.id          ← server_keys.id
+	//   NodeKey.key_id      ← server_keys.key_prefix      ← 🔴 见下面「两处契约与库对不上」①
+	//   NodeKey.name        ← server_keys.name
+	//   NodeKey.scopes      ← server_keys.scopes（text[]）
+	//   NodeKey.created_at  ← server_keys.issued_at        （库里没有 created_at 这一列）
+	//   NodeKey.last_used_at← server_keys.last_used_at
+	//   NodeKey.expires_at  ← server_keys.expires_at
+	//   NodeKey.revoked_at  ← server_keys.revoked_at
+	//   （`secret_hash` ← `key_hash`，**任何响应都不返回**；本文件的投影里一列都没有它。）
+	//
+	// 🔴 **两处契约与库对不上，handler 必须知道，且第二处是可以出事故的：**
+	//
+	//  ① 契约说 `key_id` 是「base32 六字符」并给了路径参数 `^[a-z2-7]{6}$`；
+	//     库里是 `key_prefix text`，0004 的列注释给的样例是 `'bpk_a1b2c3d4'`（`bpk_` + 8 字符）。
+	//     两者形状不同、前缀不同（契约的密钥串是 `bpn_<key_id>_<secret>`）。
+	//     **以库为准**（data-model §14.1）：本文件按 `key_prefix` 全串查。
+	//     handler 收到的路径参数若真的只有六字符，它**拼不出** `key_prefix` —— 这必须在签发那一步
+	//     就对齐：签发时生成什么形状，吊销时就按什么形状查。
+	//
+	//  ② 🔴 `server_keys.key_prefix` 上**没有唯一索引**（0004 只在 key_hash 与 server_id 上建了索引）。
+	//     也就是说「按公开标识定位一把密钥」在数据库层面**不保证唯一**。
+	//     所以下面的 AdminGetNodeKeyByPrefix 是 `:many` 而不是 `:one`：
+	//     `:one` 生成的 QueryRow 会**静默取第一行**，撞前缀时就会吊销掉另一把密钥 ——
+	//     而那正好是「节点失联」的另一条路径，且事后从日志里看不出任何异常。
+	//     调用方必须自己断言「恰好一行」：0 行 → 404，≥2 行 → 500 + 告警（不是 409，
+	//     因为那是我们自己的数据错误，不是调用者的状态冲突）。
+	//     缺口已登记，补法是一条新 migration：`CREATE UNIQUE INDEX server_keys_prefix_uk ON server_keys (key_prefix)`。
+	// 密钥列表。**一个节点可以同时持有多把有效密钥 —— 这是 D5 两步轮换能成立的前提**
+	// （0004 逐字写着「刻意不建 UNIQUE (server_id) WHERE revoked_at IS NULL」）。
+	//
+	// 三个计算列就是「同一节点当前有几把有效密钥」这件事的可判定性，缺一条两步轮换都做不出来：
+	//   · `active`            —— 未吊销且未过期。过期与吊销在契约里是两个字段，判定必须两个都看。
+	//   · `used_since_issue`  —— **D5 第 2 步的唯一判据**：`last_used_at > issued_at` 表示
+	//                            节点真的用这把新密钥来过一次。只看 `last_used_at IS NOT NULL`
+	//                            不够严：那把密钥可能是很久以前用过、现在节点早换走了。
+	//   · `server_active_key_count` —— data-model §8.3 的应用层规则「同时有效 ≤ 2」的输入。
+	//                            签发第 3 把之前 handler 应当拒绝：轮换期同时有两把是正常的，
+	//                            三把说明上一次轮换没做完（旧的忘了吊销），而那是一个正在积累的失控面。
+	//
+	// ⚠️ 列表包含**已吊销**的密钥（不加 `revoked_at IS NULL`）：后台要能回答「上个月那把是谁吊的、
+	//    什么时候吊的」，而 `revoked_reason` 只在这张表里。
+	AdminListNodeKeys(ctx context.Context, serverID int64) ([]AdminListNodeKeysRow, error)
+	// admin_ops.sql · 管理面：节点 / 节点密钥 / 订单 / 支付 / 套餐 / 优惠码 / 工单 / 邮件 / 域名
+	//
+	// 事实源：openapi/openapi.yaml 的 36 个 admin operation（契约冻结，逐字节门禁）；
+	//         api-contract.md §2.4（分页）、§6.2（危险操作四层强制）、§6.3（审计写入契约）；
+	//         page-inventory.md §4.4（D1–D16 危险操作表）；
+	//         ADR 0012（收款：一单一址、归属只看地址、D6 走同一道入账锁）、
+	//         ADR 0013（计费：服务区间、窗口链、退款进不可提现余额）、
+	//         ADR 0010 / ADR 0011（域名池，两份都是**提案，未批准**）；
+	//         列名逐列核自 0002 / 0003 / 0004 / 0005 / 0006 / 0007 / 0010 / 0011 / 0014 / 0015 / 0016，
+	//         并在一个独立容器里把全部 18 支迁移灌进去、逐条 PREPARE 过。
+	//
+	// 🔴 operation 数是 **36 不是 35**（任务书给的清单自己数是 36 条）。逐条清点见文件末尾的对照表。
+	//
+	// ⚠️ **本文件不重写别处已有的查询。** 复用清单（每条在用到的地方点名）：
+	//      CreateServer · InitNodeRev · BumpConfigRev · AddServerToGroup / RemoveServerFromGroup ·
+	//      BumpUserRevByGroup · CreateServerKey · CountActiveServerKeysPerServer ·
+	//      CreatePlan · GetPlan · TransitionOrderStatus · InsertOrderTransition ·
+	//      InsertPaymentIfNew · RecordOrderPayment · GetLedgerAccountByCode / CreateLedgerEntry /
+	//      CreateLedgerLine · UpsertWalletBalance · GetRefundBasis · CreateRefund ·
+	//      AddOrderRefundedAmount · VoidCommission · CreateTicketMessage ·
+	//      ListTicketMessagesInternal · ListTicketQueue。
+	//    这里只写别处**没有**、或者它的版本**在管理面会出错 / 拿不到审计要的东西**的那些。
+	//
+	// ============================================================
+	// 🔴 审计（api-contract §6.3）：本文件对「改前 / 改后值」统一取哪一种写法
+	// ============================================================
+	//
+	// §6.3 第 2 条要求 `before` / `after` 存**变更字段的完整快照**。两种拿法，本文件**两种都用**，
+	// 按「这条路径上有没有一条已经存在的写语句可以复用」分：
+	//
+	//   甲 · **一条语句同时给出前后像**：`UPDATE t SET … FROM t AS prev WHERE prev.id = t.id …
+	//        RETURNING prev.x AS before_x, t.x AS after_x`。
+	//        FROM 侧读的是本语句开始时的快照，所以 prev 拿到的一定是改前值（已在容器里实测）。
+	//        用在**没有现成写语句可复用**的地方：节点、套餐、优惠码、支付、工单。
+	//        选它的理由：一次往返、且前后像之间**没有窗口** —— 不存在「读到的 before 和真正被改的那一行
+	//        不是同一个版本」这种事，连锁都不用加。
+	//
+	//   乙 · **改之前先读一份（`FOR UPDATE`）**：先跑一条 `SELECT … FOR UPDATE` 当 before，
+	//        再复用既有的写语句。用在**已经有一条正确的写语句**的地方：订单的两处状态迁移
+	//        （复用 `TransitionOrderStatus` 的 DB 层 CAS）。
+	//        选它的理由：那条 CAS 是 ADR 0012 §7.2 逐字要求的写法，为了拿前后像再抄一份
+	//        `UPDATE orders SET status = …` 出来，就是 orders_user.sql 开头批评过的「两份同义 SQL
+	//        长期并存必然漂移」。`FOR UPDATE` 让读到的那一行在事务结束前不会被别人改，
+	//        所以「先读一份」在这里与甲同样严密。
+	//
+	// ⚠️ 两种写法都**不写 audit_logs**：审计的落库由 `api/internal/audit` 负责（它已实现
+	//    「与业务写入同事务、写失败则整体回滚」并有测试证明回滚）。本文件只负责**把它要的两个快照交出来**。
+	//
+	// ============================================================
+	// 🔴 量纲与不可写列
+	// ============================================================
+	//
+	// · `amount_*` / `price_*` / `value` / `min_amount` 一律 bigint 存**人民币分**；
+	//   链上金额一律 bigint，单位 **1e-6 USDT**（`amount_usdt6` / `pay_amount_usdt6`）。
+	// · `users.transfer_enable` 是 **GENERATED ALWAYS AS (_plan + _pack) STORED**（0016），
+	//   **不可赋值**。本文件唯一改配额的地方是退款终止订阅那条，它写的是 `transfer_enable_plan`。
+	//   写生成列 sqlc generate 与 go build **都不报错**，只在运行时炸（ADR 0013 §6.3 实测）。
+	// · `plans.kind` NOT NULL **无 DEFAULT**（0016 / ADR 0013 §4.6）：建套餐必须显式写。
+	//
+	// ============================================================
+	// 分页（api-contract §2.4）：管理面与用户面的口径差别
+	// ============================================================
+	//
+	// 管理面**可以返 total**（后台要分页器），所以每条列表查询都配了一条同 WHERE 的 `Count*Filtered`，
+	// 只在 `?count=true` 时调用。⚠️ 列表与计数的 WHERE **必须逐字一致** —— 两处漂移的表现是
+	// 「分页器说共 87 条，翻到底只有 71 条」，而这种错没有任何报错。改一处必须改另一处。
+	//
+	// 游标一律用行比较 `(sort_key, id) < (cursor_key, cursor_id)`，不用 `k < $1 OR (k = $1 AND id < $2)`：
+	// 后者在同一时间戳的两行上会漏行。`has_more` 由调用方传 `limit + 1` 判定，
+	// **不要**用「返回行数 == limit」—— 正好整除时会多给一页空数据（同 orders_user.sql）。
+	// ############################################################
+	// 一、节点（模块 5）—— ListAdminNodes / GetAdminNode / CreateAdminNode /
+	//     UpdateAdminNode / DeleteAdminNode / EnableAdminNode / DisableAdminNode
+	// ############################################################
+	//
+	// `AdminNode` 的字段映射（契约名 ← 库列），只此一处，写清楚：
+	//
+	//   AdminNode.type          ← servers.protocol      （契约自己写了「节点类型的权威来源」）
+	//   AdminNode.config_rev    ← node_rev.config_rev   （**不是 servers.config_rev** —— 契约的
+	//   AdminNode.user_rev      ← node_rev.user_rev       schema 描述里那句「本文取 servers.config_rev」
+	//                                                     与 0004 的实际 DDL 不符：版本号在独立的
+	//                                                     node_rev 表上。以库为准，data-model §14.1）
+	//   AdminNode.last_push_at  ← server_online_state.last_push_at
+	//   AdminNode.last_status_at← server_online_state.reported_at
+	//   AdminNode.group_ids     ← server_group_map 聚合（0004 刻意用关系表而不是 JSON 数组）
+	//   AdminNode.load_status   ← server_online_state 的六个资源列 + online_users
+	//
+	// 🔴 **契约有、库里没有的两个**，handler 必须知道：
+	//   · `multiplier_e9`（倍率）：0004 **刻意不建** rate 列（product-brief §6 裁定第一阶段不引入，
+	//     引入是一次 ADR 级决策 + 一次 stat_user_server 重建）。本文件的查询里没有它，
+	//     handler 一律输出 null，**不要**拿别的列凑一个数出来。
+	//   · `AdminNodeUpsert` 里**没有 `code`**，而 `servers.code` 是 NOT NULL UNIQUE 且注释写明
+	//     「与 GCE 实例名一致」。建节点时 code 只能由 handler 生成（AGENTS.md §4：`bp-` 前缀），
+	//     且生成规则一旦定下就不能改 —— 它是节点与 GCE 实例之间唯一的对应关系。
+	// 节点列表。游标键取 `id DESC` 而**不是** `sort_order` ——
+	// 后者既不唯一又可被后台改，拿一个会变的、会重复的键做游标，翻页会**静默地跳行或重复行**
+	// （改了某个节点的 sort_order 之后，正在翻页的人看到的结果集就自相矛盾了）。
+	// 代价是管理面的节点顺序与用户面（servers_visible_idx 走 sort_order）不同，这是可接受的：
+	// 后台看的是「有哪些节点」，不是「用户会先连到哪个」。
+	//
+	// 🔴 三个 LEFT JOIN 全部是 LEFT 而不是 INNER，逐条有理由，不要「优化」成 INNER：
+	//   · node_rev 缺行 = 建节点时漏调 `InitNodeRev`，那台机器的 ETag 从此不工作。
+	//     INNER JOIN 会让它**从后台列表里消失** —— 恰好把唯一能发现这个故障的界面关掉。
+	//   · server_online_state 是 UNLOGGED 表（0005），**崩溃后自动 TRUNCATE**。
+	//     INNER JOIN 会让一次数据库重启把整张节点列表清空。
+	//   · server_group_map 允许一个节点不属于任何分组（新建后还没分组），此时 group_ids 是 `{}`。
+	//
+	// ⚠️ `coalesce(array_agg(...), '{}')` 这里写成标量子查询而不是外层 GROUP BY：
+	//    外层一旦有 GROUP BY，就不能再用 `FOR UPDATE`（本条不用，但 AdminGetNode 与它同形，
+	//    保持两条投影逐字一致才能让「详情和列表显示的不是同一个东西」不可能发生）。
+	AdminListNodesPage(ctx context.Context, arg AdminListNodesPageParams) ([]AdminListNodesPageRow, error)
+	// 退款第 4 步：佣金**按比例追回，不论状态**（ADR 0013 §3.5 佣金硬规则 2）。
+	//
+	// 为什么「不论状态」：Class B **没有窗口上限**（年付到第 270 天都还有退款额），
+	// 任何有限的冷静期都挡不住「等到第 16 天佣金 confirmed 之后再退款」这一手。
+	// 草稿那张抗套利表里「佣金冷静期 15 天 > 退款窗口 7 天」是**假的安全感**，本裁决把它删掉了。
+	//
+	// `clawback_amount = ceil(c.amount × 退款额 / o.amount_paid)`，逐字照 §3.5。
+	// 三处细节：
+	//   · **向上取整**（ceil，不是 floor / round）：追回额的舍入方向必须对我们不利的反面 ——
+	//     少追回一分是我们承担，那才是给套利留的口子。
+	//   · 基数是 `orders.amount_paid`，**不含** amount_balance 与 surplus_amount（硬规则 1）。
+	//     一句话同时封住「用余额刷佣金」与「用折抵刷佣金」。
+	//   · `greatest(1, o.amount_paid)` 只防除零。🔴 `amount_paid = 0` 而又生成了佣金，
+	//     本身就是一个数据错误（基数写死 amount_paid）；此时本式退化成「全额追回」，
+	//     方向对我们有利，但 handler **必须同时告警** —— 靠一个除零保护把数据错误吞掉，
+	//     等于把它变成永远不会被发现的那一类。
+	//
+	// `inviter_balance` 一并带出：`wallet_balances` 有 `CHECK (balance >= 0)`，
+	// 扣不动的部分要记 `expense:refund` 并写审计日志、由管理员人工处理（几十人量级，管理员认识每个人）。
+	// 不先读余额就去扣，得到的是一次 CHECK 违反异常 —— 而那会把**整个退款事务**回滚掉，
+	// 于是「佣金追不回来」这件小事变成「退款做不成」。
+	//
+	// `status <> 'voided'`：已经作废过的不再重复追（`VoidCommission` 自己也带 status 守卫，
+	// 这里过滤只是别把它们摆到管理员面前）。
+	// `FOR UPDATE OF c`：与后续的 `VoidCommission` / 余额扣减在同一事务里，锁住这几行。
+	AdminListOrderCommissionsForClawback(ctx context.Context, arg AdminListOrderCommissionsForClawbackParams) ([]AdminListOrderCommissionsForClawbackRow, error)
+	// ############################################################
+	// 三、订单（模块 3）—— ListAdminOrders / GetAdminOrder /
+	//     MarkAdminOrderPaid（🔴 D6）/ RefundAdminOrder（D7）
+	// ############################################################
+	//
+	// `AdminOrder` = `{ order: Order, user_id, user_email }`，所以每条查询都 JOIN users 取邮箱。
+	// `Order` 的字段映射（单位全部是分），与 orders_user.sql 的 GetUserOrder 逐字一致：
+	//   total_amount ← amount_gross   discount_amount ← amount_discount
+	//   surplus_amount ← surplus_amount   balance_amount ← amount_balance
+	//   payable_amount ← amount_due    rate_locked_at ← fx_locked_at
+	//
+	// ⚠️ 契约的 `OrderStatus` 只有 6 个值且含库里不存在的 `processing`，缺 `paying`/`underpaid`/`paid`
+	//    （ADR 0013 §4.7 登记）。库里 `order_status` 有 14 个值。**以库为准**，
+	//    handler 的序列化必须显式列映射表，不能把 enum 直接 fmt 出去。
+	//    ⚠️ 管理面尤其不能：后台是唯一能看见 `refunding` / `chargeback_*` 这些状态的地方，
+	//    把它们映射成契约里的 6 个值会让后台**看不见拒付**。建议管理面直接输出库里的原值
+	//    并在 handler 注释里登记这处偏离，而不是把信息压扁。
+	// 订单列表。排序键 `(created_at DESC, id DESC)`，走 orders_user_idx 的前缀。
+	//
+	// `q` 同时搜单号与用户邮箱（契约给的是一个泛化的 `SearchQuery`，没说搜什么）。
+	// ⚠️ 两个 ILIKE 都是**全表扫**：`orders.trade_no` 上的唯一索引对 `%x%` 无效，
+	//    `users_email_uk` 是 `lower(email)` 的表达式索引，ILIKE 同样用不上。
+	//    在几十人量级下这是可接受的（登记以免被后人当成走了索引）；
+	//    真到需要的那天，正确的补法是给这两列加 pg_trgm GIN 索引，不是把搜索拆成两个端点。
+	// ⚠️ `q` 由调用方拼成 `%…%` 再传进来，SQL 这一侧不做拼接 —— 让「用户搜了个 `%`」
+	//    只是搜不到东西，而不是变成一次全匹配。
+	AdminListOrdersPage(ctx context.Context, arg AdminListOrdersPageParams) ([]AdminListOrdersPageRow, error)
+	// ############################################################
+	// 四、支付与对账（模块 14）—— ListAdminPayments / ListAdminUnderpaidPayments /
+	//     UpdateAdminPayment（D13）
+	// ############################################################
+	//
+	// `AdminPayment` 的字段映射：
+	//   id / provider / external_id / state / txid / created_at ← payments 同名列（created_at ← received_at）
+	//   trade_no        ← join orders
+	//   expected_usdt6  ← orders.pay_amount_usdt6      ← **不落列**，join 算出（0014 表尾注释）
+	//   received_usdt6  ← 见下面那段长注释：**是这张订单的累计实收，不是这一行的金额**
+	//   shortfall_usdt6 ← greatest(0, expected − received)
+	//
+	// 🔴 `received_usdt6` 为什么取「累计」而不是「本行金额」，这是本节最要紧的一条：
+	//    少付的补足场景（用户少付后**向同一地址再打一笔**）必然产生一张订单对应两笔链上转账
+	//    —— 这正是 0014 建 `payments` 这张表的理由。若 `received` 取本行金额，
+	//    那么补足完成之后，第一行（金额小的那笔）**永远**还是「少付」的样子：
+	//    `payments` 近乎 append-only（0014：唯一的原地更新是把 entered_by 追加成 'admin:<id>+scanner'），
+	//    没有任何机制会回头去改第一行的 state。
+	//    结果是少付队列**永远不会清空** —— 而契约明写它「是一个常驻的对账入口，不是异常处理页」，
+	//    一个永远非空的对账页，按本项目的判例等于没有这个页面。
+	//
+	// 累计口径按 ADR 0012 §6.3 的原文 `SUM(amount_usdt6 WHERE to_address = …)`，**按地址聚合**
+	// 而不是按 order_id。两者在「一单一址」（0015 的 `orders_pay_addr_uk`）之下等价，
+	// 但按地址还多覆盖一种情况：**打到了这张单的地址、却还没被 AttributePayment 归属**的那笔钱
+	// （order_id 仍是 NULL）。它确实是这张单的钱，只是入账流程还没走完 —— 按 order_id 聚合会把它漏掉，
+	// 于是对账页显示「还差 3 USDT」而链上明明已经到齐。走 `payments_addr_idx (to_address, received_at DESC)`。
+	//
+	// 🔴 **三处 LATERAL 都必须带 `coalesce(aml_verdict,'clean') <> 'blacklisted'`，与
+	//    `orders_user.sql` 的 `SumAddressReceipts` 逐字同形。这不是洁癖，是一条会静默吃掉工单的分歧：**
+	//    `SumAddressReceipts` 是**入账路径**判「付清没有」的那一次求和，它排除了拉黑的钱
+	//    （拉黑的 USDT 我们不认，订单不会进 paid）。若对账面这三条不排除，就出现一种状态 ——
+	//    一张单的缺口恰好被一笔 blacklisted 的到账「补上」：
+	//      · 入账路径仍然判它 underpaid，订单卡在 `underpaid` 不动；
+	//      · 而少付清单的谓词 `received < expected` 变成 false，**这张单从队列里消失**。
+	//    于是「我们不认这笔钱」这件事对操作者不可见，用户投诉之前没有任何人会看到它。
+	//    两个口径必须同源；改了 SumAddressReceipts 就要同时改这里（反之亦然）。
+	//    ⚠️ 被排除的那笔钱不会凭空消失：它自己那一行仍然在流水列表里，且 `aml_verdict`
+	//       就在投影里 —— 操作者看到的是「有一笔钱到了但被拉黑，这张单还差这么多」，
+	//       这正是这一页该说的话。
+	//    ℹ️ `AdminGetOrder` / `AdminGetOrderForMarkPaid` 里那两个按 order_id 的 `received_usdt6`
+	//       **刻意不加这个过滤**：它们不做付清判定，回答的是「这个地址上一共到过多少钱」，
+	//       D6 之前要看的恰恰是含拉黑在内的全部到账。
+	// 支付流水列表。
+	// ⚠️ 排序键用 `received_at`（0014 里 `payments` **没有 created_at 这一列**；契约的
+	//    `AdminPayment.created_at` 映射的就是它）。
+	// ⚠️ `LEFT JOIN orders`：`payments.order_id` 允许为 NULL（打到我们地址但找不到订单的钱，
+	//    §8.4 分支 ②，走 `payments_unmatched_idx` 的未归属队列）。写成 INNER JOIN 会让
+	//    **最需要人看的那一批**从对账页上消失。
+	AdminListPaymentsPage(ctx context.Context, arg AdminListPaymentsPageParams) ([]AdminListPaymentsPageRow, error)
+	// ############################################################
+	// 五、套餐（模块 4）—— ListAdminPlans / CreateAdminPlan / UpdateAdminPlan / DeleteAdminPlan
+	//     D8：改价格 / 下架
+	// ############################################################
+	//
+	// 🔴 **D8 的核心不变量：改套餐只影响新订单，一行历史订单都不回改。**
+	//    定价修订 A2：已售出的 `transfer_enable` 在周期内不可撤回。
+	//    page-inventory §4.4 D8 的要求原文：「**已生成订单的价格快照不可变**」。
+	//    机制上它已经被 0016 焊死了：`orders.price_monthly_at_order` 是下单那一刻的快照，
+	//    退款扣减读的是它、不是 `plans.price_monthly` 这个活列（否则涨价后退款额变小，
+	//    用户会认为我们改价来少退钱 —— user-journey §10.2 硬要求 1）。
+	//    所以本节的 UPDATE **只写 plans 一张表**：没有任何一条语句去 touch orders 或 users。
+	//    这不是遗漏，是 D8 的全部内容。想「让老用户也享受新配额」是另一个动作（批量改 users），
+	//    它是 D1（直接等于送钱），走另一条端点、另一套确认。
+	//
+	// `Plan` / `PlanUpsert` 的字段映射（与 catalog.sql 的 ListPlansForUser 逐字一致）：
+	//   Plan.type ← plans.kind：'cycle' → "period"，'pack' → "traffic_pack"
+	//   Plan.description ← content_md   Plan.transfer_enable_bytes ← transfer_enable
+	//   Plan.sort ← sort_order          Plan.currency ← 常量 "CNY"（plans 没有 currency 列）
+	//   Plan.prices[] ← 五个 price_* 列里非 NULL 的那些（NULL = 该周期不售）
+	//
+	// 🔴 **`PlanUpsert` 里缺三样必需列，`CreateAdminPlan` 的 handler 必须自己补齐**：
+	//   · `kind`  —— 可以从 `PlanUpsert.type` 推出（period→'cycle'，traffic_pack→'pack'）。
+	//     🔴 0016 **刻意不给它 DEFAULT**：默认成 'cycle' 会让每一个通过后台建出来的加油包
+	//     被静默写成周期套餐，于是 `POST /orders` 把它推导成 upgrade、凭空触发一次折抵。
+	//     漏传是数据库拒绝（NOT NULL），当场就知道 —— 这是唯一不会静默的形态。
+	//   · `code`  —— NOT NULL UNIQUE，契约里没有。只能由 handler 生成，且规则一旦定下不能改
+	//     （`GetPlanByCode` 与运维脚本按它定位）。
+	//   · `group_id` —— NOT NULL 外键。契约里没有，只能取一个默认分组
+	//     （可复用 `GetRegistrationGroupID` 的口径：优先 'basic'，否则 id 最小）。
+	//     ⚠️ 它决定了买这个套餐的人能看到哪些节点（`ApplyUserEntitlement` 按 plan.group_id 覆盖
+	//     users.group_id），选错的现象是「买了贵套餐却只看得到基础节点」。
+	//   建套餐本身**复用 orders.sql 的 `CreatePlan`**（19 个参数，kind 是第 19 个），本文件不重写。
+	//
+	// ⚠️ `PlanPrice.period` 的契约枚举含 `two_yearly` / `three_yearly`，而 `plans` 根本没有这两列、
+	//    `order_period` 枚举里也没有这两个值（ADR 0013 §4.7 登记）。以库为准，只有五个周期。
+	// 套餐列表（契约的 listAdminPlans **不分页**，套餐总数是个位数）。
+	//
+	// 🔴 **包含已下架（archived_at IS NOT NULL）的套餐**，与用户面的 `ListSellablePlans` 相反。
+	//    理由：下架不是删除（data-model §13，历史订单引用 plans）。若后台也把它们滤掉，
+	//    一个下架的套餐就**再也不可能从界面上被恢复** —— 而「不小心下架了主力套餐」
+	//    恰恰是最需要一键改回来的场景。`archived_at` 一并返回，让 UI 自己标灰。
+	//
+	// 三个计数是 DeleteAdminPlan 的 409 判据，也是「这个套餐还有没有人在用」的直接回答。
+	// 放在列表里而不是只放详情里：删除按钮在列表页上，判据必须在同一屏。
+	// ⚠️ 套餐是个位数、订单与用户是几十条，三个相关子查询的代价可忽略；
+	//    真长到需要担心时，正确的补法是 `orders (plan_id)` 上加索引，不是把这三个数拿掉。
+	AdminListPlans(ctx context.Context) ([]AdminListPlansRow, error)
+	// ############################################################
+	// 七、工单（模块 8）—— ListAdminTickets / GetAdminTicket /
+	//     UpdateAdminTicket / CreateAdminTicketMessage
+	// ############################################################
+	//
+	// 🔴 `ticket_messages.is_internal` 是全系统最容易出安全事故的一列。
+	//    管理面读内部备注**复用 tickets.sql 的 `ListTicketMessagesInternal`**（`SELECT *`，含 is_internal），
+	//    用户面永远只走 `ticket_messages_public` 视图 —— 视图里根本没有这一列，
+	//    「忘了加 WHERE is_internal = false」在那条路径上不可能发生。
+	//    本文件**不新增任何读消息的查询**，就是为了不在这条边界上多开一个口子。
+	//
+	// ⚠️ 契约的 `Ticket.level` 是 **integer**，库里是 `tickets.priority`（ticket_priority ENUM）。
+	//    ENUM 的声明序是 low < normal < high < urgent（0001，而且 `tickets_queue_idx` 的
+	//    `priority DESC` 直接依赖这个声明序）。映射表必须写在 Go 里当常数：
+	//       low=1  normal=2  high=3  urgent=4
+	//    🔴 **不要**用 enum 的 ordinal 隐式转换：将来往中间插一个档位（比如 'critical'），
+	//    ordinal 会整体挪位，而所有历史工单的 level 会在**同一次部署里静默改变含义**。
+	//    缺口已登记（契约与库的类型不一致，改契约是上线前的独立动作）。
+	// 工单列表（管理面）。与 tickets.sql 的 `ListTicketQueue` 的区别，两条都要：
+	//   · `ListTicketQueue` 是**客服工作台**：只看未结（`status NOT IN ('resolved','closed')`）、
+	//     按 `priority DESC, first_response_due` 排、OFFSET 分页、走 `tickets_queue_idx` 部分索引。
+	//     它回答的是「我现在该处理哪一张」。
+	//   · 这一条是**管理面的工单列表**：全部状态、时间序、游标分页（api-contract §2.4）。
+	//     它回答的是「这个月有多少张单、那张单去哪了」。
+	//     用工作台那条来做列表，已解决的工单会**从后台彻底消失** —— 而工单的价值有一半在事后回看。
+	//
+	// ⚠️ 本条**不走** `tickets_queue_idx`（那是带 WHERE 的部分索引，覆盖不到已结工单）。
+	//    `tickets_user_idx` 是 (user_id, created_at DESC)，前缀对不上，所以这里是一次
+	//    顺序扫 + 排序。几十张单的量级下无所谓，登记以免被后人当成走了索引。
+	AdminListTicketsPage(ctx context.Context, arg AdminListTicketsPageParams) ([]AdminListTicketsPageRow, error)
+	// 少付清单。ADR 0012 §8.4 分支 ③ 的读取面。
+	//
+	// 判据是**订单口径**不是单笔口径：`累计实收 < 应收` 且订单仍未终结。
+	// 🔴 刻意**不**写成 `WHERE p.state = 'underpaid'`。理由就是上面那段长注释：
+	//    补足到账之后没有任何机制回头改第一行的 state，按 state 过滤的队列永远清不空。
+	//    `p.state` 仍然投影出来给人看（它是「这一笔当时被判成什么」的证据），但不参与判定。
+	//
+	// `o.status IN ('paying','underpaid')`：
+	//   · `pending` 不可能有到账 —— 收款地址在 payOrder 才分配（ADR 0012 §5.1）；
+	//   · **`expired` 刻意排除**：过期订单的到账走 §8.4 分支 ④（不改状态、按到账时刻汇率折算入余额、
+	//     发邮件），那是一条**已经有归宿**的路径，不是待人工处理的少付。
+	//     把它们放进来，这个队列同样永远不空 —— 收款地址要继续监听 ≥ 24 小时，
+	//     期间的零星到账会源源不断地涌进这张表。
+	//   · `paid` / `completed` 的超额到账走分支 ⑤（折算入余额），同理不在此列。
+	//
+	// ⚠️ 未归属的钱（`p.order_id IS NULL`）**不在这个清单里**，它是另一个队列
+	//    （`payments_unmatched_idx`，正常结果集应当是空的）。两者的人工动作完全不同：
+	//    少付是「联系用户补差价或写销」，未归属是「这笔钱是谁的」。混成一个页面等于两个都做不好。
+	AdminListUnderpaidPaymentsPage(ctx context.Context, arg AdminListUnderpaidPaymentsPageParams) ([]AdminListUnderpaidPaymentsPageRow, error)
+	// 🔴 D5 第 2 步的**实际拒绝点**。前置条件写在 `EXISTS` 里，也就是说
+	// **「一步吊销」是数据库拒绝，不是应用代码的自觉，也不是前端的按钮禁用。**
+	// 契约的原话：「UI 层禁止一步完成是不够的，API 层必须自己拒绝。」
+	//
+	// 为什么必须把条件放进这条 UPDATE，而不是「上一条查出来判断一下再来吊销」：
+	// 两条语句之间有窗口。真实的窗口不是理论上的 —— 轮换期节点每 60 秒来鉴权一次，
+	// `TouchServerKey` 会改 `last_used_at`；另一个管理员可能同时在吊销另一把。
+	// 判断与写分开，就允许「判断时有见证、写的时候见证已经被别人吊销了」这个顺序发生，
+	// 而它的结果正是这条规则要防的那件事：**节点在下一次 60 秒轮询时失联**。
+	//
+	// 影响 0 行的三种原因见上一条查询；调用方按那条的结果决定错误码，本条只负责「要么安全地吊销，要么不动」。
+	AdminRevokeNodeKeyTwoStep(ctx context.Context, arg AdminRevokeNodeKeyTwoStepParams) (AdminRevokeNodeKeyTwoStepRow, error)
+	// 启用 / 停用节点。**一条查询服务两个 operation**（EnableAdminNode / DisableAdminNode），
+	// 靠 `enabled` 参数区分 —— 写成两条只会是同一段 SQL 的两份副本，而两份副本会漂移。
+	//
+	// 返回 `before_enabled`：审计要记改前值，而「停用一台本来就停着的节点」与「停用一台在跑的节点」
+	// 是两件事（后者会让人掉线，前者不会），事后只有这一列能分辨。
+	//
+	// 0 行 = 节点不存在或已软删 → 404。
+	AdminSetNodeEnabled(ctx context.Context, arg AdminSetNodeEnabledParams) (AdminSetNodeEnabledRow, error)
+	// 删节点（D4）= **软删**，不是 DELETE。
+	// `stat_user_server.server_id` 是 ON DELETE RESTRICT（0009）：成本历史不能因为下线一台机器而消失。
+	// 硬删还会 CASCADE 掉 server_keys 与 node_rev，等于把「这台机器当初用的是哪把密钥」一并销毁。
+	//
+	// 与 servers.sql 的 `SoftDeleteServer` 的区别，两条都是必要的：
+	//   · 那条是 `:exec`，**不返回任何东西** —— 分不出「删掉了」和「本来就不存在」，
+	//     于是 404 无从判断，审计的 before/after 也无从取。
+	//   · 这条 `WHERE … AND deleted_at IS NULL` + RETURNING 前后像：0 行 = 不存在或已删（→ 404），
+	//     1 行 = 真的由这次请求删掉的（→ 204 + 审计）。
+	//   TODO(P2): 内部路径切到本条之后删掉 `SoftDeleteServer`，两条同义写法长期并存必然漂移。
+	AdminSoftDeleteNode(ctx context.Context, serverID int64) (AdminSoftDeleteNodeRow, error)
+	// 退款第 3 步：**立即终止订阅**（ADR 0013 §3.5 逐字落地）。不做「退一部分钱继续用」。
+	//
+	// 🔴 写的是 `transfer_enable_plan = 0`，**不是 `transfer_enable = 0`**。
+	//    后者是 0016 的 GENERATED STORED 列，PostgreSQL 会报
+	//    `column "transfer_enable" can only be updated to DEFAULT`，而 sqlc generate 与 go build
+	//    **都不会报错** —— 第一次暴露点是生产环境里真的有人申请退款的那一刻（ADR 0013 §6.3 实测）。
+	//
+	// 🔴 `transfer_enable_pack` 与 `pack_expire_at` **一列都不碰**（§5.5）：
+	//    加油包是单独付过钱的、且它不在退款基数里（consumed_data 的分子截到 transfer_enable_plan），
+	//    退周期套餐的钱顺手没收加油包，是在退款的同时又拿走一笔用户已付的东西。
+	//    这条注释存在的唯一理由是：把 `transfer_enable_plan = 0` 写成 `transfer_enable_pack = 0`
+	//    是一个字的差别，而它的现象是「退款之后用户的加油包不见了」，用户不会知道去投诉什么。
+	//
+	// `expiry_applied_at = NULL` 是为了让每分钟的到期扫描重新处理这个用户一次
+	// （`users_expiry_due_idx` 的谓词含 `expiry_applied_at IS NULL`）。
+	//
+	// ⚠️ 不需要显式 bump user_rev：`users_bump_user_rev_trg`（0012 / 0016）的监视列表里有
+	//    `transfer_enable_plan` 与 `expired_at`，这次 UPDATE 会自动传播，用户在 ≤ 60 秒内掉线。
+	//    🔴 但触发器在 sqlc 生成的 Go 代码里是**隐形的**（data-model §15.1 已登记这个代价）——
+	//    调用方看不到任何线索，所以这条注释是它唯一的说明书。
+	AdminTerminateSubscriptionForRefund(ctx context.Context, userID int64) (AdminTerminateSubscriptionForRefundRow, error)
+	// 解封。三列一起清（同一条 CHECK 的另一半）。
+	// ⚠️ **解封不会把 `AnonymizeUser` 注销掉的账号救回来**：那条把 `banned_reason` 写成
+	//    'account_deleted' 并同时写了 `deleted_at`，而本条的 WHERE 带 `deleted_at IS NULL`，
+	//    所以对已注销用户返回 0 行 → 404。这是对的：注销是用户自己的意愿，
+	//    管理员的解封按钮不该能推翻它。
+	AdminUnbanUser(ctx context.Context, userID int64) (AdminUnbanUserRow, error)
+	// 改优惠码（D8）。前后像走写法甲。
+	// ⚠️ `used_count` **不在可改列里**，而且永远不该在：它是兑换次数的账，
+	//    允许后台改它等于允许把一张用尽的码重新变成可用，且没有任何痕迹落在优惠码本身上。
+	//    真要延长活动，改 `total_uses`（上限）或 `ends_at`。
+	AdminUpdateCoupon(ctx context.Context, arg AdminUpdateCouponParams) (AdminUpdateCouponRow, error)
+	// 改节点（D9）。前后像走写法甲。
+	//
+	// 🔴 **只写 `AdminNodeUpsert` 里真的有的六列**，`server_port` / `visible` / `sort_order` /
+	//    `protocol_settings` / `tags` / `parent_id` / `code` **一列都不碰**。
+	//    这不是偷懒：契约里没有这些字段，PATCH 时它们的值是「调用方没提」而不是「调用方想清空」。
+	//    把它们一并写成零值，就是 D9 那条「参数写错 = 节点静默不可用」的最短路径 ——
+	//    改一次节点名会把端口跳跃配置、REALITY 私钥、所属中转链一起抹掉，而且**不报错**。
+	//
+	// ⚠️ 调用方必须在**同一事务**里做完这三件事，缺一件都是静默故障：
+	//    ① `BumpConfigRev(server_id)` —— 不 bump，节点会一直拿旧配置的 304，改了等于没改；
+	//    ② 分组有变化时 `AddServerToGroup` / `RemoveServerFromGroup` **加** `BumpUserRevByGroup`
+	//       —— server_group_map 上**没有触发器**（0012 的触发器只挂在 users 上）；
+	//    ③ 审计（audit 包）。
+	//
+	// ⚠️ `enabled` 从 true 改成 false 时该节点上的在线用户会在 ≤ 60 秒内掉线（D4 的危害口径）。
+	//    契约把 enable/disable 单列成两个 operation，但走的是下面那条 AdminSetNodeEnabled，
+	//    不是这条 —— PATCH 里 `enabled` 的语义是「顺手改」，专用端点才带 D4 的确认要求。
+	AdminUpdateNode(ctx context.Context, arg AdminUpdateNodeParams) (AdminUpdateNodeRow, error)
+	// 改支付记录的 state（D13）。前后像走写法甲。
+	//
+	// 🔴 **`payments` 上没有 `updated_at`，这是 0014 刻意的**（表尾注释：「本表接近 append-only」）。
+	//    也就是说这次人工改动在**行本身里不留任何痕迹** —— 改完之后谁也看不出这一行被人动过。
+	//    `audit_logs` 是唯一的记录。这直接决定了两件事：
+	//      ① 审计写入必须与本语句同事务（§6.3 第 1 条），漏了就是证据凭空消失；
+	//      ② `before_state` 必须进审计的 before 快照，否则「从什么改成什么」永远查不回来。
+	//
+	// 🔴 **`AdminPaymentPatch.note` 无处可存**：`payments` 没有备注列。
+	//    handler 必须把 note 写进审计的 `reason` 或 `after` 快照里，**不要**塞进 `raw`
+	//    —— 那一列是链上原始 event / 网关原始 payload，是取证材料（0014：NOT NULL 是刻意的，
+	//    「取证材料缺一条就等于这条流水不可复核」），往里掺人写的字会毁掉它的这个性质。
+	//    缺口已登记。
+	//
+	// 刻意**不允许**改的列：`provider` / `external_id`（幂等键，改了等于允许同一笔钱二次入账）、
+	// `amount_usdt6`（链上事实，不是我们能改的）、`raw`（取证材料）。
+	// 想改这些的场景实际上是「这条流水本来就不该存在」，那要写冲正分录，不是改行。
+	AdminUpdatePaymentState(ctx context.Context, arg AdminUpdatePaymentStateParams) (AdminUpdatePaymentStateRow, error)
+	// 改套餐（D8）。前后像走写法甲，返回的前像覆盖**全部可改列**（§6.3 第 2 条：完整快照不存 diff）。
+	//
+	// 只写 `PlanUpsert` 里真的有的那些列。刻意**不碰**：
+	//   `code` / `group_id`（契约里没有，且改它们会改变套餐的身份与可见节点集合）、
+	//   `renewable` / `sellable`（下架语义由 archived_at 与它们表达，不该被一次改价顺手翻掉）、
+	//   `reset_traffic_method` / `price_reset`（契约里没有）、
+	//   `archived_at`（下架走下面那条专用语句）。
+	//
+	// ⚠️ `plans_cycle_needs_monthly` CHECK（0016）：`kind = 'cycle'` 时 `price_monthly` 不能为 NULL。
+	//    把一个加油包改成周期套餐却不给月付价，是**数据库拒绝**（handler 映射成 422）。
+	//    这条约束存在的理由：月付标价是退款扣减的乘数，NULL 会让 §3.2 的退款公式除到一个不存在的数上。
+	//
+	// ⚠️ `transfer_enable > 0`、`device_limit > 0`、`speed_limit_mbps > 0` 三条 CHECK（0002）：
+	//    契约的 `speed_limit_mbps` 说「第一阶段全部 0（不限）」，而**库里 0 会被 CHECK 拒绝**
+	//    （不限速在库里是 NULL 不是 0）。handler 必须把 0 翻译成 NULL，
+	//    否则每一次保存套餐都是 422，而错误信息里只会有一句约束名。
+	AdminUpdatePlan(ctx context.Context, arg AdminUpdatePlanParams) (AdminUpdatePlanRow, error)
+	// 改工单状态 / 等级。前后像走写法甲。
+	//
+	// 两个字段都是可选的（契约的 `AdminTicketPatch` 两个属性都不在 required 里），
+	// 所以用 `coalesce(narg, 当前值)`：只改等级时状态不动，反之亦然。
+	// 🔴 写成两条查询（改状态一条、改等级一条）会让「同时改两样」变成两次 UPDATE、两条审计，
+	//    而中间那一刻的状态在库里真的存在过 —— 事后看审计会以为有人改了两次。
+	//
+	// ⚠️ `tickets_resolved_consistency` / `tickets_closed_consistency` 两条 CHECK（0010）
+	//    把状态与时间戳绑死：`status IN ('resolved','closed')` ⟺ `resolved_at IS NOT NULL`；
+	//    `status = 'closed'` ⟺ `closed_at IS NOT NULL`。所以两个时间戳必须用 CASE 一次算对，
+	//    否则 UPDATE 被 CHECK 拒绝（现象是保存工单状态时莫名 500）。
+	//    三处 `coalesce(sqlc.narg(status), t.status)` 必须逐字一样 —— 只改等级时它取当前状态，
+	//    于是两个时间戳被重新算成与当前状态一致的值，即「不变」。
+	//    ⚠️ `coalesce(t.resolved_at, now())` 里的 `t.resolved_at` 在 SET 子句里读到的是**旧值**，
+	//       所以把一张已解决的工单改个等级，不会把 resolved_at 往后推。
+	AdminUpdateTicket(ctx context.Context, arg AdminUpdateTicketParams) (AdminUpdateTicketRow, error)
 	// 周期重置：归零当期用量 + 推进重置时刻 + 重发套餐配额 + 结转加油包，**一条语句做完**。
 	//
 	// 下一次重置时刻从固定锚点乘算，避免月末漂移（data-model §6.2）：
@@ -458,6 +1350,20 @@ type Querier interface {
 	// 再在 Go 里数，是为了让「闸门」与「列表」在并发下不必一致 —— 闸门要的是此刻的数，
 	// 列表要的是可展示的全集，两者的过滤条件相同但用途不同。
 	CountActiveSubscriptionTokens(ctx context.Context, userID int64) (int32, error)
+	// `?count=true` 才跑。WHERE 与上面逐字同形（同 §1.1 的理由）。
+	// ⚠️ 审计表只增不删（data-model §13 没给它保留期），所以这个 COUNT 会随时间线性变慢。
+	//    **撤回条件**：本条 p95 > 500 ms 时，后台应当改成「不显示总数、只显示有没有下一页」——
+	//    审计页要的是能翻到底，不是知道一共几条。
+	CountAdminAuditLog(ctx context.Context, arg CountAdminAuditLogParams) (int64, error)
+	// `?count=true` 才跑。WHERE 与上面逐字同形（同 §1.1 的理由）。
+	CountAdminInvites(ctx context.Context, arg CountAdminInvitesParams) (int64, error)
+	// `?count=true` 才跑。公告是几十行的表，这条永远便宜。
+	CountAdminNotices(ctx context.Context) (int64, error)
+	// `?count=true` 才跑（api-contract §2.4：`COUNT(*)` 在 db-f1-micro 上是实打实的开销，
+	// 不能让每次翻页都付）。**WHERE 必须与上面逐字同形**，否则「共 N 条」与列表说的是两件事，
+	// 而这种不一致没有任何机制会发现 —— 改上面那条的筛选条件时必须同时改这条。
+	// ⚠️ 这里**没有** cursor_id：总数是全集的总数，不是「游标之后还剩几条」。
+	CountAdminUsersPage(ctx context.Context, arg CountAdminUsersPageParams) (int64, error)
 	// 库存水位：`addr_low_water`（默认 8）的观测点。派生一次 32 个约够 9 个月，
 	// 而派生是**离线**动作（私钥不在服务器上，0014 那张表里永远不会有 private_key 列），
 	// 所以这个数字必须提前很久看到，不能等收银台报 503 才知道。
@@ -471,6 +1377,67 @@ type Querier interface {
 	CountRecentEmailVerificationsByIP(ctx context.Context, arg CountRecentEmailVerificationsByIPParams) (int64, error)
 	CountUserCouponUses(ctx context.Context, arg CountUserCouponUsesParams) (int64, error)
 	CountUsersForAdmin(ctx context.Context, arg CountUsersForAdminParams) (int64, error)
+	// ---------- §2.3 新建管理员（createAdmin，D15：L1 + L3） ----------
+	//
+	// 🔴 **四个 NOT NULL 列决定了这个端点的形状，而 openapi 的请求体里一个都没有。**
+	//    `password_hash` / `totp_secret_enc` / `totp_confirmed_at` / `role` 全是 NOT NULL，
+	//    而 `AdminAccountCreateRequest` 只有 `{email, permissions, reason}`。
+	//    所以三样东西必须由 **handler 现场生成**：
+	//      · password_hash —— argon2id(一次性随机口令)。⚠️ 明文口令**不能**进响应体
+	//        （openapi 的 AdminAccount 里没有它的位置），也不该进日志。第一阶段的现实做法是
+	//        走 IAP（`iap_subject` 绑 Google 身份），口令列只是占位。
+	//      · totp_secret_enc —— AES-256-GCM 加密的新 secret（密钥在 Secret Manager）。
+	//      · role —— 契约里没有这个字段。handler 只能钉死成 'support'（最小权限），
+	//        然后靠改库或将来的接口升权。给它一个更大的默认值是错的：
+	//        「新建时忘了降权」比「新建后忘了升权」危险一个量级。
+	//
+	// 🔴 **一个必须知道的后果：新建出来的管理员登不进去。**
+	//    `totp_confirmed_at NOT NULL` 意味着数据库里不存在「已创建但还没绑 2FA」这个状态，
+	//    于是 secret 在创建时就生成了；而 createAdmin 的 200 响应是 `AdminAccount`，
+	//    **没有 TotpEnrollment**，明文 secret 无处可去。
+	//    唯一能拿到绑定材料的端点是 `resetAdminTotp`（它的响应才是 TotpEnrollment）。
+	//    所以正确的开户流程是**两步**：createAdmin → 立刻对同一个 id 跑 resetAdminTotp，
+	//    把二维码交给本人。这一点必须写进后台的操作文档，否则第一个新管理员会卡在门外，
+	//    而现场唯一的「解法」是直接改库 —— 那正是权限系统存在的意义被绕过的那一刻。
+	//
+	// ⚠️ 权限位只接受两个有列的（见 §2 开头的缺口说明）；其余五个枚举值一律 422。
+	// ⚠️ 邮箱唯一是 `admin_users_email_uk ON (lower(email))`，撞了抛 23505 → handler 翻 409。
+	//    注意它**不是**部分索引（不像 users_email_uk 带 `WHERE deleted_at IS NULL`），
+	//    所以一个被停用的管理员会**永久占住**他的邮箱 —— 见 §2.4 的登记。
+	CreateAdminAccount(ctx context.Context, arg CreateAdminAccountParams) (CreateAdminAccountRow, error)
+	// ---------- §3.2 批量生成邀请码（createAdminInvite） ----------
+	//
+	// 🔴 **码由 handler 生成，不由数据库生成**。字符集要剔除 0/O/1/I/l（0003:100 的列注释），
+	//    这是一条**产品规则**（用户要照着念、照着抄），不是数据库能表达的东西。
+	//    用 `gen_random_uuid()` 之类会得到一串带 0 和 1 的十六进制，念错一位就是一次工单。
+	//
+	// 🔴 **`owner_user_id` 恒为 NULL（管理员种子码）**，所以能设 max_uses > 1：
+	//    `invite_codes_user_single_use` 这条 CHECK 只在 owner 非 NULL 时强制一次性
+	//    （user-journey §3.2：用户码恒为一次性核销，管理员种子码可 1–N 次）。
+	//    也就是说这个端点**天然只能造种子码** —— 想批量替某个用户造码是造不出来的，
+	//    数据库会拒绝，而这正是那条裁决想要的形状。
+	//
+	// ⚠️ **`ON CONFLICT (code) DO NOTHING` + 调用方必须断言 `len(rows) == count`。**
+	//    码是随机串，撞 `invite_codes_code_uk` 的概率极低但不为零。
+	//    不写 ON CONFLICT 的话一次撞车会让**整批**失败（23505 回滚全部），
+	//    管理员看到的是「生成 500 个失败了」而不是「有一个撞了」。
+	//    写了之后撞掉的那些**静默消失**，所以断言是必须的：少了几条就再补生成几条，
+	//    或者直接把实际条数告诉管理员。少了不报是最坏的那种 —— 后台显示「已生成 500 个」，
+	//    实际发出去 499 个。
+	//
+	// ⚠️ 单数组 unnest，不涉及多数组配对，所以不需要 stats.sql 那种 WITH ORDINALITY
+	//    （sqlc v1.31 的内建 catalog 没有多参数 unnest，那条限制在这里够不着）。
+	CreateAdminInviteCodes(ctx context.Context, arg CreateAdminInviteCodesParams) ([]InviteCode, error)
+	// 发布公告（createAdminNotice）。
+	// ⚠️ **`NoticeUpsert` 只有四个字段**（title / content / pinned / published_at），
+	//    而 `notices` 有 level / visible / ends_at / sort_order 四列没有对应入参。
+	//    本条把它们留在 DDL 默认值上（level='info'、visible=true、ends_at=NULL、sort_order=0），
+	//    **不给它们编造参数** —— 一个 API 传不进来的参数只会在 Go 侧变成一个永远传零值的形参，
+	//    而下一个人会以为它是可配的。要配它们需要改 openapi（已冻结）。
+	// ⚠️ `published_at → starts_at`：传 NULL 表示立刻发布（用户面那条的
+	//    `starts_at IS NULL OR starts_at <= now()` 会立即让它可见）。
+	// ⚠️ `created_by` 是 `ON DELETE SET NULL`，与 §2.4 的软停用配合下永不变 NULL。
+	CreateAdminNotice(ctx context.Context, arg CreateAdminNoticeParams) (CreateAdminNoticeRow, error)
 	CreateCannedResponse(ctx context.Context, arg CreateCannedResponseParams) (CannedResponse, error)
 	// ============================================================
 	// 返佣（两段式 + 冷静期）
@@ -708,6 +1675,22 @@ type Querier interface {
 	CreateUserTicketMessage(ctx context.Context, arg CreateUserTicketMessageParams) (CreateUserTicketMessageRow, error)
 	// 1:1 热写拆表必须同事务创建，否则 ListAvailableUsersByServer 的 JOIN 永远查不到他
 	CreateUserTraffic(ctx context.Context, userID int64) (UserTraffic, error)
+	// 删除公告（deleteAdminNotice，D12）。
+	//
+	// 🔴 **这是本文件里唯一一条真的 DELETE，而且它必须 `RETURNING *`。**
+	//    这里的 RETURNING 给的是**改前值**（被删掉的那一行），而不是像其余各处那样给改后值 ——
+	//    删除操作没有 after，审计的 `after` 侧写 NULL（audit.go 的 Entry 注释明写
+	//    「nil 表示这一侧不适用（创建操作没有 before，删除操作没有 after）」）。
+	//    所以这条 RETURNING 不是「顺便返回一下」，它是这次删除唯一留下的证据 ——
+	//    少了它，审计日志里就只剩一个「删了 id=7」的公告，而公告的正文正是要留证的东西。
+	//
+	// ⚠️ **为什么公告可以硬删，而用户与管理员不行**：公告不被任何外键引用
+	//    （47 张表里没有一张有 `REFERENCES notices`），它不是任何账、任何统计、任何证据链的一环。
+	//    users 硬删会让订单/账/统计的外键悬空（data-model §1.2 裁决 8），
+	//    admin_users 硬删会把审计的 admin_user_id 打成 NULL（§2.4）—— 两者都不是「谨慎」，
+	//    是**会坏掉具体的东西**。公告没有这种东西，所以不必为它发明一个软删状态
+	//    （而且 `NoticeUpsert` 里没有 visible 字段，软删之后 API 上根本没有恢复入口）。
+	DeleteAdminNotice(ctx context.Context, noticeID int64) (Notice, error)
 	// 全部下线。⚠️ 生效有延迟（最长一个 push 周期 = 60 秒），响应必须带这条提示。
 	DeleteAllUserDevices(ctx context.Context, userID int64) error
 	DeleteUserDevice(ctx context.Context, arg DeleteUserDeviceParams) error
@@ -715,6 +1698,33 @@ type Querier interface {
 	// ⚠️ 阈值是参数不是常量，因为 20 只是占位数字：中国移动网络公网 IP 变动极频繁，
 	//    单个正常用户 7 天内出现几十个不同 IP 完全可能。**必须先采基线再定阈值。需实测。**
 	DetectSubscriptionSharing(ctx context.Context, arg DetectSubscriptionSharingParams) ([]DetectSubscriptionSharingRow, error)
+	// ---------- §2.4 删除管理员（deleteAdmin，D16：L1 + L3） ----------
+	//
+	// 🔴 **「删除」= 停用（写 `disabled_at`），不是 `DELETE FROM admin_users`。三条理由，第一条是决定性的：**
+	//
+	//   1. **硬删会削弱审计。** `audit_logs.admin_user_id` 是 `ON DELETE SET NULL`（0011:12）。
+	//      真删一个管理员，他过去做过的**每一条** D1–D16 记录的 admin_user_id 都变成 NULL，
+	//      只剩 `admin_email_snapshot` 这个快照串。而 openapi 的 `AuditLogEntry`
+	//      把 `admin_id` 列进了 **required**，却**没有** admin_email 字段 ——
+	//      也就是说这些记录在 API 上会变成「admin_id 缺失」的孤儿，前端连显示成谁都做不到。
+	//      §6.3 存在的全部意义是「事后能重建谁做了什么」；一个会削弱它的删除按钮不该存在。
+	//      （软停用之下 admin_user_id 永不为 NULL，这个字段也就永远是可信的。）
+	//   2. **鉴权路径已经认这一列。** `middleware/admin.go` 的 `checkAdminUsable` 读
+	//      `disabled_at IS NOT NULL` 直接 403，且 step-up 路径会**再跑一遍**同一个判断 ——
+	//      停用是立刻、彻底、两条路径一致地生效的。语义上不缺任何东西。
+	//   3. **`used_totp` 是 `ON DELETE CASCADE`**（0015:92）：硬删会顺手清掉他的防重放痕迹。
+	//      那是易失数据，本身无所谓，但它说明这张表的外键设计假定了「管理员可能被删」，
+	//      而 audit_logs 的 SET NULL 说明**代价落在证据上**。
+	//
+	// ⚠️ **一处真实的代价，必须登记**：`admin_users_email_uk` 建在 `lower(email)` 上且**不是部分索引**，
+	//    所以停用之后那个邮箱**永久不能再用**。同一个人离职再入职，或者手滑停用了想撤销，
+	//    都会撞 23505。撤销停用目前只能改库（API 上没有 undelete 端点，openapi 也没给）。
+	//    修法是一支迁移把它改成 `WHERE disabled_at IS NULL` 的部分索引（与 users_email_uk 同形），
+	//    **不在本轮范围内**。在那之前，后台的确认弹窗必须写明「停用后该邮箱不可再次使用」。
+	//
+	// ⚠️ 幂等：对已停用的再跑一次，`coalesce(a.disabled_at, now())` 保住第一次停用的时刻，
+	//    审计记成 (t → t)。理由同 §1.5 的重复封禁。
+	DisableAdminAccount(ctx context.Context, adminID int64) (DisableAdminAccountRow, error)
 	EditTicketMessage(ctx context.Context, arg EditTicketMessageParams) (TicketMessage, error)
 	// 批量入队。一次 INSERT 吃下整批，不逐条 CreateEmailLog ——
 	// 每日提醒可能一次几百人，逐条就是几百次往返，而连接池每实例只有 2 条连接。
@@ -775,11 +1785,162 @@ type Querier interface {
 	// transfer_enable_pack 在 0016 改过的触发器监视列表里，所以本语句自动 bump user_rev。
 	// RETURNING transfer_enable（生成列）是为了日志能打出「收回后他还剩多少配额」。
 	ExpireTrafficPacks(ctx context.Context) ([]ExpireTrafficPacksRow, error)
+	// ℹ️ **D10 的其余步骤全部复用既有查询，本文件不再写一遍**（顺序是被依赖的）：
+	//   1. `LockAdminUserTarget`（§1.3）—— L1 比对 + 行锁；这一步不过就什么都不做。
+	//   2. `wallet.sql` 的 `GetWalletOverview` —— **改前值**（balance_ledger 与 balance_cached 都要记，
+	//      两者不等本身就是一条必须写进审计的事实）。
+	//   3. `GetAdminBalanceAdjustAccounts`（上面）—— 缺科目就在这里整条拒绝。
+	//   4. `orders.sql` 的 `CreateLedgerEntry`（ref_type='reconcile_adjust'，ref_id = user_id）
+	//      + `CreateLedgerLine` × 2。两条腿**符号相反、绝对值相等、currency 都是 'CNY'**
+	//      （0007 的核心不变量按 (entry_id, currency) 分组算）。
+	//      给用户加钱时 `liability:user_wallet` 那条腿的 amount 是**负数**、subject_id = user_id
+	//      —— 用户视角的余额是 `-SUM(amount)`，这个负号不是笔误（wallet.sql 开头逐条列过）。
+	//   5. `orders.sql` 的 `UpsertWalletBalance` —— ⚠️ 它的 balance 参数是**增量不是绝对值**
+	//      （ON CONFLICT 分支写的是 `balance + EXCLUDED.balance`）。传绝对值的后果是余额被重置，
+	//      而不是报错。
+	//   6. `GetWalletOverview` 再跑一次 —— **改后值**，同时就是 200 响应体（openapi 的 Wallet）。
+	//   全部六步与审计写入必须在**同一个 `audit.InTx`** 里。
+	//
+	// 🔴 **扣成负数由数据库拒绝，不由 handler 判断**：`wallet_balances.balance >= 0` 是 0007 的 CHECK，
+	//    负向调整超额时第 5 步抛 23514 → 整个事务回滚（分录一起回滚）。
+	//    handler 只需把 23514 翻成 422，**不要**自己先读一次余额再比大小 —— 那是一次
+	//    TOCTOU：读与写之间被另一笔消费插进来，判断就是错的。
+	// ⚠️ ADR 0013 ①「退款一律进**不可提现**余额」在这里的落点：`liability:user_wallet`
+	//    这个科目本身就是不可提现的那一份（可提现的那一份是 wallet.sql §1 里那个**字面量 0**）。
+	//    D10 加的钱与退款进的是同一个池子，所以调余额**不需要、也不能**选择调哪一部分 ——
+	//    可提现余额在本系统里不存在。哪一天真要做提现，改动会先撞上那个 0。
+	// ---------- §1.7 导出用户（exportAdminUsers，D14：L4 独立权限位 + 5/h 限流） ----------
+	//
+	// 🔴 **导出即数据外流，所以这条查询必须能按条件筛，且必须有硬上限。**
+	//    api-contract §6.2 把 D14 单列成一层（L4 独立权限位 `admin.user.export`，默认不授予）
+	//    的理由就是它一次能带走全部用户的邮箱。一条 `SELECT * FROM users` 形态的导出，
+	//    权限位再严也只是把「一次拿走全部」变成「一个人能一次拿走全部」。
+	//
+	// ⚠️ **openapi 的 ExportJob 无处安放**：响应是 `{id, status, download_url, expires_at}`
+	//    的异步任务句柄，而 0001–0018 十八支迁移里**没有 export_jobs 这张表**（47 张表逐张核过）。
+	//    第一阶段可行的做法只有一种：handler 同步跑本查询、把 CSV 直接写进响应体，
+	//    并返回一个 `status='done'`、`id` 取 request_id 的 ExportJob。
+	//    **不要**为了「像异步」而返回 `queued` 再让前端轮询一个不存在的资源。
+	//    真做异步需要一支迁移 + 一个 GCS 签名 URL，登记在此。
+	//
+	// ⚠️ `page_limit` 不是分页是**闸**：导出没有游标（一次性 CSV），所以上限必须由调用方钉死
+	//    （建议 50000）。命中上限时 handler **必须**在响应里说明「结果被截断」——
+	//    一份静默截断的 CSV 会被当成完整名单去做运营决策。
+	// ⚠️ 这里选了 email：那正是要导出的东西。但**不选** uuid / password_hash / remarks ——
+	//    uuid 是节点侧的连接凭据（拿到它 + 节点地址就能直接连），
+	//    一份泄漏的导出 CSV 若含 uuid，等于把全部用户的账号一起送出去。
+	ExportAdminUsersRows(ctx context.Context, arg ExportAdminUsersRowsParams) ([]ExportAdminUsersRowsRow, error)
 	// 巡检：借贷不平的分录。返回非空行 = 立即告警。
 	FindUnbalancedLedgerEntries(ctx context.Context) ([]FindUnbalancedLedgerEntriesRow, error)
 	// 巡检：「每用户未核销码 ≤ 3」无法用声明式约束表达（PG 没有跨行 CHECK），
 	// 落在应用层 + 这条巡检 SQL（data-model §4.1）
 	FindUsersOverInviteCodeQuota(ctx context.Context) ([]FindUsersOverInviteCodeQuotaRow, error)
+	// ---------- §1.6 调余额（adjustAdminUserBalance，D10：L1 + L2 + L3） ----------
+	//
+	// 🔴 **这个端点在当前 schema 下写不出一条平衡的分录 —— 与 transferCommission 在 0018 之前
+	//    是同一个形状的缺口，且缺口的位置更靠钱。**
+	//
+	//    调余额的一条腿必然是 `liability:user_wallet`（0015 seed 有，0007 的 user_wallet_balance
+	//    视图把这个 code 硬编码在 WHERE 里）。另一条腿是「这笔凭空出现/消失的钱记在谁头上」，
+	//    而现有 11 个科目里**没有一个能承担它**：
+	//      · `asset:manual_reconcile` —— 0015 逐字写着「§16.2 D6 专用」，它的余额长期非零
+	//        就是「有人标了已支付但钱没进来」的告警信号。把 D10 记进去会污染
+	//        **全系统最大的内部欺诈面**的唯一指示灯，这与 0018 拒绝复用 expense:refund
+	//        是同一条理由、同一个错误的方向。
+	//      · `expense:refund` —— ADR 0013 §3.5 把它的用途写死为 destination='original' 的退款
+	//        与追不回来的佣金。
+	//      · `expense:commission` —— 0018 刚建，专给获客成本；混进去 CAC 就再也拆不开。
+	//
+	//    需要的是一个新科目（建议 `('expense:admin_adjust','expense','CNY')`，正向调整记借方、
+	//    负向调整记同一科目的贷方 —— 一个科目双向承载「调整/更正」是标准做法，
+	//    不需要建两个）。**迁移不在本轮范围内。**
+	//
+	//    所以下面这条 `:one` 存在的全部意义与 wallet.sql §5 的 `GetCommissionTransferAccounts`
+	//    完全一致：**提前失败**。在动 `wallet_balances`、动分录之前先把两个科目一起取出来，
+	//    任一为 NULL 就整条拒绝，绝不写半条腿。
+	//    🔴 在那条 migration 落地之前 adjustAdminUserBalance 必须返回 **503 而不是 500** ——
+	//       500 会让管理员以为是偶发故障并反复重试，而每次重试都是一次 D10 的审计记录。
+	//
+	// 聚合无 GROUP BY 恒返回一行；两列都可能为 NULL（emit_pointers_for_null_types 下是 *int64）。
+	GetAdminBalanceAdjustAccounts(ctx context.Context) (GetAdminBalanceAdjustAccountsRow, error)
+	// 节点数。
+	// ⚠️ 给两个「活着」的口径，因为它们答的不是同一个问题：
+	//   · `enabled_nodes` = 我们**打算**让它跑的（servers.enabled，软删除的不算）；
+	//   · `alive_nodes`   = 它**确实**在上报的（2 分钟内有 /push；节点 60 秒一次，2 分钟 = 漏了两拍）。
+	//   两者的差值就是「掉线的节点数」—— 那才是看板上真正要看的数字。
+	//   openapi 的 `active_nodes` 该映射成 alive_nodes：管理员打开看板是想知道现在有几个能用的。
+	// ⚠️ `servers` 只软删（0004:26，因为 stat_user_server 对它是 ON DELETE RESTRICT），
+	//    所以三个计数都必须带 `deleted_at IS NULL`。漏掉它，删掉的节点会永远留在总数里。
+	// ⚠️ `FILTER` 必须紧跟聚合调用、**在类型转换之前**：写成 `count(*)::bigint FILTER (…)`
+	//    是语法错误（PostgreSQL 直接拒绝解析）。sqlc 的内建解析器同样会拒，但报错行号
+	//    指向整条查询开头 —— 逐条 PREPARE 自测时它指的是这一行。
+	GetAdminDashboardNodes(ctx context.Context) (GetAdminDashboardNodesRow, error)
+	// ============================================================
+	// §7 运营看板（模块 1，getAdminDashboard）
+	// ============================================================
+	//
+	// 🔴 **五条独立查询，不是一条巨大的 CTE。** 两条理由：
+	//   1. **一个数算不出来不该让整页 500。** 在线数来自 UNLOGGED 表（崩溃后自动 TRUNCATE），
+	//      收入要扫 orders 且没有 paid_at 索引 —— 这两个的失败模式与「数一下未读工单」
+	//      完全不同。合成一条 CTE 之后，任何一个子查询变慢或报错，整块看板一起没有。
+	//      拆开之后 handler 可以把失败的那格显示成「—」并继续渲染其余四格。
+	//   2. **可以并发取**，但 ⚠️ **每实例连接池 max=2**（ADR 0005 的硬约束，stats.sql 开头逐字记过）。
+	//      所以正确的做法是 `errgroup` + **并发度 2**，五条分三轮跑完；
+	//      开五个 goroutine 只会让三个在池上排队，还多占两个 context。
+	//      🔴 不要给它们各开一个事务：五个数字之间**不需要**一致的快照 ——
+	//      看板上的「今日收入」和「在线人数」本来就不是同一时刻的事实。
+	//
+	// ⚠️ openapi 自己在 `AdminDashboard` 上标注了「**形状是清单不是契约**（§14）：
+	//    后台前端框架未裁决前不冻结」。所以下面每条都多给了一两个相邻的数
+	//    （比如节点那条同时给 enabled 与 alive 两个口径）—— 形状变动时不必改 SQL。
+	// 在线用户数。
+	// 🔴 **不能用 `sum(server_online_state.online_users)`**：那是每个节点各报各的**人次**，
+	//    一个用户同时连两个节点会被数两次。`user_device_state` 的主键是
+	//    (user_id, server_id, device_ip)，按 user_id 去重才是「在线的人」。
+	// ⚠️ 5 分钟窗口与 `CleanupStaleDeviceState` 的清理窗口（servers.sql，`< now() - 5 minutes`）
+	//    是同一个数：查询条件比清理窗口更严就会显示得比实际少，更松就会数到本该被清掉的行。
+	// ⚠️ `user_device_state` 是 **UNLOGGED**（0005）：数据库崩溃重启后自动 TRUNCATE，
+	//    这一格会显示 0 直到下一轮节点上报（最多 60 秒）。这是设计内的（在线态本来就该丢），
+	//    但前端不要为这一格配「异常告警」—— 那会在每次重启后误报一次。
+	GetAdminDashboardOnlineUsers(ctx context.Context) (GetAdminDashboardOnlineUsersRow, error)
+	// 两个待办队列。
+	// ⚠️ 合成一条（而不是像其余四格那样各自一条）是有理由的：两者都是**同一类**的
+	//    「count(*) 命中部分索引」，失败模式相同（要么库在要么库不在），
+	//    没有一个会因为数据量或时区而单独变慢。拆成两条只是多一次往返。
+	// ⚠️ `pending_tickets` 的口径是「未进终态」，与 `tickets_queue_idx` 的部分索引谓词
+	//    （`WHERE status NOT IN ('resolved','closed')`）**逐字同形** —— 不同形就吃不到索引，
+	//    而 tickets 是会长大的表。
+	// ⚠️ `underpaid_orders` 只数 `status='underpaid'`（少付），命中 `orders_expiry_idx` 的前缀。
+	//    这一格非零意味着有人打了钱但没打够 —— ADR 0012 的 A/B 档写销逻辑要人工看一眼。
+	GetAdminDashboardQueues(ctx context.Context) (GetAdminDashboardQueuesRow, error)
+	// 今日 / 本月收入。
+	// 🔴 **口径是 `orders.amount_paid`（网关实收），不是 amount_gross 也不是 amount_due。**
+	//    · `amount_gross` 是标价，含优惠券与折抵，不是钱；
+	//    · `amount_balance`（余额抵扣）**必须排除**，否则会重复计一次 ——
+	//      那笔余额在它被充值的那天已经作为一笔 `wallet_topup` 订单的 amount_paid 计过了。
+	//    `amount_paid` 因此恰好等于「这一天真的有多少钱进来」，且天然不重复。
+	// ⚠️ **退款不在这里扣**。退到余额的退款根本不是现金流出（ADR 0013 §3.5），
+	//    退到原路的才是，而它的真相在 `refunds` 表。把两者混进一个「净收入」字段会得到一个
+	//    既不是现金流入也不是净额的数。看板要显示退款就单独加一格。
+	// ⚠️ **代价登记：orders 上没有 paid_at 索引**（0006 建的三条索引分别是
+	//    (user_id, created_at)、(status, expires_at)、(pay_address, …)），所以本条是顺序扫描。
+	//    订单量在万级以内可以忽略。**撤回条件**：本条 p95 > 300 ms 时加
+	//    `CREATE INDEX orders_paid_at_idx ON orders (paid_at) WHERE paid_at IS NOT NULL`。
+	GetAdminDashboardRevenue(ctx context.Context) (GetAdminDashboardRevenueRow, error)
+	// 今日流量。走 `stat_user_server_date_idx`（0009 建的就是这条）。
+	// ⚠️ 「今日」= 上海时区的今天，与写入侧 `BulkUpsertStatUserServer` 的切天口径逐字相同。
+	//    看板上必须标注时区，否则一个在 UTC 早上 7 点看板的人会以为「今天才刚开始」。
+	GetAdminDashboardTrafficToday(ctx context.Context) (GetAdminDashboardTrafficTodayRow, error)
+	// ---------- §1.2 用户详情（getAdminUser） ----------
+	//
+	// 比列表多给的：uuid（节点侧连接凭据，排障要）、remarks（仅管理员可见）、
+	// 周期锚点三件套（排「为什么这个人的重置日是这天」用）、pack_expire_at（加油包封口）。
+	//
+	// ⚠️ **不返回任何凭据**：password_hash 不在 SELECT 里，将来也不要加。
+	//    它进不了响应体（openapi 的 AdminUser 没有这个字段），但只要它出现在 Row 结构体上，
+	//    某天就会有人在调试日志里 `slog.Any("user", row)` —— 那一行日志会被 Cloud Logging
+	//    保留 30 天并被整个团队看到。列不选出来，这条路就不存在。
+	GetAdminUserDetail(ctx context.Context, userID int64) (GetAdminUserDetailRow, error)
 	// ADR 0015 §5.7 的失效条件，逐字落地。
 	//
 	// 🔴 **分母按人不按次，两者差 5 倍**（0017 的 COMMENT ON COLUMN 原文）。
@@ -1468,6 +2629,257 @@ type Querier interface {
 	//    如果那台设备**还在连**。所以「踢下线」的真实语义是「让节点在下个周期把它算成新会话」，
 	//    真正断开靠的是节点侧的 device_limit 判定。这条 SQL 做不到更多，页面上也不该承诺更多。
 	KickUserDeviceByID(ctx context.Context, arg KickUserDeviceByIDParams) (int32, error)
+	// ============================================================
+	// §2 管理员账号（模块 11）
+	// ============================================================
+	//
+	// 🔴 **管理员不是 users 上的一个 flag**（data-model §4.1）：两条鉴权链在数据层就是分离的。
+	//    本节所有查询都只碰 `admin_users`，一次都不碰 `users` —— 这不是巧合，
+	//    是「堵死一个全局 auth 中间件 + if 分支」那条裁决在查询层的样子。
+	//
+	// ⚠️ **契约与 schema 在权限模型上对不上，这是本文件最大的一处缺口，必须记在前面。**
+	//    openapi 的 `AdminPermission` 是 7 个字符串枚举：
+	//      admin.order.mark_paid · admin.user.export · admin.user.write · admin.node.write ·
+	//      admin.plan.write · admin.ticket.write · admin.settings.write
+	//    而 `admin_users`（0002:51）上只有 **4 个 boolean 列** + 一个 `role`：
+	//      perm_mark_order_paid（D6）· perm_refund（D7）· perm_adjust_balance（D10）· perm_export_csv（D14）
+	//    对得上的只有两个：mark_order_paid ↔ perm_mark_order_paid，user.export ↔ perm_export_csv。
+	//    · `perm_refund` 与 `perm_adjust_balance` 在契约里**没有对应的枚举值** ——
+	//      D7 与 D10 这两个直接动钱的权限位，通过 API **看不见也授不了**（只能改库）。
+	//    · `admin.*.write` 那五个在库里**没有列** —— 只能由 `role`（owner/admin/support）映射。
+	//    handler 的做法只能是：读时把两个真列 + role 推出的五个虚位一起拼成数组；
+	//    写时**只接受**那两个有列的枚举值，其余的一律 422 并在 message 里说明「该权限位由角色决定」。
+	//    🔴 绝对不要「先假装成功、以后再补列」—— 一个返回 201 但没有真正授予的权限接口，
+	//       会让人以为某个管理员没有 D6 权限，而他其实有（或反过来）。
+	//    补它需要 openapi 改动（已冻结）+ 一支迁移，两者都不在本轮范围内。
+	// ---------- §2.1 管理员列表（listAdmins） ----------
+	//
+	// 没有分页参数（openapi 给这个端点只有 security，没有 LimitQuery/CursorQuery）——
+	// 这是对的：管理员是个位数量级，分页器比数据还多。
+	//
+	// ⚠️ `totp_enabled` 恒为 true，因为 `totp_secret_enc` 与 `totp_confirmed_at` 两列都是 **NOT NULL**
+	//    （0002:56–57，data-model §11.2「数据库层面不存在没有 2FA 的管理员」）。
+	//    仍然把它算成表达式而不是写字面量 true：哪天有人放宽了那两列的 NOT NULL，
+	//    这一行会自动开始说实话，而字面量不会。
+	//    🔴 **`::boolean` 这个 cast 不能省。** sqlc 推不出裸 `IS NOT NULL` 表达式的类型，
+	//    生成的 Row 字段会退化成 `interface{}`（本仓库已就这个坑留过两处记录：
+	//    orders.sql 的 GetRefundBasis、orders_user.sql §6 开头）。退化之后 handler 只能写
+	//    `row.TotpEnabled.(bool)` —— 而那是一次会 panic 的类型断言，且它会在
+	//    「管理员列表页」这种低频路径上待很久才炸。`IS NOT NULL` 永不为 NULL，
+	//    所以这里加 cast 是无条件安全的（同 admin_ops.sql 里 active / used_since_issue / enabled 三处）。
+	//
+	// ⚠️ 默认只列**未停用**的。`deleteAdmin` 是软停用（见 §2.4），而 openapi 的 `AdminAccount`
+	//    **没有 disabled 字段** —— 若把停用的也列出来，它在前端与在职管理员长得一模一样。
+	//    传 include_disabled=true 才能看到全部（后台将来加一个「已停用」筛选时用）。
+	ListAdminAccounts(ctx context.Context, includeDisabled *bool) ([]ListAdminAccountsRow, error)
+	// ============================================================
+	// §4 审计日志（模块 10，**只有 GET**）
+	// ============================================================
+	//
+	// 🔴 **本节只有读。没有 UPDATE，没有 DELETE，将来也不要加。**
+	//    api-contract §6.1 原话：「一个能被清理的审计日志等于没有审计日志」。
+	//    表本身由 DB 层 REVOKE UPDATE/DELETE/TRUNCATE 兜底（0011:6 的注释），
+	//    但那道机制防的是应用写错，不防「有人往这个文件里加了一条 DELETE 然后 CI 过了」。
+	//    所以这行注释也是防线的一部分。
+	//
+	// ⚠️ **三处契约与实表的偏差，handler 必须知道（audit.go 的包注释已记其一，这里补全）：**
+	//   1. **`request_id` 没有落库。** openapi 的 `AuditLogEntry` 把它列进 required，
+	//      而 `audit_logs`（0011:10）根本没有这一列。它是「把一条审计接回访问日志/trace」的唯一钥匙。
+	//      handler 只能填空串 —— 而空串在前端就是一个点不动的链接。
+	//      补它需要一支迁移加列 + audit.Actor 加字段（audit.go 已挂 TODO(P2)）。
+	//   2. **`admin_id` 可空、契约必填。** 列是 `ON DELETE SET NULL`。软停用之下它永不为 NULL
+	//      （§2.4 的理由之一），但**历史上若真删过管理员**，那些行会是 NULL。
+	//      handler 遇到 NULL 只能填 0 —— 而这里还有一层残酷：能指认到人的
+	//      `admin_email_snapshot` 在 openapi 的 AuditLogEntry 上**没有字段可放**，
+	//      也就是说那条证据存在于库里、但通过 API 看不到。仍然把它 SELECT 出来，
+	//      是为了让它至少能进服务端日志。
+	//   3. **`action` 的形态。** 0011 的列注释给的是 `'D6.order.mark_paid'`（带 D 编号），
+	//      而 openapi 的 description 举例是 `'order.mark_paid'`（不带）。两者都在仓库里，
+	//      **以库为准**（audit.go 的 Entry.Action 注释也是带 D 编号那种），
+	//      因为带编号的那份能直接按 `action LIKE 'D6.%'` 筛出一整类危险操作 ——
+	//      而这正是 §6.3 存在的用途。前端要展示成不带编号的，在渲染层去掉即可。
+	//      🔴 handler 侧的 `?action=` 过滤因此必须是**前缀/包含**匹配而不是等值，
+	//         否则后台传 `order.mark_paid` 一条都查不到（现象是「审计日志空的」，而不是报错）。
+	// 🔴 游标用 **(created_at, id)** 两列，不是单 id。这是本文件里唯一一处两列游标，理由：
+	//    审计是本系统最大的 append-only 表，且**唯一的索引是 `audit_logs_created_idx (created_at DESC)`**
+	//    （另两条是 (admin_user_id, created_at DESC) 与 (target_type, target_id, created_at DESC)，
+	//    前缀都是过滤列、后缀都是 created_at）。按 id 排序会让每一次翻页都变成一次全表排序；
+	//    按 (created_at, id) 排序则三条索引都能直接吃到顺序。
+	//    行比较 `(a,b) < (x,y)` 在**两列同向 DESC** 时才等价于「排在它后面」——
+	//    任何一列改成 ASC，这个写法会**静默**漏行/重行（不报错）。改排序必须同时改这里。
+	//    id 破平手是必须的：`created_at` 有 `DEFAULT now()`，同一次事务里写的多条审计
+	//    时间戳可以完全相同（now() 在一个事务里是常量）。
+	//
+	// ⚠️ 检索维度按 api-contract §6.3：操作者（admin_user_id）/ 对象（target_type + target_id）/
+	//    时间（from/to）+ openapi 明写的 action。`target_id` 是 text（不同实体主键类型不同，
+	//    订单是 trade_no），所以是字符串等值比较，不是数字。
+	ListAdminAuditLogPage(ctx context.Context, arg ListAdminAuditLogPageParams) ([]AuditLog, error)
+	// ============================================================
+	// §3 邀请与返佣（模块 9）
+	// ============================================================
+	// ---------- §3.1 邀请码列表（listAdminInvites） ----------
+	//
+	// 与 users.sql 的 `ListInviteCodesByOwner` 的区别是三条，每条都不能靠加参数弥合：
+	//   · 管理面要看**全部**码，包括 `owner_user_id IS NULL` 的管理员种子码 —— 那条按 owner 等值过滤；
+	//   · 管理面要看**已撤销**的（撤销记录本身是运营证据）—— 那条带 `revoked_at IS NULL`；
+	//   · 管理面是游标分页 + 可选 `?count=true`，那条是一次性全取。
+	//
+	// ⚠️ `status` 的三态（openapi `InviteCode.status` = ok/exhausted/disabled）在库里**没有对应列**，
+	//    是三个条件推出来的。推导写在 SQL 里而不是 Go 里，是为了让「已过期算 disabled 还是 ok」
+	//    只有一个答案：过期 = 用不了 = disabled，与被撤销同类。
+	//    顺序不能反：先判 disabled 再判 exhausted —— 一个既被撤销又用尽的码应当显示成 disabled
+	//    （撤销是人的动作，用尽是自然结果，前者才是运营要看到的那个事实）。
+	//
+	// ⚠️ `use_limit` 直接给 `max_uses`。openapi 说「0 = 不限」，而库里 `max_uses >= 1` 是 CHECK ——
+	//    也就是说**本系统没有不限次的邀请码**，那个 0 永远不会出现。不要为了迎合注释去把
+	//    某个值翻译成 0：那会让前端把一个 1 次码显示成无限次。
+	ListAdminInvitesPage(ctx context.Context, arg ListAdminInvitesPageParams) ([]ListAdminInvitesPageRow, error)
+	// ============================================================
+	// §8 公告管理（模块 12，D12）
+	// ============================================================
+	//
+	// 🔴 **与用户面的 `catalog.sql / ListNoticesPage` 是两条查询，不能合并。** 三处不同：
+	//   · 管理面要看**全部**公告（含 visible=false、含还没到 starts_at 的、含已经过 ends_at 的）——
+	//     用户面那条把这三种全滤掉了，管理员用它就看不到自己刚定时发布的那条；
+	//   · 排序键不同：用户面是 (pinned DESC, created_at DESC, id DESC)，游标必须带 pinned
+	//     （否则置顶公告会在每一页重复出现，那条注释里有完整推理）；
+	//     管理面按 (created_at, id) 就够 —— 管理列表要的是「最近改过什么」，不是阅读顺序。
+	//   · 管理面提供 `?count=true`，用户面永不返总数（§2.4）。
+	//
+	// ⚠️ 字段映射同用户面：`Notice.content ← content_md`，`Notice.published_at ← coalesce(starts_at, created_at)`。
+	//    `notices` 没有 published_at 列（0011:29 逐列核过），落一列冗余的会与这两列漂移。
+	ListAdminNoticesPage(ctx context.Context, arg ListAdminNoticesPageParams) ([]ListAdminNoticesPageRow, error)
+	// ============================================================
+	// §5 系统配置（模块 16）
+	// ============================================================
+	// ---------- §5.1 读配置（getAdminSettings） ----------
+	//
+	// 响应是 `SettingsMap`（`additionalProperties: true` 的自由键值对），所以本条把整张表交出去，
+	// 由 handler 拼成一个 JSON 对象。表的量级是几十行，不分页。
+	//
+	// 🔴 **凭据不在这张表里，将来也不许放进来**（openapi 的 SettingsMap description + AGENTS.md §4：
+	//    一律走环境变量 / Secret Manager）。这条查询不做任何过滤，所以**任何**写进 settings 的东西
+	//    都会原样出现在管理面响应体里 —— 这就是「不许放凭据」那条规则在这里的执行方式：
+	//    它不是靠过滤保证的，是靠**不写进去**保证的。往这张表里塞一个 api_key 的那一刻，
+	//    它同时出现在管理面响应、浏览器缓存与前端的 devtools 里。
+	ListAdminSettings(ctx context.Context) ([]Setting, error)
+	// 按节点分桶（scope=server）。走 `stat_server` 视图；节点数是个位数，
+	// 所以这一条的行数 ≈ 天数 × 节点数，是三种 scope 里最小的那个。
+	// ⚠️ 这条同时是**出口成本核算**的数据源（0009 的注释），所以**不过滤已软删的节点**：
+	//    节点删了，它产生过的流量成本仍然发生过。JOIN servers 去滤掉 deleted_at 会让
+	//    历史账凭空少一块，而那正是 stat_user_server 对 servers 用 ON DELETE RESTRICT 要防的事。
+	ListAdminStatByServer(ctx context.Context, arg ListAdminStatByServerParams) ([]ListAdminStatByServerRow, error)
+	// ============================================================
+	// §6 流量统计（模块 7）
+	// ============================================================
+	//
+	// 🔴 **口径：`stat_user_server.stat_date` 是按 `Asia/Shanghai` 切的天**（0009:18 的列注释，
+	//    写入侧 stats.sql 的 `BulkUpsertStatUserServer` 用的就是 `(now() AT TIME ZONE 'Asia/Shanghai')::date`）。
+	//    所以本节的入参必须做同样的换算：`(:from AT TIME ZONE 'Asia/Shanghai')::date`。
+	//    直接拿 UTC 日期去比会**整体错开一天**（UTC 的 8 月 29 日 20:00 属于上海的 8 月 30 日），
+	//    而错开一天的日报看起来完全正常 —— 只是每天的数字都是隔壁那天的。
+	// 🔴 **返回的是 `stat_date`（date）不是 `record_at`（timestamptz）**，与既有的
+	//    `GetGlobalDailyTraffic` 保持同一形状。openapi 的 `StatBucket.record_at` 是 date-time，
+	//    换算（上海当天 00:00 → UTC）必须在 handler 里用**同一个**辅助函数完成，
+	//    三种 scope 各写一遍是三份会漂移的时区代码。
+	//
+	// ⚠️ **openapi 给 `/admin/stats` 的参数里没有任何分页**（只有 scope/from/to）。
+	//    而 scope=user 的结果是「天数 × 用户数」行 —— 一年 × 1000 人 = 36.5 万行。
+	//    所以本节两条查询都带 `page_limit`，由 handler 钉死一个上限（建议 5000）并在命中上限时
+	//    **明确告诉调用方结果被截断**。静默截断的报表会被当成完整数据去做决策。
+	// ⚠️ `exportAdminStats`（D14）复用本节的同三条查询，不另写：CSV 与 JSON 的差别在序列化层。
+	//    D14 的审计走 `audit.Write`（纯读操作没有业务事务可搭，audit.go 明写这是保留 Write 导出的理由）。
+	//    ⚠️ 但 `/admin/stats/export` 的参数**只有 scope，没有 from/to** —— handler 必须自己钉一个
+	//    有界窗口（建议最近 90 天）。无界导出 = 一次请求带走全站历史，D14 那层权限位就白设了。
+	// ⚠️ 这两条导出的是 user_id / server_id，**不含邮箱** —— 统计导出的泄漏面因此比
+	//    §1.7 的用户导出小一个量级。这不是巧合：StatBucket 的字段就是这么定的，不要为了
+	//    「CSV 好看」去 JOIN 一个 email 进来。
+	// 按用户分桶（scope=user）。走 `stat_user` 视图（= stat_user_server 按 (user_id, stat_date) 聚合），
+	// 视图恒等于实表，不多存一份数字（0009 的裁决）。
+	// ⚠️ 排序用 (stat_date DESC, user_id)：报表默认看最近的几天；user_id 破平手让分页/截断确定。
+	ListAdminStatByUser(ctx context.Context, arg ListAdminStatByUserParams) ([]ListAdminStatByUserRow, error)
+	// admin_accounts.sql · 管理面：用户 / 管理员 / 邀请返佣 / 审计 / 配置 / 统计 / 公告
+	//
+	// 事实源：openapi/openapi.yaml（已冻结）里的 25 个 operationId ——
+	//         getAdminDashboard · listAdminUsers · getAdminUser · updateAdminUser · banAdminUser ·
+	//         unbanAdminUser · revokeAdminUserSubscriptions · exportAdminUsers · adjustAdminUserBalance ·
+	//         getAdminStats · exportAdminStats · listAdminInvites · createAdminInvite ·
+	//         adjustAdminCommission · listAdminAuditLog · listAdmins · createAdmin · deleteAdmin ·
+	//         resetAdminTotp · listAdminNotices · createAdminNotice · updateAdminNotice ·
+	//         deleteAdminNotice · getAdminSettings · updateAdminSettings；
+	//         api-contract.md §2.4（分页）· §6.1（17 个模块）· §6.2（D1–D16 四层强制）· §6.3（审计三条硬规则）；
+	//         data-model.md §1.2 裁决 8（users 永不硬删）· §7.1（余额的唯一真相是分录）· §11.1（append-only）；
+	//         ADR 0013 §3.5 / §5.2（余额分可提现/不可提现、配额拆两个分量列）；
+	//         列名逐列核自 0002_foundation · 0003_accounts · 0005_online_state · 0006_orders ·
+	//         0007_ledger · 0009_stats · 0010_tickets · 0011_ops · 0015_payment_fixes · 0016_billing_rules。
+	//
+	// ============================================================
+	// 🔴 写这一组查询前必须先接受的五条
+	// ============================================================
+	//
+	// 1. **`users.transfer_enable` 是 GENERATED ALWAYS AS (_plan + _pack) STORED，不可赋值**
+	//    （0016:66）。写它 sqlc generate 与 go build 都是 exit 0，只在运行时炸
+	//    （ADR 0013 §6.3 实测）。本文件里任何改配额的语句写的都是 `transfer_enable_plan`。
+	//
+	// 2. **users 永不硬删**（data-model §1.2 裁决 8）。本文件里没有一条 `DELETE FROM users`。
+	//    「删除账号」是 users.sql 的 `AnonymizeUser`；而 `deleteAdmin` 删的是 **admin_users**，
+	//    是完全不同的一件事 —— 两者唯一的共同点是名字里都有「删」字。
+	//
+	// 3. **审计要改前/改后两个值**（§6.3 第 2 条：存完整快照不存 diff）。
+	//    本文件统一用**一条语句里的 before/after CTE**，而不是「先读一份再改」。
+	//    理由写在 §1.5 的 `UpdateAdminUserEntitlement` 上，其余各处只引用不重复。
+	//
+	// 4. **L1 确认串的比对在 API 层**（§6.2）。所以凡是标 🔒 的操作，本文件都提供一条
+	//    「先把目标标识串查出来并锁住」的查询（`LockAdminUserTarget` / `LockAdminAccountTarget`），
+	//    handler 必须先跑它、常数时间比对、再动手。前端弹窗对 `curl` 是零。
+	//
+	// 5. **金额一律 bigint 人民币分，流量一律 bigint 字节。禁止浮点**（api-contract §2.6）。
+	//
+	// ============================================================
+	// ℹ️ 刻意**不重写**的既有查询（handler 直接复用，逐条点名）
+	// ============================================================
+	//
+	// · `subscription_user.sql` 的 **RevokeAllUserSubscriptionTokens** —— D3 的写就是它。
+	//   它用「数据修改型 CTE 互相看不到对方效果」这条语义算出「本次真正撤掉几条」，
+	//   重写一遍只会多一处会漂移的副本。D3 的**改前值**从 `LockAdminUserTarget` 那一次读里来
+	//   （L1 本来就必须先读一次目标，两件事合成一条查询，见 §1.4）。
+	// · `wallet.sql` 的 **GetWalletOverview** —— D10 调余额的改前/改后两个快照都用它，
+	//   在同一个事务里前后各跑一次。它返回的三个数正好是 openapi `Wallet` 的 required 三项。
+	// · `orders.sql` 的 **CreateLedgerEntry / CreateLedgerLine / UpsertWalletBalance** —— D10 的分录三步。
+	// · `stats.sql` 的 **GetGlobalDailyTraffic** —— getAdminStats 的 `scope=global` 就是它，
+	//   本文件只补 `scope=user` 与 `scope=server` 两个**跨实体**聚合（既有的那两条是单实体的）。
+	// · `users.sql` 的 **BanUser / UnbanUser** —— ⚠️ **管理面不要用它们**：它们 `RETURNING *`
+	//   给的只有改后值，D2 要的改前值拿不到。管理面走本文件的 `AdminBanUser` / `AdminUnbanUser`。
+	// · `users.sql` 的 **ListUsersForAdmin / CountUsersForAdmin** —— ⚠️ **同样不要用**：
+	//   它们是 `LIMIT/OFFSET`，而 openapi 给 listAdminUsers 的是 CursorQuery（§2.4）。
+	//   OFFSET 在一张持续新增的表上翻页会**漏行**，且漏的方式没有任何报错。
+	// ============================================================
+	// §1 用户管理（模块 2）
+	// ============================================================
+	// ---------- §1.1 用户列表（listAdminUsers） ----------
+	//
+	// 游标分页（api-contract §2.4）。游标只用 `id`，不用 (created_at, id)：
+	// `users.id` 是 IDENTITY 列，单键即全序，与 wallet.sql §2 的取舍同源。
+	// 代价登记：id 序与 created_at 序在**并发插入**下可能差几行（id 先取号后提交），
+	// 但两者都是全序，翻页不重不漏 —— 而这正是游标唯一要保证的事。
+	//
+	// 🔴 **`user_traffic` 用 LEFT JOIN，不是 JOIN**（users.sql 的 `ListUsersForAdmin` 用的是 JOIN）。
+	//    1:1 拆表由 `CreateUser` + `CreateUserTraffic` 同事务建立，理论上不会缺行；
+	//    但一旦缺了（手工插过一行、DR 从半份备份恢复），JOIN 会让那个用户**从后台列表里消失**。
+	//    用户面少一条只是少一条，管理面少一条是「这个人不存在」的假象 ——
+	//    而管理员会据此去回复工单。宁可显示两个 0。
+	//
+	// ⚠️ `q` 走 `email ILIKE`，没有 trigram 索引，是一次顺序扫描。用户量到万级之前这是零成本，
+	//    再往上要么加 `pg_trgm` + GIN，要么把搜索限制成前缀匹配（`email ILIKE q || '%'` 能吃到
+	//    `users_email_uk` 的函数索引，但只有在 handler 也 lower() 之后）。**撤回条件**：
+	//    本条 p95 > 200 ms。
+	// 🔴 `q` 是**用户输入**，handler 必须先转义 LIKE 元字符 `\` `%` `_` 再拼 `%…%`。
+	//    不转义时一个 `%` 就等于「返回全部用户」，而这个端点的下游是 D14 的同一批数据。
+	//
+	// ⚠️ balance_amount 取 `wallet_balances`（缓存表）而不是扫分录：列表一次要算 20 个人的余额，
+	//    按 data-model §7.1「面板每次打开都要读余额，不能每次扫分录」，列表就是那条规则的正例。
+	//    **钱要动的时候读分录**（D10 走 GetWalletOverview），列表只是展示。
+	ListAdminUsersPage(ctx context.Context, arg ListAdminUsersPageParams) ([]ListAdminUsersPageRow, error)
 	// 响应只含 device_limit IS NOT NULL 的用户（api-contract §3.7）
 	//
 	// 🔴 **计数单位是 IP，不是行。** `count(DISTINCT device_ip)`，不是 `count(*)`。
@@ -1634,8 +3046,24 @@ type Querier interface {
 	// ============================================================
 	//
 	// ⚠️ ADR 0012 的状态是「提案，未批准」。本轮**不接任何第三方 RPC**：
-	//    链上拉取做成可注入接口，默认实现返回「未配置」。下面的查询只负责
-	//    「拿到一批链上转账之后该怎么落库」，那一半与用哪家 RPC 无关。
+	//    链上拉取做成可注入接口，默认实现返回「未配置」。
+	//
+	// 🔴 **本节没有任何入账语句，这是刻意的。**
+	//    「拿到一批链上转账之后怎么落库」全部在 orders_user.sql 的第六节
+	//    （InsertPaymentIfNew / AttributePayment / SumAddressReceipts / TransitionOrderStatus …），
+	//    由 handler 的 processDeposit 串起来 —— ADR 0012 §8.4 硬约束 1：
+	//    webhook / recheck / chain-scan / D6 四条触发路径**共用同一段入账代码**。
+	//
+	//    这里曾经有过第二套（RecordChainPayment / SetOrderPayFromAddress，已删）。
+	//    它按 order_id 累计、且 order_id 是非空参数，于是**结构上写不下**
+	//    §8.4 分支 ②「钱打到了我们的地址、但归属不到任何订单」——
+	//    而那正是 §1 要消灭的「钱进黑洞」。两套并存时它们还会在
+	//    「累计口径」（order_id vs to_address）上给出不同的付清判定，
+	//    差异只在少付补足这种场景里显形，且不报错。
+	//    ⚠️ 在本节新增任何写 payments / orders.status 的语句之前，先回答
+	//    「为什么 processDeposit 装不下它」——多半装得下。
+	//
+	// 所以本节只剩两条：**扫谁**、以及**扫到哪了**。
 	//
 	// 归属**只看地址不看金额**（ADR 0012 §5.4 推翻了 EPUSDT 的金额尾数递增法；
 	// 0015 的 orders_pay_addr_uk 是它在 schema 上的表达）。所以这条查询直接
@@ -2088,6 +3516,37 @@ type Querier interface {
 	// ⚠️ 走 orders_addr_watch_idx；索引谓词里不能有 now()（非 IMMUTABLE），
 	//    所以过滤条件写在 WHERE 里走范围扫描。
 	ListWatchedPaymentAddresses(ctx context.Context) ([]ListWatchedPaymentAddressesRow, error)
+	// ---------- §2.2 L1 确认串 + 行锁（deleteAdmin / resetAdminTotp 的必经前置） ----------
+	//
+	// 与 §1.3 同形，理由不重复。管理员侧独有的一条：
+	// 🔴 **不要用请求里的 id 去猜 email，也不要让前端把 email 传上来当 confirmation 的比对基准**。
+	//    D16 的 `confirmation` 必须等于**服务端查出来的**那个 email。
+	//    这条查询就是「服务端自己查出来」那一步，少了它 L1 就是装饰。
+	//
+	// ⚠️ 不带 `disabled_at IS NULL`：对一个已停用的管理员再跑一次 reset-totp 是合理的
+	//    （停用期间换钥匙，恢复时直接可用）；而对已停用的再跑一次 delete 是幂等的空操作，
+	//    由 §2.4 自己的 CTE 处理成 (disabled → disabled)。
+	LockAdminAccountTarget(ctx context.Context, adminID int64) (LockAdminAccountTargetRow, error)
+	// ---------- §1.3 L1 确认串 + 行锁（D3 撤订阅 / D10 调余额的**必经前置**） ----------
+	//
+	// 🔴 **一条查询同时干三件事，三件都是必须的**：
+	//   1. **取出 L1 要比对的标识串**（§6.2：`confirmation` 必须等于该用户的 email，
+	//      且**服务端自己查出来**再常数时间比对 —— 拿请求体里的 email 去比对自己，恒等于通过）。
+	//   2. **锁住这一行**（`FOR UPDATE`）。D10 要在「读余额 → 写分录 → 写缓存」之间
+	//      挡住并发的第二次调余额；不锁的话两个管理员同时点，两条分录都写成功、
+	//      `wallet_balances` 的 `balance + EXCLUDED.balance` 也各加一次，
+	//      账**是平的**（每条分录自己平），只是钱多了一倍 —— 没有任何巡检会报红。
+	//   3. **给出改前值**。D3 的 before 就是这里的 `sub_revoked_at`；D10 的 before
+	//      另外走 GetWalletOverview（余额是聚合，不是列）。
+	//
+	// ⚠️ 锁的是 **users** 而不是 `wallet_balances`：调余额时那一行**可能还不存在**
+	//    （新用户从没充过值，UpsertWalletBalance 走 INSERT 分支）。
+	//    对一行不存在的记录 `FOR UPDATE` 锁到的是空气，两个并发事务会双双通过。
+	//    users 那一行一定存在，所以它才是这条链路上唯一可靠的串行化点。
+	//
+	// ⚠️ `FOR UPDATE` 只在事务里有意义 —— 本条必须在 `audit.InTx` 给的事务里跑。
+	//    在池上裸跑它，锁在语句结束时就释放了，等于没锁。
+	LockAdminUserTarget(ctx context.Context, userID int64) (LockAdminUserTargetRow, error)
 	// 可划转的佣金，按确认时间从旧到新锁住。
 	//
 	// 🔴 **划转的最小粒度是一条 commission，不是一分钱。**
@@ -2146,38 +3605,6 @@ type Querier interface {
 	// 唯一真相是视图，缓存表只是性能。每日 Cloud Scheduler 必须跑这条对账，
 	// 返回非空行 = 立即告警，且**以视图为准**（data-model §7.1）。
 	ReconcileWalletBalances(ctx context.Context) ([]ReconcileWalletBalancesRow, error)
-	// 落一条链上入账流水。
-	//
-	// 🔴 幂等由 0014 的 `UNIQUE (provider, external_id)` 强制，external_id = `txid:log_index`
-	//    （ADR 0012 §8.2：取值来源**只有链上事件**，与录入者无关）。
-	//    DO NOTHING 返回 0 行 → :one 报 pgx.ErrNoRows → 调用方按「这笔已经记过」处理。
-	//    §10.5 的「游标往回退 10 分钟重扫」正是靠这条唯一索引兜底，所以重复是**设计内的常态**。
-	//
-	// state 的判定放在 SQL 里而不是 Go 里，因为它要读 prior（同一订单此前的累计到账），
-	// 而 ADR 0012 §6.3 的累计口径就是「按地址/订单求和」—— 拉回 Go 侧算意味着
-	// 先查一次再插一次，两步之间另一笔到账落库就会算错。
-	//
-	// 三个分支，顺序不能换：
-	//   1. 未固化 → confirming。ADR 0012 §10.5：TRON 的最终性是「固化」而不是 N 个确认，
-	//      openapi 的 confirmations_required = 19 **只用于前端展示进度**，不是服务端判据。
-	//      把没固化的钱记成 paid，等于在链重组时开通一个没付钱的订阅。
-	//   2. 应收未知（orders.pay_amount_usdt6 为 NULL）→ 也记 confirming。
-	//      这是数据缺陷（0015 §17.3 加的这一列是判定的唯一依据），
-	//      但「钱收到了却因为我们自己的字段缺失而不落库」比记一条待人工处理的流水糟得多。
-	//   3. 累计 ≥ 应收 → paid，否则 underpaid。判定**一律在 1e-6 USDT 的整数域做**
-	//      （ADR 0012 §17.3：pay_amount_raw 是 numeric(38,18)，类型本身容得下噪声）。
-	//
-	// prior 里带上 'confirming' 是刻意的：同一笔钱先以 confirming 记入、后续固化后
-	// 由别的路径改状态，若这里不计入，补足判定会把它当成没收到过。
-	//
-	// entered_by 恒为 'scanner'：0014 的列注释说它只区分**录入者**、不参与幂等，
-	// 手工与自动因此天然互斥（谁先到谁插入成功）。
-	//
-	// ⚠️ 本语句**只记录收到了钱，不开通任何权利、不写任何账本分录**。
-	//    开通与入余额属于 ADR 0012 §8.4 的入账路径，那条路径本轮未实现。
-	//    这个分工是安全的方向：多记一条流水没有副作用，少开通一次订阅有工单兜底；
-	//    反过来（先开通后记账）则会在重投时开通两次。
-	RecordChainPayment(ctx context.Context, arg RecordChainPaymentParams) (RecordChainPaymentRow, error)
 	RecordInviteCodeUse(ctx context.Context, arg RecordInviteCodeUseParams) (InviteCodeUse, error)
 	// 分支 ④/⑤ 的支撑：过期单迟到的钱、以及超额的钱，都要回填付款方地址。
 	// `orders.pay_from_address` 是 0016 加的列，ADR 0013 §9 的失效条件（归集时按 txid 回填）靠它执行。
@@ -2214,6 +3641,27 @@ type Querier interface {
 	//    两个端点的上报周期与失败模式不同，混在一起会让「alive 挂了」被 status 的成功掩盖。
 	RefreshServerOnlineUsers(ctx context.Context, serverID int64) error
 	RemoveServerFromGroup(ctx context.Context, arg RemoveServerFromGroupParams) error
+	// ---------- §2.5 重置 TOTP（resetAdminTotp，D15：L1 + L3） ----------
+	//
+	// 🔴 **改前/改后值里绝对不能出现 secret 本身**（无论明文还是密文）。
+	//    `audit_logs` 是 append-only、永不删除的表，一份写进去的凭据就是**永久**写进去的。
+	//    密文也不行：密钥在 Secret Manager，而审计表可能被导出、被拷进工单、被贴进聊天窗口。
+	//    所以本条 RETURNING 里**只有时间戳**：审计能证明「谁在什么时候给谁换了钥匙」，
+	//    这已经是这条记录需要回答的全部问题。
+	//    ⚠️ 同理，新 secret 的明文只出现在 200 响应体里（openapi 的 TotpEnrollment），
+	//       出现且仅出现一次，不落库、不进日志。
+	//
+	// ⚠️ **刻意不清理该管理员的 `used_totp` 行**。旧 secret 生成的码对新 secret 一律验不过，
+	//    留着不构成重放风险；而它们最多在 10 分钟后被 `CleanupUsedTotp` 扫掉（0015 的窗口）。
+	//    唯一的理论代价：新 secret 的第一个码恰好与 10 分钟内用过的某个 6 位数相同时会被误拒一次
+	//    —— 概率 ~1e-6 量级，代价是用户等 30 秒。为它多加一条 DELETE 不值得，
+	//    而**多一条 DELETE 就多一条「谁能删 used_totp」的路径**。
+	//
+	// ⚠️ `totp_confirmed_at` 直接写 now()，因为它 NOT NULL、库里不存在「待确认」状态（见 §2.3）。
+	//    这意味着重置的那一刻旧钥匙立刻失效、新钥匙立刻生效 —— 中间**没有**「两把钥匙都能用」
+	//    的过渡窗口。所以后台必须先把二维码交到本人手上再点确认，
+	//    顺序错了那个人就进不来了（而他自己没有任何自助恢复入口）。
+	ResetAdminAccountTotp(ctx context.Context, arg ResetAdminAccountTotpParams) (ResetAdminAccountTotpRow, error)
 	// 归零本周期，lifetime 不清零。
 	//
 	// 🔴 **只用于管理员手工重置与 reset_pack（`plans.price_reset`）两条路径**（ADR 0013 §5.3 裁决）。
@@ -2354,13 +3802,6 @@ type Querier interface {
 	RotateUserSession(ctx context.Context, arg RotateUserSessionParams) error
 	// 按诊断上下文检索（走 tickets_context_idx，GIN jsonb_path_ops）
 	SearchTicketsByContext(ctx context.Context, arg SearchTicketsByContextParams) ([]SearchTicketsByContextRow, error)
-	// 回填付款方地址。ADR 0013 §9 的失效条件靠这一列执行（0016 的列注释：
-	// 「链上付款方地址，归集时按 txid 回填」），而**扫链是唯一看得见付款方的地方** ——
-	// 不在这里落下来，之后任何时候都拿不回来了。
-	//
-	// coalesce 语义：只写第一次。补足支付可能来自另一个地址，
-	// 而「这张订单是谁付的」应当锁定在首笔，后续的在 payments.from_address 里逐笔可查。
-	SetOrderPayFromAddress(ctx context.Context, arg SetOrderPayFromAddressParams) error
 	SetTicketTags(ctx context.Context, arg SetTicketTagsParams) (Ticket, error)
 	// 只软删：stat_user_server.server_id 是 ON DELETE RESTRICT，成本历史不能因为删节点而消失
 	SoftDeleteServer(ctx context.Context, id int64) error
@@ -2494,6 +3935,13 @@ type Querier interface {
 	// timestamptz，因为要原样回传给 TronGrid，转成 timestamptz 再转回去会在毫秒边界丢事件）。
 	// 传 NULL 表示这一轮没拿到新游标（例如拉取失败），保持原值 —— 绝不能写成 0，
 	// 那等于把游标重置到 1970 年，下一轮会把这个地址的全部历史重扫一遍。
+	//
+	// ⚠️ 与 orders_user.sql 的 `UpdatePayAddressCursor` 看着像重复，但**不能合并**：
+	//    那条的 cursor_ts 是必填（recheck 只在真的拿到新游标时才调它），
+	//    而定时扫链**每扫一个地址都要写 last_scanned_at**（它同时是
+	//    ListScannableChainAddresses 的排序键，不写会让同一批地址被反复优先扫），
+	//    偏偏在「有转账但入账失败」时又必须让 cursor_ts 原地不动。
+	//    「刷新扫描时刻但不推进游标」这个组合只有可空参数表达得出来。
 	TouchPayAddressScan(ctx context.Context, arg TouchPayAddressScanParams) error
 	// 密钥使用留痕。刻意与鉴权分开：鉴权在读路径上必须零写，
 	// 这条由 handler 异步（或降采样）调用，写失败不影响请求。
@@ -2546,6 +3994,72 @@ type Querier interface {
 	// 20 秒是拍的，须按 TronGrid 实际额度调整，所以走参数不写死（ADR 0012 §10.4 登记为未决项）。
 	TryClaimAddressScan(ctx context.Context, arg TryClaimAddressScanParams) (TryClaimAddressScanRow, error)
 	UnbanUser(ctx context.Context, id int64) (User, error)
+	// 编辑公告（updateAdminNotice，D12）。before/after 同 §1.4，理由不重复。
+	// ⚠️ **`NoticeUpsert` 的 title/content 是 required，所以这是 PUT 语义的 PATCH**：
+	//    两列无条件覆写，pinned 与 starts_at 走 coalesce（未传 = 不改）。
+	//    这个不对称是契约给的，不是本条的选择 —— 写在这里免得后人以为漏了 coalesce。
+	// ⚠️ 与 §1.4 一样，「把 starts_at 改回 NULL（立刻发布）」表达不出来。同一处契约缺口。
+	UpdateAdminNotice(ctx context.Context, arg UpdateAdminNoticeParams) (UpdateAdminNoticeRow, error)
+	// ---------- §5.2 改配置（updateAdminSettings，D13：L2 必填原因） ----------
+	//
+	// 🔴 **UPDATE 不是 UPSERT：只改已存在的键，不认识的键一条都不写。**
+	//    `settings.key` 是自由文本主键，没有任何白名单表。写成 `INSERT … ON CONFLICT DO UPDATE`
+	//    的话，一次手滑的 `{"expire_remid": ...}` 会**静默地新建**一个永远不会被读到的键，
+	//    而真正想改的那个原封不动 —— 页面显示「已保存」，行为没有任何变化。
+	//    改成纯 UPDATE 之后，那次手滑影响 0 行，handler 靠
+	//    🔴 **`len(rows) == 传入键数` 这条断言**把它翻成 422 并列出哪些键不认识。
+	//    代价：新增配置项必须走迁移（`INSERT INTO settings … description`）。
+	//    这是对的 —— 一个配置项的**说明**（description 是 NOT NULL）本来就该跟着它的引入一起写。
+	//
+	// 🔴 **两个数组按下标配对，不用 `jsonb_each`。** 两条理由：
+	//    · sqlc v1.31 的内建 catalog 对返回 setof record 的 json 函数支持不确定，
+	//      而本仓库已经证明 `unnest(...) WITH ORDINALITY` 这条路可用（stats.sql 三处在跑）；
+	//    · 值以 text 传入再 `::jsonb` 转换，非法 JSON 在**这一步**就抛 22P02 整条回滚，
+	//      而不是变成一个存进库里、下次启动时才炸的坏值。
+	//    ⚠️ 调用方必须保证两个数组等长（Go 侧 assert）。不等长时 JOIN 会静默丢掉多出来的那些，
+	//      而现象是「有几个配置没保存上」，没有任何报错。
+	//    ⚠️ 参数名是 `setting_keys` / `setting_values` 而不是 `keys` / `values`：
+	//      `VALUES` 是 PostgreSQL 的保留字，`sqlc.arg(values)` 这种写法把一个保留字放进
+	//      标识符位置 —— 实测当前版本能解析，但它依赖的是「函数实参位置的宽松处理」这条
+	//      随时可能收紧的行为。为一个零成本的改名保留这种依赖不值得。
+	//
+	// ⚠️ before/after 同 §1.4 的一条语句两 CTE：`before` 读的是 UPDATE 之前的快照。
+	//    D13 的审计要记**每一个被改的键的新旧值**（不是「改了 5 个键」这种摘要）——
+	//    配置回滚时唯一能用的东西就是这份逐键旧值。
+	UpdateAdminSettingsValues(ctx context.Context, arg UpdateAdminSettingsValuesParams) ([]UpdateAdminSettingsValuesRow, error)
+	// ---------- §1.4 编辑用户（updateAdminUser，D1：L2 必填原因） ----------
+	//
+	// 🔴 **配额写 `transfer_enable_plan`，且是「总额 − 加油包分量」。** 三步推理：
+	//    · openapi 的 `AdminUserPatch.transfer_enable_bytes` 是**总额**（用户看到的那个数）；
+	//    · `users.transfer_enable` 是生成列，赋值会在运行时炸（0016:66，ADR 0013 §6.3）；
+	//    · 加油包分量 `_pack` 是用户**买过的东西**（ADR 0013 §5.1），管理员改总配额时
+	//      不该把它悄悄抹掉。所以写成 `_plan = 请求的总额 − 当前 _pack`，
+	//      结果的总额精确等于请求值，而 _pack 原封不动。
+	//    请求的总额小于当前 _pack 时，`transfer_enable_plan >= 0` 这条 CHECK 会拒绝（23514），
+	//    handler 把它翻成 422 并在 message 里写明「该用户有 N 字节加油包，总配额不能低于它」。
+	//    ⚠️ 这是本文件里唯一一处 SQL 做算术的地方，因为它必须**原子**读到当前 _pack ——
+	//       handler 先读再算会在两次调用之间被一次加油包购买插进来，结果是把刚买的包吃掉。
+	//
+	// 🔴 **before/after 用一条语句里的两个 CTE，不用「先读一份再改」。** 理由是语义而不是省一次往返：
+	//    同一条语句里，数据修改型 CTE **互相看不到对方的效果**（subscription_user.sql §2 逐字依赖的
+	//    正是这条语义），所以 `before` 读到的必然是这次 UPDATE 之前的快照，
+	//    而且**中间不存在任何时刻**能让第三方改动它。
+	//    换成「先 SELECT 再 UPDATE」两条语句：即使在同一个事务里，两者之间也能插进
+	//    一次并发的 D1（另一个管理员、或一次订单开通的 ApplyUserEntitlement），
+	//    于是审计记下的 before 是一个**从未紧接着 after 出现过**的状态 —— 而审计的全部用途
+	//    就是事后重建「谁把什么改成了什么」。一条记着假 before 的审计比没有审计更坏。
+	//
+	// ⚠️ **PATCH 的「置空」表达不出来**（契约缺口，登记在此）：
+	//    `expired_at` 与 `device_limit` 的 NULL 都是有意义的值（不限时 / 不限设备），
+	//    而 JSON 里「字段缺席」与「字段为 null」在 oapi-codegen 生成的 `*T` 上都是 nil，
+	//    所以本条只能把 nil 理解成「不改」。**后果**：管理员无法通过 API 把一个用户改成不限时。
+	//    要补它需要在 openapi 里加显式的 `clear_expired_at: true` 之类的字段，而 openapi 已冻结。
+	//
+	// ⚠️ 改 `group_id` / `uuid` / `expired_at` / `transfer_enable_plan` / `device_limit`
+	//    都会触发 `users_bump_user_rev_trg`（0012 + 0016 的监视列表），节点最多 60 秒后生效。
+	//    这一条在 Go 代码里**完全看不见**（data-model §15.1 登记过这个代价），
+	//    所以写在这里：handler 不需要、也不应该再显式 bump 一次。
+	UpdateAdminUserEntitlement(ctx context.Context, arg UpdateAdminUserEntitlementParams) (UpdateAdminUserEntitlementRow, error)
 	// 状态迁移。⚠️ 调用方必须在同一事务里 InsertOrderTransition —— 状态机没有触发器兜底，
 	// 漏写审计不会报错（这与 user_rev 不同：那里漏了是静默故障，这里漏了是证据缺失）。
 	UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusParams) (Order, error)

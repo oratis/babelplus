@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -1260,30 +1259,59 @@ func (s *Server) RunMailSendTask(ctx context.Context, req gen.RunMailSendTaskReq
 // ============================================================
 
 type chainScanQuerier interface {
+	// 支付配置（写销 / 人工复核阈值与折算汇率）由本任务读一次，再随每笔到账传给入账路径。
+	//
+	// 🔴 不读的后果不是报错而是**零值**：WriteoffUsdt6 为 0 会让所有取整量级的少付
+	//    都被推进人工复核队列；CnyPerUsdtE4 为 0 会让 usdt6ToCents 恒得 0，
+	//    于是「订单已过期 → 款项入余额」那条分支记了流水却入了 0 元余额。
+	//    两种都不抛错，只是把结论静默算歪 —— 正是本文件反复防的那一类失败。
+	settingsReader
+
 	ListScannableChainAddresses(ctx context.Context, batch int32) ([]dbgen.ListScannableChainAddressesRow, error)
 	TouchPayAddressScan(ctx context.Context, arg dbgen.TouchPayAddressScanParams) error
-	RecordChainPayment(ctx context.Context, arg dbgen.RecordChainPaymentParams) (dbgen.RecordChainPaymentRow, error)
-	SetOrderPayFromAddress(ctx context.Context, arg dbgen.SetOrderPayFromAddressParams) error
 }
+
+// depositFunc 是「把一笔链上到账入账」的注入点。生产实现是 order.go 的
+// `(*Server).processDepositTx`：一笔一个事务，流水 / 分录 / 归属 / 状态迁移 / 审计
+// 要么全成要么全无（ADR 0012 §8.4 硬约束 3）。
+//
+// 🔴 **入账只有 processDeposit 一条路径**（§8.4 硬约束 1）。
+//
+//	本任务曾经自己写过一条（tasks.sql 的 RecordChainPayment 那组），两条并不等价：
+//	那条按 order_id 累计、且 order_id/user_id 是非空参数，于是**结构上记不下**
+//	§8.4 分支 ②「钱打到了我们的地址、但归属不到任何订单」——
+//	而那正是 §1 点名要消灭的「钱进黑洞」，是所有失败模式里最不可挽回的一种。
+//	所以合并的方向是单向的：扫链改调 processDeposit，那组查询删除。
+//
+// ⚠️ 做成参数而不是让 runChainScan 自己开事务：事务边界属于 Server
+//
+//	（只有 *store.Store 有 InTx），而这个自由函数存在的全部意义是能被单测直接调
+//	（本文件纪律第 1 条）。
+type depositFunc func(ctx context.Context, in depositInput) error
 
 type chainScanResult struct {
 	NotConfigured bool
 	// Addresses 是本轮真正尝试扫描的地址数（不含被拉黑而跳过的）。
-	Addresses  int
-	Transfers  int
-	Recorded   int
-	Duplicates int
+	Addresses int
+	Transfers int
+	// Deposited 是成功交给入账路径的转账笔数。
+	//
+	// ⚠️ 这里**不区分「新落库」与「幂等丢弃」**（合并前是 Recorded / Duplicates 两个计数）。
+	//    幂等命中在 processDeposit 里是设计内的常态，被它自己吞掉并返回 nil；
+	//    扫描侧要报出这个区分只能自己再猜一遍，而「同一件事两处各算一遍」
+	//    正是这次合并要消灭的东西。真要看新增了多少条流水，数据在 payments 里。
+	Deposited int
 	// Failures 是**出过问题的地址数**，不是失败次数。
 	// 按地址计而不是按事件计，是因为它唯一的用途是判断
 	// 「上游整体不可达（→ 503）」还是「个别抖动（→ 记日志继续）」——
-	// 按次数计的话，一个地址上 3 笔转账落库失败会让计数超过地址总数，
+	// 按次数计的话，一个地址上 3 笔转账入账失败会让计数超过地址总数，
 	// 那个判据就废了。
 	Failures int
 	// AllFailed 让调用方不必重算判据。两处各算一遍必然有一天算歪。
 	AllFailed bool
 }
 
-// runChainScan 自扫链，把到账落成 payments 流水。
+// runChainScan 自扫链，把链上到账交给入账路径。
 //
 // ⚠️ ADR 0012 的状态是「提案，未批准」。本轮**不连任何第三方 RPC**：
 //
@@ -1300,11 +1328,13 @@ type chainScanResult struct {
 //  3. **过期订单的地址继续监听 ≥ 24h**（§11.1 / user-journey §7）：
 //     扫描范围里的 `address_watch_until > now()` 就是它，order-timeout 负责把窗口顶上去。
 //
-// 🔴 **本任务只记录「收到了钱」，不开通任何权利、不写任何账本分录。**
+// 🔴 **本任务不自己入账。** 每笔转账原样递给 deposit（= processDeposit），
 //
-//	开通与入余额属于 §8.4 的入账路径，本轮未实现（已在返回值与日志里留痕）。
-//	这个分工的方向是安全的：多记一条流水没有副作用；
-//	反过来（先开通后记账）会在重投时开通两次。
+//	由它做幂等锁、归属、复式账、状态迁移与审计。剩给本函数的只有三件事：
+//	决定扫谁、把链上那一笔递过去、以及**决定游标推不推进**。
+//	第三件是本函数独有的纪律，也是它唯一能独自搞砸一笔真钱的地方 ——
+//	见下面 addrFailed 的注释。
+//	（「收到钱之后开通权利」那一步仍未实现，processDeposit 会响亮地停在 paid 并打 ERROR。）
 //
 // ⚠️ 单个地址失败不中断整轮：一个地址拉取超时不该让另外 99 个地址这一轮都不扫。
 //
@@ -1313,6 +1343,7 @@ func runChainScan(
 	ctx context.Context,
 	q chainScanQuerier,
 	scanner ChainScanner,
+	deposit depositFunc,
 	log *slog.Logger,
 ) (chainScanResult, error) {
 	var res chainScanResult
@@ -1331,6 +1362,11 @@ func runChainScan(
 	if len(addrs) == 0 {
 		return res, nil
 	}
+
+	// 配置在确认「这一轮有地址要扫」之后才读：没有地址时不必每分钟碰一次 settings。
+	// 读失败不致命 —— loadPaymentSettings 回落默认值并记 Warn，
+	// 用默认阈值收一笔钱好过因为配置表抖动而整轮不扫（order.go 的同一条裁决）。
+	set := loadPaymentSettings(ctx, q, log)
 
 	var lastErr error
 	for _, a := range addrs {
@@ -1358,36 +1394,49 @@ func runChainScan(
 
 		// 🔴 addrFailed 一旦为 true 就**永不复位**。
 		//    写成「失败时把 newestMS 归零」是不够的：后面一笔成功的转账会把它重新抬上去，
-		//    于是游标越过了那笔没记成功的钱 —— 而越过去的表现是
+		//    于是游标越过了那笔没入账成功的钱 —— 而越过去的表现是
 		//    「用户付了钱、链上有记录、我们的库里没有」，只有投诉时才会被发现。
 		var addrFailed bool
 		var newestMS int64
 		for _, t := range transfers {
-			recorded, recErr := recordChainTransfer(ctx, q, log, a, t)
-			if recErr != nil {
-				// 落库失败比拉取失败严重得多：钱到了但我们没记下来。
+			// 🔴 只负责把链上那一笔**原样**递过去：不做任何金额比较、状态判断或分录。
+			//    ToAddress 取我们库里的 a.Address 而不是 t.ToAddress —— 归属的依据
+			//    必须来自我们自己的表，而 t.ToAddress 是扫描器从外部数据解析出来的。
+			//    ActorOverride 用链上 txid：审计里的 actor 必须能指回那笔真实交易，
+			//    "system" 之类的占位在事后追溯里等于没有。
+			if depErr := deposit(ctx, depositInput{
+				Provider:      "chain_" + a.Chain,
+				EnteredBy:     "scanner",
+				Chain:         a.Chain,
+				ToAddress:     a.Address,
+				Transfer:      t,
+				Settings:      set,
+				ActorOverride: "chain:" + t.TxID,
+			}); depErr != nil {
+				// 入账失败比拉取失败严重得多：钱到了但我们没记下来。
 				// 仍然不中断（这个地址上别的转账还能记），但用 ERROR，且不推进游标 ——
 				// 下一轮会把同一段重扫，靠 UNIQUE (provider, external_id) 去重。
+				//
+				// errDepositForeignAddress 也走这里：地址是从我们自己表里查出来的，
+				// 它出现只可能是地址刚被删改或串了链，属于必须有人看的状态 ——
+				// 同样不推进游标（卡在原地会一直报警，而跳过去只会安静地丢钱）。
 				addrFailed = true
-				lastErr = recErr
-				log.ErrorContext(ctx, "链上到账落库失败（下一轮重扫，游标不推进）",
-					"pay_address_id", a.PayAddressID, "txid", t.TxID, "err", recErr)
+				lastErr = depErr
+				log.ErrorContext(ctx, "链上到账入账失败（下一轮重扫，游标不推进）",
+					"pay_address_id", a.PayAddressID, "order_id", a.OrderID,
+					"trade_no", a.TradeNo, "txid", t.TxID, "err", depErr)
 				continue
 			}
 			if t.BlockTimeMS > newestMS {
 				newestMS = t.BlockTimeMS
 			}
-			if recorded {
-				res.Recorded++
-			} else {
-				res.Duplicates++
-			}
+			res.Deposited++
 		}
 		if addrFailed {
 			res.Failures++
 		}
 
-		// 只有这个地址这一轮**全部**落库成功才推进游标；否则传 nil 保持原值。
+		// 只有这个地址这一轮**全部**入账成功才推进游标；否则传 nil 保持原值。
 		var cursor *int64
 		if !addrFailed && newestMS > 0 {
 			c := newestMS
@@ -1404,7 +1453,7 @@ func runChainScan(
 	log.InfoContext(ctx, "链上扫描完成",
 		"scanner", scanner.Name(),
 		"addresses", res.Addresses, "transfers", res.Transfers,
-		"recorded", res.Recorded, "duplicates", res.Duplicates, "failures", res.Failures)
+		"deposited", res.Deposited, "failures", res.Failures)
 
 	// 全部地址都出了问题 = 上游整体不可达，值得 503 + Retry-After 让 Scheduler 退避。
 	// 部分失败只记日志：退避会让**好的**那部分也停下来。
@@ -1413,75 +1462,6 @@ func runChainScan(
 		return res, fmt.Errorf("全部 %d 个收款地址扫描失败: %w", res.Addresses, lastErr)
 	}
 	return res, nil
-}
-
-// recordChainTransfer 落一条链上到账。返回 false 表示这笔已经记过（幂等丢弃）。
-func recordChainTransfer(
-	ctx context.Context,
-	q chainScanQuerier,
-	log *slog.Logger,
-	addr dbgen.ListScannableChainAddressesRow,
-	t ChainTransfer,
-) (bool, error) {
-	raw := t.Raw
-	if len(raw) == 0 {
-		// payments.raw 是 NOT NULL 且刻意如此（0014：「取证材料缺一条就等于这条流水
-		// 不可复核，而入账争议只能靠原文解决」）。扫描器没给原文时，
-		// 至少把我们看到的字段序列化下来 —— 空对象比 NOT NULL 违约好，
-		// 也比假装有原文诚实。
-		raw = mustMarshalFallbackRaw(t)
-	}
-
-	row, err := q.RecordChainPayment(ctx, dbgen.RecordChainPaymentParams{
-		// provider 从链名推导，与 0014 注释里的 'chain_tron' 同形。
-		Provider: "chain_" + addr.Chain,
-		// 🔴 幂等键：txid:log_index，取值来源只有链上事件（ADR 0012 §8.2）。
-		ExternalID:    t.TxID + ":" + strconv.FormatInt(int64(t.LogIndex), 10),
-		OrderID:       addr.OrderID,
-		UserID:        addr.UserID,
-		Chain:         addr.Chain,
-		Txid:          t.TxID,
-		LogIndex:      t.LogIndex,
-		FromAddress:   t.FromAddress,
-		ToAddress:     addr.Address,
-		AmountUsdt6:   t.AmountUSDT6,
-		Solidified:    t.Solidified,
-		ExpectedUsdt6: addr.PayAmountUsdt6,
-		Confirmations: t.Confirmations,
-		Raw:           raw,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		// ON CONFLICT DO NOTHING 命中 —— 这笔已经记过。
-		// 这是**设计内的常态**（§10.5 的游标回看 10 分钟就是靠它兜底），
-		// 所以是 Debug 不是 Warn。
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-
-	if addr.PayAmountUsdt6 == nil {
-		// 订单没有应收金额（0015 §17.3 加的 pay_amount_usdt6 是判定的唯一依据）。
-		// 钱已经记下来了（state=confirming），但没人能判断够不够 —— 必须人工看。
-		log.ErrorContext(ctx, "订单缺少应收金额，到账已记录但无法判定是否付清（需人工处理）",
-			"order_id", addr.OrderID, "trade_no", addr.TradeNo, "payment_id", row.ID)
-	}
-
-	// 回填付款方地址。ADR 0013 §9 的失效条件靠这一列执行，
-	// 而**扫链是唯一看得见付款方的地方** —— 不在这里落下来就永远拿不回来了。
-	if t.FromAddress != "" {
-		if err := q.SetOrderPayFromAddress(ctx, dbgen.SetOrderPayFromAddressParams{
-			ID: addr.OrderID, FromAddress: t.FromAddress,
-		}); err != nil {
-			// 不失败：流水已经落了，付款方地址只影响事后的合规追溯。
-			log.WarnContext(ctx, "回填订单付款方地址失败", "order_id", addr.OrderID, "err", err)
-		}
-	}
-
-	log.InfoContext(ctx, "记录链上到账（仅记账，不开通权利 —— 入账路径尚未实现）",
-		"payment_id", row.ID, "order_id", addr.OrderID, "trade_no", addr.TradeNo,
-		"state", string(row.State), "amount_usdt6", t.AmountUSDT6, "solidified", t.Solidified)
-	return true, nil
 }
 
 // lookbackCursor 把存的游标往回退 10 分钟（ADR 0012 §10.5）。
@@ -1503,6 +1483,11 @@ func lookbackCursor(cursorMS *int64) *int64 {
 // mustMarshalFallbackRaw 在扫描器没给原文时兜一份最小的取证材料。
 // json.Marshal 对这个纯值结构不可能失败；真失败了也只能落一个空对象，
 // 因为 payments.raw 是 NOT NULL，返回错误会让这笔钱记不进去。
+//
+// ⚠️ 入账合并之后它**唯一的调用方是 order.go 的 processDeposit**（本文件已不再自己落库）。
+//
+//	留在这里是因为它和 ChainTransfer 同源 —— 兜底对象的字段就是这个结构的字段，
+//	搬走会让「加了字段忘了加进兜底」这件事跨文件发生。
 func mustMarshalFallbackRaw(t ChainTransfer) []byte {
 	b, err := json.Marshal(struct {
 		TxID          string `json:"txid"`
@@ -1530,7 +1515,9 @@ func mustMarshalFallbackRaw(t ChainTransfer) []byte {
 // RunChainScanTask 实现 POST /internal/tasks/chain-scan。
 func (s *Server) RunChainScanTask(ctx context.Context, _ gen.RunChainScanTaskRequestObject) (gen.RunChainScanTaskResponseObject, error) {
 	log := s.taskLogger(ctx, "chain-scan")
-	res, err := runChainScan(ctx, s.db, s.chainScanner(), log)
+	// 🔴 入账口子只有 processDeposit 一个（ADR 0012 §8.4 硬约束 1）：
+	//    定时扫链、recheck、支付回调反查、D6 手工录入四条触发路径共用它。
+	res, err := runChainScan(ctx, s.db, s.chainScanner(), s.processDepositTx, log)
 	if err != nil {
 		if res.AllFailed {
 			// 上游整体不可达 → 503 + Retry-After（openapi 对本端点定义了这个响应）。

@@ -1253,14 +1253,14 @@ func TestTruncateBounceCode(t *testing.T) {
 // 9 · chain-scan
 // ============================================================
 
+// fakeChainScan 只覆盖 runChainScan **自己**的数据面：扫谁、扫到哪了、读哪份配置。
+// 入账那一半不在这里 —— 它由 fakeDepositSink 顶替 processDeposit（ADR 0012 §8.4 硬约束 1：
+// 入账只有一条路径，扫链不再自己写 payments）。
 type fakeChainScan struct {
-	addrs      []dbgen.ListScannableChainAddressesRow
-	recorded   map[string]bool // external_id → 已记
-	recordErr  error
-	failFor    map[string]bool // external_id → 这一笔落库失败
-	touched    []dbgen.TouchPayAddressScanParams
-	payFromSet []dbgen.SetOrderPayFromAddressParams
-	listErr    error
+	addrs       []dbgen.ListScannableChainAddressesRow
+	listErr     error
+	touched     []dbgen.TouchPayAddressScanParams
+	settingRows []dbgen.GetPaymentSettingsRow
 }
 
 func (f *fakeChainScan) ListScannableChainAddresses(_ context.Context, _ int32) ([]dbgen.ListScannableChainAddressesRow, error) {
@@ -1272,27 +1272,49 @@ func (f *fakeChainScan) TouchPayAddressScan(_ context.Context, arg dbgen.TouchPa
 	return nil
 }
 
-func (f *fakeChainScan) RecordChainPayment(_ context.Context, arg dbgen.RecordChainPaymentParams) (dbgen.RecordChainPaymentRow, error) {
-	if f.recordErr != nil {
-		return dbgen.RecordChainPaymentRow{}, f.recordErr
-	}
-	if f.failFor[arg.ExternalID] {
-		return dbgen.RecordChainPaymentRow{}, errors.New("落库失败")
-	}
-	if f.recorded == nil {
-		f.recorded = map[string]bool{}
-	}
-	key := arg.Provider + "|" + arg.ExternalID
-	if f.recorded[key] {
-		// UNIQUE (provider, external_id) + ON CONFLICT DO NOTHING → 0 行
-		return dbgen.RecordChainPaymentRow{}, pgx.ErrNoRows
-	}
-	f.recorded[key] = true
-	return dbgen.RecordChainPaymentRow{ID: int64(len(f.recorded)), State: dbgen.PaymentStatePaid, OrderID: &arg.OrderID}, nil
+func (f *fakeChainScan) GetPaymentSettings(_ context.Context, _ []string) ([]dbgen.GetPaymentSettingsRow, error) {
+	return f.settingRows, nil
 }
 
-func (f *fakeChainScan) SetOrderPayFromAddress(_ context.Context, arg dbgen.SetOrderPayFromAddressParams) error {
-	f.payFromSet = append(f.payFromSet, arg)
+// depositKey 复刻 payments 的 `UNIQUE (provider, external_id)`（external_id = txid:log_index）。
+type depositKey struct {
+	provider string
+	txid     string
+	logIndex int32
+}
+
+// fakeDepositSink 站在 processDeposit 的位置上。
+//
+// 它复刻的**只有那把幂等锁**：runChainScan 的幂等不来自它自己，而来自
+// 「它每一轮都用同一把键去调入账」。这个 fake 让「键漂了」以
+// **同一笔钱落了两条流水**的形态被抓住，而入账本身的幂等（撞锁之后不重复归属、
+// 不重复推状态、不重复记账）由 order_test.go 的 TestProcessDepositIsIdempotent 证明。
+type fakeDepositSink struct {
+	calls   []depositInput
+	rows    map[depositKey]bool
+	failFor map[string]bool // txid → 这一笔入账失败
+	err     error
+}
+
+func (f *fakeDepositSink) run(_ context.Context, in depositInput) error {
+	f.calls = append(f.calls, in)
+	if f.err != nil {
+		return f.err
+	}
+	if f.failFor[in.Transfer.TxID] {
+		return errors.New("入账失败")
+	}
+	if f.rows == nil {
+		f.rows = map[depositKey]bool{}
+	}
+	k := depositKey{provider: in.Provider, txid: in.Transfer.TxID, logIndex: in.Transfer.LogIndex}
+	if f.rows[k] {
+		// 幂等命中。processDeposit 把它当成设计内的常态吞掉并返回 nil ——
+		// 所以扫描侧看不出「新落库」与「重复」的区别，chainScanResult 里
+		// 也就不再有 Recorded / Duplicates 两个计数。
+		return nil
+	}
+	f.rows[k] = true
 	return nil
 }
 
@@ -1332,65 +1354,127 @@ func TestRunChainScan(t *testing.T) {
 
 	// ⚠️ ADR 0012 是「提案，未批准」：默认实现必须什么都不做，且不报错。
 	// 每分钟一次的 503 会训练所有人忽略这个任务的告警。
-	t.Run("未配置：优雅退出，不查库、不报错、不回 503", func(t *testing.T) {
+	t.Run("未配置：优雅退出，不查库、不入账、不报错、不回 503", func(t *testing.T) {
 		f := &fakeChainScan{listErr: errors.New("不该被调用")}
-		res, err := runChainScan(context.Background(), f, unconfiguredChainScanner{}, testLogger())
+		d := &fakeDepositSink{}
+		res, err := runChainScan(context.Background(), f, unconfiguredChainScanner{}, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("未配置不该报错：%v", err)
 		}
 		if !res.NotConfigured || res.Addresses != 0 {
 			t.Fatalf("结果不对：%+v", res)
 		}
+		if len(d.calls) != 0 {
+			t.Fatal("没有链上数据来源却调用了入账路径")
+		}
 	})
 
-	t.Run("正常路径：落一条 payments，external_id 是 txid:log_index", func(t *testing.T) {
+	// 🔴 合并之后 runChainScan 的正常路径只剩一件事：把链上那一笔**原样**递给
+	//    唯一的入账入口。所以断言全部落在「递过去的是什么」上。
+	t.Run("正常路径：把到账原样递给唯一的入账入口", func(t *testing.T) {
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)}}
+		d := &fakeDepositSink{}
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{transfer}}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}
-		if res.Recorded != 1 || res.Duplicates != 0 {
-			t.Fatalf("结果不对：%+v", res)
+		if res.Deposited != 1 || len(d.calls) != 1 {
+			t.Fatalf("结果不对：%+v / %d 次入账", res, len(d.calls))
 		}
-		if !f.recorded["chain_tron|abc123:0"] {
-			t.Fatalf("幂等键形态不对：%v", f.recorded)
+		got := d.calls[0]
+		// provider 从链名推导，与 0014 注释里的 'chain_tron' 同形；
+		// external_id（txid:log_index）由 processDeposit 拼，这里只保证原料没被动过。
+		if got.Provider != "chain_tron" || got.Transfer.TxID != "abc123" || got.Transfer.LogIndex != 0 {
+			t.Fatalf("幂等键的原料被改过了：%+v", got)
 		}
-		if len(f.payFromSet) != 1 || f.payFromSet[0].FromAddress != "TPayer" {
-			t.Fatalf("没有回填付款方地址（ADR 0013 §9 之后再也拿不回来）：%+v", f.payFromSet)
+		// 🔴 归属的依据必须来自**我们自己的表**：ToAddress 取 pay_addresses 那一行，
+		//    不是 t.ToAddress（那是扫描器从外部数据解析出来的）。
+		if got.ToAddress != "TReceive" {
+			t.Fatalf("收款地址不是取自我们的库：%q", got.ToAddress)
+		}
+		if got.EnteredBy != "scanner" {
+			t.Fatalf("entered_by 必须是 scanner（它区分录入者，D6 手工录入靠它互斥）：%q", got.EnteredBy)
+		}
+		// 审计里的 actor 必须能指回那笔真实交易，"system" 之类的占位在事后追溯里等于没有。
+		if got.ActorOverride != "chain:abc123" {
+			t.Fatalf("actor 应当是 chain:<txid>：%q", got.ActorOverride)
+		}
+		// 付款方地址必须完整传下去：回填由 processDeposit 的 RecordOrderPayerAddress 做
+		//（order_test.go 的 TestProcessDepositExpiredOrderCreditsWallet 断言了那一步），
+		// 而**扫链是唯一看得见付款方的地方** —— 在这里丢掉就永远拿不回来了（ADR 0013 §9）。
+		if got.Transfer.FromAddress != "TPayer" {
+			t.Fatalf("付款方地址没有传给入账路径：%+v", got.Transfer)
+		}
+	})
+
+	// 🔴 静默边界（合并新引入的一条）：Settings 必须真的读进来。
+	//
+	//	零值 Settings 不会抛任何错，只会把结论算歪两处：
+	//	WriteoffUsdt6=0 让所有取整量级的少付都被推进人工复核队列；
+	//	CnyPerUsdtE4=0 让 usdt6ToCents 恒得 0 —— 于是「订单已过期 → 款项入余额」
+	//	那条分支记了流水却入了 0 元余额，也就是钱照样进黑洞。
+	t.Run("静默边界：支付配置真的读进来并传给入账路径", func(t *testing.T) {
+		f := &fakeChainScan{
+			addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)},
+			settingRows: []dbgen.GetPaymentSettingsRow{
+				{Key: settingsKeyPayment, Value: []byte(`{"writeoff_usdt6":1000000,"review_usdt6":4000000}`)},
+				{Key: settingsKeyFX, Value: []byte(`{"cny_per_usdt_e4":72000}`)},
+			},
+		}
+		d := &fakeDepositSink{}
+		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{transfer}}
+		if _, err := runChainScan(context.Background(), f, sc, d.run, testLogger()); err != nil {
+			t.Fatalf("不应报错：%v", err)
+		}
+		if len(d.calls) != 1 {
+			t.Fatalf("入账次数不对：%d", len(d.calls))
+		}
+		set := d.calls[0].Settings
+		if set.CnyPerUsdtE4 != 72000 {
+			t.Fatalf("折算汇率没有传下去（入余额会按 0 折算）：%+v", set)
+		}
+		if set.WriteoffUsdt6 != 1_000_000 || set.ReviewUsdt6 != 4_000_000 {
+			t.Fatalf("少付阈值没有传下去（分档判定会全部走错）：%+v", set)
 		}
 	})
 
 	// 🔴 幂等重入：§10.5 的「游标回退 10 分钟重扫」让重复成为**设计内的常态**，
 	// 靠 UNIQUE (provider, external_id) 兜底。重复必须是「丢弃」不是「报错」。
+	//
+	// 合并之后这条断言测的是：runChainScan 每一轮都用**同一把键**去调入账
+	//（provider + txid + log_index 一个字都不变），所以幂等索引接得住。
+	// 键漂了不会报错，只会让同一笔钱落两条流水。
 	t.Run("幂等重入：同一笔转账扫两次只落一条流水", func(t *testing.T) {
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)}}
+		d := &fakeDepositSink{}
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{transfer}}
-		if _, err := runChainScan(context.Background(), f, sc, testLogger()); err != nil {
+		if _, err := runChainScan(context.Background(), f, sc, d.run, testLogger()); err != nil {
 			t.Fatalf("第一次：%v", err)
 		}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("第二次：%v", err)
 		}
-		if res.Recorded != 0 || res.Duplicates != 1 {
-			t.Fatalf("重复没有被幂等丢弃：%+v", res)
+		if res.Deposited != 1 {
+			t.Fatalf("重复必须被入账路径静默吞掉而不是报错：%+v", res)
 		}
-		if len(f.recorded) != 1 {
-			t.Fatalf("同一笔钱落了 %d 条流水", len(f.recorded))
+		if len(d.rows) != 1 {
+			t.Fatalf("同一笔钱落了 %d 条流水（幂等键在两轮之间漂了）", len(d.rows))
+		}
+		if len(d.calls) != 2 {
+			t.Fatalf("两轮都必须把这笔钱递给入账路径（去重是它的职责，不是扫描侧的）：%d", len(d.calls))
 		}
 	})
 
-	// 🔴 静默边界：落库失败时**绝不能推进游标**。
+	// 🔴 静默边界：入账失败时**绝不能推进游标**。
 	// 推进了就等于把那笔钱跳过去 —— 链上有记录、我们库里没有，
 	// 只有用户投诉时才会被发现，而那时我们连「有没有收到」都答不出来。
-	t.Run("静默边界：落库失败时游标不推进（推进 = 那笔钱被永久跳过）", func(t *testing.T) {
-		f := &fakeChainScan{
-			addrs:     []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)},
-			recordErr: errors.New("db down"),
-		}
+	t.Run("静默边界：入账失败时游标不推进（推进 = 那笔钱被永久跳过）", func(t *testing.T) {
+		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)}}
+		d := &fakeDepositSink{err: errors.New("db down")}
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{transfer}}
-		if _, err := runChainScan(context.Background(), f, sc, testLogger()); err == nil {
+		if _, err := runChainScan(context.Background(), f, sc, d.run, testLogger()); err == nil {
 			t.Fatal("全部失败应当上报（→ 503）")
 		}
 		if len(f.touched) != 1 {
@@ -1403,7 +1487,8 @@ func TestRunChainScan(t *testing.T) {
 
 	// 🔴 静默边界（同一个地址、同一批里先失败后成功）：
 	// 只把 newestMS 归零是不够的 —— 后面那笔成功的转账会把它重新抬上去，
-	// 于是游标越过了前面那笔**没记成功**的钱。表现同上：链上有、库里没有。
+	// 于是游标越过了前面那笔**没入账成功**的钱。表现同上：链上有、库里没有。
+	// 这是上一轮测试从真实实现里抓出来的 bug，合并后必须仍然被挡住。
 	t.Run("静默边界：同批里先失败后成功时，游标仍然不能推进", func(t *testing.T) {
 		early := transfer
 		early.TxID = "early"
@@ -1412,12 +1497,10 @@ func TestRunChainScan(t *testing.T) {
 		late.TxID = "late"
 		late.BlockTimeMS = 1_700_000_900_000
 
-		f := &fakeChainScan{
-			addrs:   []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)},
-			failFor: map[string]bool{"early:0": true},
-		}
+		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)}}
+		d := &fakeDepositSink{failFor: map[string]bool{"early": true}}
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{early, late}}
-		if _, err := runChainScan(context.Background(), f, sc, testLogger()); err == nil {
+		if _, err := runChainScan(context.Background(), f, sc, d.run, testLogger()); err == nil {
 			t.Fatal("这个地址全军覆没之外的语义先不管，但失败必须上报")
 		}
 		if len(f.touched) != 1 {
@@ -1427,15 +1510,16 @@ func TestRunChainScan(t *testing.T) {
 			t.Fatalf("游标被后面那笔成功的转账抬过去了：%d（early 那笔钱会被永久跳过）",
 				*f.touched[0].CursorTs)
 		}
-		if !f.recorded["chain_tron|late:0"] {
+		if !d.rows[depositKey{provider: "chain_tron", txid: "late", logIndex: 0}] {
 			t.Fatal("同一地址里后续转账不该被前一笔的失败带停")
 		}
 	})
 
 	t.Run("成功时推进游标到本批最新的区块时间", func(t *testing.T) {
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)}}
+		d := &fakeDepositSink{}
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{transfer}}
-		if _, err := runChainScan(context.Background(), f, sc, testLogger()); err != nil {
+		if _, err := runChainScan(context.Background(), f, sc, d.run, testLogger()); err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}
 		if len(f.touched) != 1 || f.touched[0].CursorTs == nil {
@@ -1446,30 +1530,41 @@ func TestRunChainScan(t *testing.T) {
 		}
 	})
 
-	// 归属只看地址不看金额（ADR 0012 §5.4）：少付也要落库，
-	// 判定交给 SQL 的累计比较，不在 Go 侧做任何金额匹配。
-	t.Run("少付照样落库（归属只看地址，金额只决定 state）", func(t *testing.T) {
+	// 归属只看地址不看金额（ADR 0012 §5.4）：少付也要递给入账路径，
+	// 分档判定在 processDeposit 里做（order_test.go 的 TestProcessDepositUnderpaidTiers），
+	// 扫描侧**不做任何金额比较** —— 在这里加一个「金额够了才入账」的判断，
+	// 少付的钱就会连流水都没有。
+	t.Run("少付照样入账（扫描侧不做任何金额判断）", func(t *testing.T) {
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)}}
+		d := &fakeDepositSink{}
 		short := transfer
 		short.AmountUSDT6 = 1
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{short}}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}
-		if res.Recorded != 1 {
+		if res.Deposited != 1 || len(d.calls) != 1 {
 			t.Fatalf("少付被丢掉了：%+v", res)
+		}
+		if d.calls[0].Transfer.AmountUSDT6 != 1 {
+			t.Fatalf("金额被扫描侧改过：%d", d.calls[0].Transfer.AmountUSDT6)
 		}
 	})
 
-	t.Run("应收金额缺失时仍然落库（钱不能因为我们的字段缺失而丢）", func(t *testing.T) {
+	// 应收金额缺失是订单侧的数据缺陷，判定交给 processDeposit
+	//（order_test.go 的 TestProcessDepositNoExpectedAmountNeedsHuman：钱记下来、状态不动、打 ERROR）。
+	// 这里钉的是扫描侧不许拿它当门槛 —— 「钱收到了却因为我们自己的字段缺失而不落库」
+	// 比记一条待人工处理的流水糟得多。
+	t.Run("应收金额缺失时仍然入账（钱不能因为我们的字段缺失而丢）", func(t *testing.T) {
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(nil)}}
+		d := &fakeDepositSink{}
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{transfer}}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}
-		if res.Recorded != 1 {
+		if res.Deposited != 1 {
 			t.Fatalf("到账被丢掉了：%+v", res)
 		}
 	})
@@ -1479,15 +1574,16 @@ func TestRunChainScan(t *testing.T) {
 		blacklisted.IsBlacklisted = true
 		blacklisted.PayAddressID = 2
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{blacklisted, chainAddr(&expected)}}
+		d := &fakeDepositSink{}
 		sc := &stubChainScanner{ready: true, transfers: []ChainTransfer{transfer}}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("不应报错：%v", err)
 		}
 		if len(sc.cursors) != 1 {
 			t.Fatalf("拉黑的地址仍被扫描了：%d 次", len(sc.cursors))
 		}
-		if res.Recorded != 1 {
+		if res.Deposited != 1 {
 			t.Fatalf("正常地址没被处理：%+v", res)
 		}
 		// 被拉黑而跳过的地址不算「尝试扫描过」——
@@ -1499,8 +1595,9 @@ func TestRunChainScan(t *testing.T) {
 
 	t.Run("全部地址拉取失败 → 上报（调用方回 503 + Retry-After）", func(t *testing.T) {
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{chainAddr(&expected)}}
+		d := &fakeDepositSink{}
 		sc := &stubChainScanner{ready: true, err: errors.New("upstream 502")}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err == nil {
 			t.Fatal("上游整体不可达必须上报")
 		}
@@ -1509,7 +1606,7 @@ func TestRunChainScan(t *testing.T) {
 		}
 	})
 
-	// Failures 按**地址**计而不是按事件计：一个地址上 3 笔落库失败
+	// Failures 按**地址**计而不是按事件计：一个地址上 3 笔入账失败
 	// 不能让 Failures 超过 Addresses，否则「全部失败 → 503」的判据在
 	// 「一个地址坏、其余都好」时会碰巧成立，把好的那部分也退避掉。
 	t.Run("静默边界：Failures 按地址计，部分失败不误判为整体不可达", func(t *testing.T) {
@@ -1522,15 +1619,13 @@ func TestRunChainScan(t *testing.T) {
 		ok1 := transfer
 		ok1.TxID = "ok1"
 
-		f := &fakeChainScan{
-			addrs:   []dbgen.ListScannableChainAddressesRow{a1, a2},
-			failFor: map[string]bool{"x1:0": true, "x2:0": true, "x3:0": true},
-		}
+		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{a1, a2}}
+		d := &fakeDepositSink{failFor: map[string]bool{"x1": true, "x2": true, "x3": true}}
 		sc := &stubChainScannerPerAddress{byAddress: map[string][]ChainTransfer{
-			"TReceive":  {t1, t2, t3}, // 三笔全部落库失败 → 这个地址算 1 次失败
+			"TReceive":  {t1, t2, t3}, // 三笔全部入账失败 → 这个地址算 1 次失败
 			"TReceive2": {ok1},        // 正常
 		}}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("一个地址坏不该整体上报：%v", err)
 		}
@@ -1548,12 +1643,13 @@ func TestRunChainScan(t *testing.T) {
 		a2.PayAddressID = 2
 		a2.Address = "TReceive2"
 		f := &fakeChainScan{addrs: []dbgen.ListScannableChainAddressesRow{a1, a2}}
+		d := &fakeDepositSink{}
 		sc := &stubChainScannerFlaky{transfers: []ChainTransfer{transfer}, failOn: "TReceive2"}
-		res, err := runChainScan(context.Background(), f, sc, testLogger())
+		res, err := runChainScan(context.Background(), f, sc, d.run, testLogger())
 		if err != nil {
 			t.Fatalf("部分失败不该整体上报：%v", err)
 		}
-		if res.Failures != 1 || res.Recorded != 1 {
+		if res.Failures != 1 || res.Deposited != 1 {
 			t.Fatalf("结果不对：%+v", res)
 		}
 	})
