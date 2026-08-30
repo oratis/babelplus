@@ -540,6 +540,37 @@ BP_LOG_LEVEL=info@\
 BP_TRUST_PROXY_HEADERS=true@\
 BP_ALLOWED_ORIGINS=${origins}"
 
+  # ---- 内部面（/internal/tasks/*，9 条 Cloud Scheduler 打进来的端点）----
+  #
+  # 两项**要么都给、要么都不给** —— config.Load 会在只给一项时直接拒绝启动。
+  # 理由见 config.go：只配一项时内部面仍然整体拒绝（与没配无异），
+  # 但配置者会以为自己已经打开了它，于是去查 Scheduler、查 IAM、查 OIDC，唯独不回来看环境变量。
+  #
+  # 不给默认值：内部面关闭是一个**安全的**默认，而一个猜出来的 audience 只会让
+  # 「配了但永不匹配」冒充「没配」。留空时这两行不进 --set-env-vars，行为与从前逐字一致。
+  if [ -n "${BP_INTERNAL_OIDC_AUDIENCE:-}" ] || [ -n "${BP_INTERNAL_TASK_CALLERS:-}" ]; then
+    if [ -z "${BP_INTERNAL_OIDC_AUDIENCE:-}" ] || [ -z "${BP_INTERNAL_TASK_CALLERS:-}" ]; then
+      die "BP_INTERNAL_OIDC_AUDIENCE 与 BP_INTERNAL_TASK_CALLERS 必须同时给或同时留空。
+     只给一项时内部面仍然整体拒绝（与没配无异），但排查方向会被带偏 —— 见 config.go 的同名断言。"
+    fi
+    env_vars="${env_vars}@BP_INTERNAL_OIDC_AUDIENCE=${BP_INTERNAL_OIDC_AUDIENCE}"
+    env_vars="${env_vars}@BP_INTERNAL_TASK_CALLERS=${BP_INTERNAL_TASK_CALLERS}"
+  fi
+
+  # ---- 管理面（/admin/*）----
+  #
+  # 同一条纪律的另一半。⚠️ BP_ADMIN_IAP_AUDIENCE 的取值**只能**来自一个挂了 IAP 的
+  # GCLB 后端服务的数字 id，不是 URL、不是项目 ID —— 那套负载均衡器目前一件都没建
+  # （roadmap B51），所以这两项现在必然留空，管理面在线上整体拒绝。**这是设计，不是故障。**
+  if [ -n "${BP_ADMIN_IAP_AUDIENCE:-}" ] || [ -n "${BP_ADMIN_TOTP_ENC_KEY:-}" ]; then
+    if [ -z "${BP_ADMIN_IAP_AUDIENCE:-}" ] || [ -z "${BP_ADMIN_TOTP_ENC_KEY:-}" ]; then
+      die "BP_ADMIN_IAP_AUDIENCE 与 BP_ADMIN_TOTP_ENC_KEY 必须同时给或同时留空。
+     只给 audience → 管理面能进但所有危险操作被拒；只给密钥 → 管理面整体进不去。两种现象都不指向配置本身。"
+    fi
+    env_vars="${env_vars}@BP_ADMIN_IAP_AUDIENCE=${BP_ADMIN_IAP_AUDIENCE}"
+    env_vars="${env_vars}@BP_ADMIN_TOTP_ENC_KEY=${BP_ADMIN_TOTP_ENC_KEY}"
+  fi
+
   local -a args=(
     gcloud run deploy "$SERVICE"
     --project="$PROJECT_ID"
