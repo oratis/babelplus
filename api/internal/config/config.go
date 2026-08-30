@@ -66,6 +66,30 @@ type Config struct {
 	// Cloud Run 前面有 Google 的前端，可以信任；裸跑时**必须关**，否则来源 IP 可被伪造，
 	// 而来源 IP 会写进 subscription_fetch_log 用于识别账号共享。
 	TrustProxyHeaders bool
+
+	// ---- 内部面：/internal/tasks/* 的 Google OIDC（api-contract.md §7）----
+	//
+	// 两项都**没有默认值**，也都不在 required 表里 —— 缺失时进程照常启动，
+	// 但 middleware.AuthenticateInternal 会把整条内部面全部拒掉（fail-closed 在运行时那一侧）。
+	// 之所以不做成「缺失即拒绝启动」：内部面尚未接线（authmap.go 目前对这 9 个 operation 返 501），
+	// 现在就把它列为必需，等于让每个本地开发者与 CI 都必须先配两个用不上的变量。
+	// TODO(接线时): 内部面挂上 AuthenticateInternal 的同一个 PR 里，
+	//   把这两项加进 prod/staging 的必需集，并同步 api/.env.example 与 infra/deploy/deploy-api.sh。
+
+	// InternalOIDCAudience 是内部面 ID token 的 `aud` 必须逐字节等于的值。
+	//
+	// 🔴 取值是 **Cloud Run 服务的默认 URL**（`https://bp-api-xxxxxxxx.a.run.app`），
+	// 不是镜像域名，也不是 API 主域名 —— roadmap.md §4.2 把这一条单独写出来是因为踩过：
+	// 创建 Scheduler / Tasks 时填的 `--oidc-token-audience` 与这里配的必须完全相同，
+	// 而镜像域名会被封、会轮换（ADR 0003 §5「一键新增镜像域名」）。
+	// 用镜像域名当 aud 的后果是**每换一次域名就要重建六条 Scheduler 与一条队列**，
+	// 而漏掉哪一条只表现为「那个任务安静地不再运行」。
+	// 环境变量：BP_INTERNAL_OIDC_AUDIENCE
+	InternalOIDCAudience string
+
+	// InternalTaskCallers 是允许调用 /internal/tasks/* 的服务账号 email 白名单（已小写化、已去重）。
+	// 环境变量：BP_INTERNAL_TASK_CALLERS（逗号分隔）
+	InternalTaskCallers []string
 }
 
 // required 列出所有必需的环境变量及其写入位置。
@@ -131,6 +155,31 @@ func Load() (*Config, error) {
 
 	// 生产环境跑在 Cloud Run 后面，信任 XFF；其余默认不信任。
 	c.TrustProxyHeaders = envOr("BP_TRUST_PROXY_HEADERS", boolStr(c.Env != "dev")) == "true"
+
+	// 内部面（可缺省，但**给了就必须是对的形状**）。
+	// 与 AllowedOrigins 同一条理由：一个写错的值永远匹配不上真实 token 的 aud，
+	// 现象是「六条定时任务全部 403」，与「没配」一模一样，却要往完全不同的方向查。
+	aud, err := parseInternalAudience(os.Getenv("BP_INTERNAL_OIDC_AUDIENCE"), c.Env)
+	if err != nil {
+		return nil, err
+	}
+	c.InternalOIDCAudience = aud
+
+	callers, err := parseInternalCallers(os.Getenv("BP_INTERNAL_TASK_CALLERS"), c.Env)
+	if err != nil {
+		return nil, err
+	}
+	c.InternalTaskCallers = callers
+
+	// 两项要么都不配（内部面整体关闭），要么都配。只配一项是**纯粹的配置错误**：
+	// AuthenticateInternal 在任一项为空时拒掉全部内部面，所以现象与「都没配」一样，
+	// 但配置者会以为自己已经打开了内部面 —— 于是六条 Scheduler 全部 403，
+	// 而他会去查 Scheduler、查 IAM、查 OIDC，唯独不会回来看这里。
+	if (c.InternalOIDCAudience == "") != (len(c.InternalTaskCallers) == 0) {
+		return nil, errors.New(
+			"BP_INTERNAL_OIDC_AUDIENCE 与 BP_INTERNAL_TASK_CALLERS 必须同时配置或同时留空：\n" +
+				"  只配一项时内部面仍然整体拒绝（与没配无异），但排查方向会被带偏")
+	}
 
 	// 一条低成本的防呆：项目 ID 写错会把资源建到别的项目里。
 	if c.Env == "prod" && c.GCPProjectID != "oratis-491316" {
@@ -265,6 +314,100 @@ func normalizeOrigin(o, env string) (string, error) {
 		return "", errors.New("prod 环境只接受 https")
 	}
 	return scheme + "://" + strings.ToLower(u.Host), nil
+}
+
+// parseInternalAudience 校验内部面 OIDC 的 `aud`。
+//
+// 留空是允许的（内部面尚未接线，见 Config.InternalOIDCAudience 的注释）——
+// 缺失时 middleware.AuthenticateInternal 会把整条内部面拒掉，fail-closed 落在运行时那一侧。
+// 但**给了就必须是对的形状**：aud 的比对是 `string(claims.Aud) != cfg.Audience` 的逐字节相等
+// （internal.go），所以一个多出来的尾斜杠、一个大写字母、一段 path，
+// 都会让每一个真实 token 永远匹配不上，而现象是「六条定时任务全部 403」——
+// 与「根本没配」一模一样，却要往完全不同的方向查。这个函数存在的唯一理由就是
+// 把那种排查搬到启动期。
+func parseInternalAudience(raw, env string) (string, error) {
+	aud := strings.TrimSpace(raw)
+	if aud == "" {
+		return "", nil
+	}
+
+	u, err := url.Parse(aud)
+	if err != nil {
+		return "", fmt.Errorf("BP_INTERNAL_OIDC_AUDIENCE %q 不是合法 URL：%w", aud, err)
+	}
+	if u.Scheme != "https" {
+		return "", fmt.Errorf("BP_INTERNAL_OIDC_AUDIENCE 必须是 https URL，当前 %q", aud)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("BP_INTERNAL_OIDC_AUDIENCE %q 缺少主机名", aud)
+	}
+	// 尾斜杠、path、query、fragment 一律拒绝：Cloud Run 签发的 ID token 里
+	// aud 就是裸的服务 URL，任何一处多余字符都只会导致永不匹配。
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf(
+			"BP_INTERNAL_OIDC_AUDIENCE 只能是裸的服务 URL（不带路径 / 查询 / 片段，也不带尾斜杠），当前 %q", aud)
+	}
+	// 大小写：aud 是逐字节比对的，而 Google 签发的值是全小写的服务 URL。
+	// 这里不做静默小写化 —— 静默修正会让「配错了」变成「看起来配对了但仍不匹配」。
+	if aud != strings.ToLower(aud) {
+		return "", fmt.Errorf("BP_INTERNAL_OIDC_AUDIENCE 必须全小写（aud 逐字节比对），当前 %q", aud)
+	}
+	// prod 额外钉死 *.run.app：见 Config.InternalOIDCAudience 的注释 ——
+	// 用镜像域名当 aud，每换一次域名就要重建六条 Scheduler 与一条队列，
+	// 而漏掉哪一条只表现为「那个任务安静地不再运行」。
+	if env == "prod" && !strings.HasSuffix(u.Host, ".run.app") {
+		return "", fmt.Errorf(
+			"prod 的 BP_INTERNAL_OIDC_AUDIENCE 必须是 Cloud Run 默认 URL（*.run.app），当前 %q\n"+
+				"  不要用镜像域名或 API 主域名：它们会轮换，而 aud 换一次就要重建全部 Scheduler 与队列", aud)
+	}
+	return aud, nil
+}
+
+// parseInternalCallers 校验允许调用 /internal/tasks/* 的服务账号 email 白名单。
+//
+// 同样允许留空（整条内部面被拒）。给了就必须逐条是形状合法的 email：
+// internal.go 的 internalCallerAllowed 做的是小写全等比对，所以这里就把小写化与去重做掉,
+// 让「配置里写了大写」不至于变成一次线上排查。
+func parseInternalCallers(raw, env string) ([]string, error) {
+	fields := strings.Split(raw, ",")
+	seen := make(map[string]struct{}, len(fields))
+	out := make([]string, 0, len(fields))
+
+	for _, f := range fields {
+		c := strings.ToLower(strings.TrimSpace(f))
+		if c == "" {
+			continue
+		}
+		// `*` 与 `all` 必须显式拒绝，理由与 normalizeOrigin 相同：
+		// 它们是配置者「想先放开跑通」时最可能手写进去的值，而这条白名单是
+		// 内部面唯一的调用方约束 —— 放开它等于把九个定时任务端点开放给任何持有
+		// 合法 Google ID token 的人（那是全世界任何一个 Google 账号）。
+		switch c {
+		case "*", "all", "any":
+			return nil, fmt.Errorf("BP_INTERNAL_TASK_CALLERS 不接受 %q：必须逐个列出服务账号 email", c)
+		}
+		at := strings.IndexByte(c, '@')
+		if at <= 0 || at == len(c)-1 || strings.Count(c, "@") != 1 {
+			return nil, fmt.Errorf("BP_INTERNAL_TASK_CALLERS 中的 %q 不是合法 email", c)
+		}
+		if _, dup := seen[c]; dup {
+			continue
+		}
+		seen[c] = struct{}{}
+		out = append(out, c)
+	}
+
+	// prod 下如果配了，就顺带检查它们像不像服务账号 —— 定时任务的调用方只可能是
+	// 服务账号，写成个人 Google 账号说明配错了对象（且个人账号的 token 更容易泄漏）。
+	if env == "prod" {
+		for _, c := range out {
+			if !strings.HasSuffix(c, ".iam.gserviceaccount.com") && !strings.HasSuffix(c, ".gserviceaccount.com") {
+				return nil, fmt.Errorf(
+					"prod 的 BP_INTERNAL_TASK_CALLERS 只接受服务账号 email（*.gserviceaccount.com），当前 %q", c)
+			}
+		}
+	}
+	return out, nil
 }
 
 // redactDSN 去掉连接串里的密码。Postgres DSN 的密码可能出现在 URL 形式或 kv 形式里，两种都处理。

@@ -6,7 +6,11 @@
 > 订单与复式账 DDL 已存在于 [payments.md](../01-research/payments.md) §4.13
 > 关联：[ADR 0005 数据库选型](../05-adr/0005-database-selection.md)、[ADR 0006 API 技术栈](../05-adr/0006-api-stack.md)、
 > [system-design.md](system-design.md) §6、[pricing-and-plans.md](../03-product/pricing-and-plans.md)、
-> [user-journey.md](../03-product/user-journey.md)、[page-inventory.md](../03-product/page-inventory.md)
+> [user-journey.md](../03-product/user-journey.md)、[page-inventory.md](../03-product/page-inventory.md)、
+> [ADR 0011](../05-adr/0011-domain-blackout-detection.md)（§16 的域名池建表）、
+> [ADR 0013](../05-adr/0013-billing-and-refund-rules.md)（§16 的折抵与流量包拆列，迁移 `0016`）
+> —— **两份均为提案，未批准**（2026-08-23）
+> **2026-08-29 补登**：§16 加落点，DDL 一行未改。
 > ⚠️ **本文是 schema 的唯一真相来源。** 其他文档里出现的表名/列名与本文冲突时，以本文为准，
 > 冲突逐条登记在 §14。
 
@@ -1794,6 +1798,15 @@ ADR 0005 买的是 **10 GB SSD**（$1.70/月），**约 10 倍余量**。
       `/admin/domains` 是 P3），当前只能塞进 `settings` 的 JSONB。
       **不在本次范围内，因为「域名被封的自动检测」这个前置机制在三份文档里各被记为未解决一次
       —— 在它有答案之前，域名表存什么列是猜的。**
+      > **2026-08-29 补登落点：[ADR 0011](../05-adr/0011-domain-blackout-detection.md)（提案，未批准）。**
+      > 前置机制的洞实际是**七处**不是三处（0011 文档头列全），本条是其中之一。
+      > 0011 §14 对本条的原话是「✅ 本 ADR 给出答案，**§7.2 的字段可直接落 DDL**」——
+      > 也就是说「存什么列」不再是猜的：事实源是 `domains` 表，`mirrors.json` 与
+      > `runtime-config.js` 都从它渲染（0011 §7.1），字段形状见 §7.2，
+      > 池的划分与数量由同批 [ADR 0010](../05-adr/0010-domain-strategy.md) §1.3 裁决。
+      > ⚠️ 0011 §14 另给本文 **§5.3** 一条修正：`count(DISTINCT request_ip) > 20` 的基线
+      > **必须在 `profile-update-interval=2` 的新频率下重采**，旧频率下推出的阈值不可迁移。
+      > 🔴 **本条不划掉**：0011 状态是**提案，未批准**（2026-08-23）；DDL 落地前它只是一份可落的字段清单。
 - [ ] **审计日志的外送（Cloud Logging append-only sink 或 GCS 对象锁）未设计。**
       §11.1 的 REVOKE 只防应用层，不防有 DDL 权限的人。**不在本次范围内，属于 P4 加固。**
 - [ ] **`subscription_fetch_log` 的共享检测阈值没有数字**（§5.3 的 20 是占位）。

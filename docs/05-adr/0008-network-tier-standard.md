@@ -8,8 +8,12 @@
 > 事实基线：Google Cloud Billing Catalog API 权威价目 + Google 官方文档 + OONI 原始测量
 > 证据：[gcp-egress-pricing-20260817](../evidence/gcp-egress-pricing-20260817/)、
 > [ipv6-censorship-20260817](../evidence/ipv6-censorship-20260817/)
-> 关联：[0004](0004-transport-hardening.md)、[system-design §3.3](../02-architecture/system-design.md)、
-> [pricing §2](../03-product/pricing-and-plans.md)、[roadmap B20](../00-overview/roadmap.md)
+> 关联：[0004](0004-transport-hardening.md)、[0007](0007-node-migration.md) §1 裁决 2（**落点见 §2.1，2026-08-29 补登**）、
+> [system-design §3.3](../02-architecture/system-design.md)、
+> [pricing §2](../03-product/pricing-and-plans.md)、
+> [pricing-and-plans-revision-20260823](../03-product/pricing-and-plans-revision-20260823.md) §2.1 C11 / §8（提出本文 §2.1 这条缺口）、
+> [roadmap B20](../00-overview/roadmap.md)
+> **2026-08-29 补登 §2.1**：只补裁决谱系的一处落点，§1 的裁决与 §3–§6 的论证一个字都没有改动。
 
 ---
 
@@ -34,6 +38,27 @@
 | ③ Cloudflare 的 `2606:4700::/32` 从电信联通实测可达 | **保留，但不支持原结论。** 「IPv6 可达」与「IPv6 不被审查」是两件事：那次测量里可达的是**未被封锁的域名**，被封域名在 IPv6 上同样被 RST |
 | ④ Premium 入向宣告范围更广，给中国运营商更多落地选择 | **保留，但价值存疑。** 0004 §3.7 自己也写了「入向路径由中国运营商的 BGP 决策，我们完全无法控制 —— Premium 给运营商更多入口，但强迫不了它选好的那个」 |
 | ⑤ Premium SLA 99.99% vs Standard 99.9% | **行为变化，这是真实代价。** 见 §5 |
+
+### 2.1 另一处落点：[ADR 0007](0007-node-migration.md) §1 裁决 2 里的 `Premium`（2026-08-29 补登）
+
+> **为什么现在才补。** 本 ADR 原文只在文档头声明「推翻 [0004 §3.7](0004-transport-hardening.md)」，
+> 没有处理 ADR 0007 §1 裁决 2 原文里同样写着的 `Premium`。缺口由
+> [pricing-and-plans-revision-20260823](../03-product/pricing-and-plans-revision-20260823.md) §2.1 的
+> **C11 裁决**（「部分采纳 —— 成本前提站得住，但谱系必须补」）与同文 §8「裁决谱系待办」提出，
+> 理由是 [docs/README](../README.md) §4 规矩 2：推翻旧裁决要**逐条**交代落点，**绕过不是合规处理**。
+> 本节就是那一行落点，**不改变本 ADR 的任何裁决内容**。
+
+| ADR 0007 §1 裁决 2 的原文 | 本裁决下的落点 |
+|---|---|
+| 「新建 `bp-node-hk1`（`asia-east2-a` 或 `-c`，`e2-small`，**Premium**，新预留静态 IP）为主力」 | 🔴 **`Premium` 一词自 2026-08-17（本裁决之日）起不再适用。** 裁决 2 的其余部分 —— 区域 `asia-east2`、机型 `e2-small`、新预留静态 IP、以及「它是主力」这个角色 —— **全部原样保留**，本 ADR 一处都没有动它们 |
+
+**实现侧证据（一手读码，不是推断）**：`infra/node/create-node.sh:71` 是常量 `NETWORK_TIER="STANDARD"`，
+`:60` 的注释写明「不是可调参数」、`:69` 写明「故意不做成环境变量」，`:712` 在建完机之后再断言一次网络层级。
+也就是说**按 ADR 0007 裁决 2 的字面去建机，在今天入库的脚本上做不到**。
+
+⚠️ **本节不扩大本 ADR 的落地范围**：既有 `vpn-us` / `vpn-jp` 仍是 PREMIUM 且不迁（见文档头），
+而 `bp-node-*` 现有 **0 台**（出处：`pricing-and-plans-revision-20260823` §8 原文）——
+所以这条落点关闭的是**谱系**上的洞，不是实机上的洞。
 
 ---
 

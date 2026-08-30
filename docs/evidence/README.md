@@ -17,6 +17,7 @@
 | 证据目录 | 解决了什么 |
 |---|---|
 | [gcp-egress-pricing-20260817](gcp-egress-pricing-20260817/) | **B2** GCP 出口单价（Billing Catalog API 权威价目）。Standard $0.11/GiB + 200GiB/区域/月免费；Premium $0.23/GiB 无免费额度 |
+| [ipv6-censorship-20260817](ipv6-censorship-20260817/) | **ADR 0008 §3 的决定性反证**：OONI 一手测量（AS9808 中国移动，2026-08-07，`workers.dev`）里 v4 与 v6 的 TCP 443 **都通**、TLS 握手 **都被 RST** —— 「IPv6 在中国受干扰更少」（ADR 0004 §3.7 的唯一支柱，原文自标待核实）**被证伪**。⚠️ **本行 2026-08-29 补登记**：目录 2026-08-17 就随 ADR 0008 进了仓库，但一直没有 README、也没进本表，见下方「登记欠账」一节 |
 | [cloudrun-healthz-intercept-20260817](cloudrun-healthz-intercept-20260817/) | **Cloud Run 的 Google Frontend 拦截 /healthz**，请求不进容器。探活路径改为 /-/healthz |
 | [v2node-contract-20260817](v2node-contract-20260817/) | **B6** 鉴权形态、**B18** 两个字段语义、**B16** 设备计数口径、ADR 0006 的 ETag 前提。全部靠读源码解决，无需真实节点 |
 | [network-tier-implementation-20260820](network-tier-implementation-20260820/) | **ADR 0008 落地**：既有 vpn-us/vpn-jp 全为 PREMIUM（关闭 0008 §6 遗留项）；Standard 在 asia-east2 实测可用；IPv6 只支持 PREMIUM 是 API 硬约束 |
@@ -24,6 +25,17 @@
 | [v2node-401-behavior-20260821](v2node-401-behavior-20260821/) | **B7** 关闭：401/403 **不会**清空用户列表（三重保护），但会让**重启**失败且不自愈；`alivelist` 对 ≥399 静默返空 map。仍是读源码解决 |
 | [gcp-inventory-20260821](gcp-inventory-20260821/) | **B9**（run.app 证书签发者是 GTS）、**B12**（Cloud SQL 四细节里的三项 + 三条新发现）、**B32**（预算建得了，缺的是口径）；生产冒烟 6 条；监控现状：log-based metrics 曾经一条都没有 |
 | [client-config-validation-20260822](client-config-validation-20260822/) | 用容器里的**真实客户端**（mihomo v1.19.30 `-t` / sing-box v1.13.19 `check`）校验订阅产出。🔴 头号发现：`GEOIP,CN` 拿不到数据库时**整份配置被拒绝加载**，据此把它从下发规则里去掉（B46）。另确证 `sing-box check` 对缺 `inbounds` 的配置**通过**（B45 只能真机验），并测出 SS-2022 客户端密码必须是恰好 16 字节的 base64。⚠️ 目录随 PR #13 一起进 master |
+
+> **2026-08-29 登记欠账（自查）：本表此前只有 8 行，而 `docs/evidence/` 下有 9 个目录。**
+> 漏掉的是 `ipv6-censorship-20260817/` —— 它 2026-08-17 随 ADR 0008 一起入库，
+> 被 [ADR 0008](../05-adr/0008-network-tier-standard.md) 与
+> [ADR 0011](../05-adr/0011-domain-blackout-detection.md) 当作事实基线引用，
+> 却既没有本目录约定强制的 `README.md`，也没有出现在这张表里，
+> 于是 [docs/README.md](../README.md) 的证据目录计数长期写成「6 个」（实际 9 个）。
+> **两件事已于 2026-08-29 补上**：补写 `ipv6-censorship-20260817/README.md`、
+> 把 `docs/README.md` 的计数改成 9 并逐个列名。
+> 教训与本节下面那条经验同源：**约定里「每个目录必须有 README」这一条没有任何机制在执行**，
+> 靠的是写目录的人自觉，而这次就漏了一个。
 
 > **五次下来同一条经验，越来越硬：大量标着「需实测」的条目其实是「没读源码 / 没查 API / 没跑一条 gcloud」。**
 > 在租机器测之前，先穷尽「读开源代码」「查厂商 API」「查自己账上的实况」这三条零成本路径。
@@ -56,5 +68,14 @@
       ADR 0008 引用的 2.09× 是目录价之比（$0.23/$0.11），而实收从来不是 $0.23。
       **这项性能实测仍然是那个决定的前置条件，而且现在收益上界更低了，
       即「先测性能再决定」的理由更强。**
+      **2026-08-29 校正上面「ADR 0008 从未实施」那半句**（保留原文不删，它是 2026-08-20 当天的实况）：
+      PR #10（2026-08-21 合并）把 0008 落到了**新节点**上 —— `infra/node/create-node.sh:71` 现在硬编码
+      `NETWORK_TIER="STANDARD"`，`:712` 建完再读回断言一次（一手实查）。
+      所以准确的表述是 **「新节点已 Standard，既有 `vpn-us` / `vpn-jp` 仍是 Premium 且不迁」**
+      （见本表 [network-tier-implementation-20260820](network-tier-implementation-20260820/)
+      与 [ADR 0008](../05-adr/0008-network-tier-standard.md) 头部的「已实施（仅新节点）」）。
+      ⚠️ **这不改变本条待采集项的性质**：自有 Standard 节点目前是 **0 台**，
+      在花钱的仍然是那两台 Premium 老节点，所以「Standard 的性能数据」依旧是零，
+      「一个已经在花钱的现状要不要改」这个取舍也依旧原封不动。
 - [ ] `email-deliverability-*` — QQ/163/126/Sina 送达率
 - [ ] `domain-reachability-*` — 候选托管平台与域名的三网可达性（连续一周，覆盖晚高峰）
