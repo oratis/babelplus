@@ -1,13 +1,17 @@
 /**
- * `/subscribe`、`/subscribe/tokens`、`/node` 三页接线时共用的小零件。
+ * `/subscribe`、`/subscribe/tokens`、`/node`、`/notice` 四页接线时共用的小零件。
  *
  * 为什么放在这个目录而不是 `web/shared/src/ui`：多个页面正在**并行**接线，
- * 共享 UI 目录是所有人都要改的文件，动它必然撞车。这里的东西只服务于这三页；
+ * 共享 UI 目录是所有人都要改的文件，动它必然撞车。这里的东西只服务于这四页；
  * 等全部接线完成、形态稳定了，再决定要不要上提到 shared。
+ *
+ * `/notice` 不在 `subscribe/` 目录下却引这里：它需要的三件事（三态、501 分支、列表骨架）
+ * 与这三页**一模一样**，而它自己再抄一份就是全站第四份 `useQuery`。
+ * 目录名此刻已经名不副实，但「多一份重复实现」比「路径不好看」贵得多。
  *
  * 这里刻意**不**放各页的文案表 —— 按 `ErrorCode` 分支的文案是**产品内容**，
  * 每页说法不同，合成一张表就会出现「为了复用而把话说得更含糊」。
- * 这里只放三页真正一模一样的那部分：兜底文案（`fallbackErrorCopy`）。
+ * 这里只放四页真正一模一样的那部分：兜底文案（`fallbackErrorCopy`）与 501 的呈现。
  */
 import {
   useCallback,
@@ -17,7 +21,8 @@ import {
   type ReactNode,
 } from 'react';
 import { ApiError } from '@babelplus/shared/api';
-import { Button, Card } from '@babelplus/shared/ui';
+import { runtimeConfig } from '@babelplus/shared';
+import { Button, Card, ErrorState } from '@babelplus/shared/ui';
 
 /* ───────────────────────────── 请求三态 ───────────────────────────── */
 
@@ -310,5 +315,92 @@ export function InlineError({
         </Button>
       ) : null}
     </Card>
+  );
+}
+
+/* ───────────────────────────── 501：还没做 ≠ 出故障 ───────────────────────────── */
+
+/**
+ * 501 的判据。
+ *
+ * `NOT_IMPLEMENTED` **不在 openapi 的 `ErrorCode` enum 里**（它由 `api/cmd/server/main.go`
+ * 的 `responseErrorHandler` 直接写出去），所以只能按字符串比。
+ * 按 HTTP 状态码判也行，但那会把将来任何一个真的 501 也算进来 ——
+ * 而「端点没写」和「端点写了但依赖挂了」对用户是两句不同的话。
+ */
+export function isNotImplemented(error: ApiError | null | undefined): boolean {
+  return error?.code === 'NOT_IMPLEMENTED';
+}
+
+/**
+ * 「该功能尚未开放」。
+ *
+ * **刻意不用 `ErrorState`**：501 归一成 `kind = 'server'`，而 `ErrorState` 在 server 态下会说
+ * 「我们这边出了问题」并把人推去状态页 —— 状态页上一切正常，用户只会更困惑，
+ * 然后每隔几分钟刷新一次。**还没做就说还没做。**
+ */
+export function PendingNotice({
+  what,
+  requestId,
+  children,
+}: {
+  what: string;
+  requestId?: string | undefined;
+  /** 这一块「没开放」时**这一页特有**的后果说明（例如公告页：域名变更改走邮件）。 */
+  children?: ReactNode;
+}) {
+  const cfg = runtimeConfig();
+  return (
+    <Card className="border-dashed">
+      <h3 className="text-base font-semibold text-fg">该功能尚未开放</h3>
+      <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">
+        {what}的后端还没上线。不是你的操作有问题，重试也不会有变化。
+        {cfg.supportEmail ? (
+          <>
+            {' '}
+            现在就需要人工处理的话，直接发邮件到{' '}
+            <span className="font-mono text-fg">{cfg.supportEmail}</span> —— 邮件是唯一不依赖面板的通道（ADR 0002）。
+          </>
+        ) : null}
+      </p>
+      {children ? <div className="mt-2 text-sm leading-relaxed text-fg-muted">{children}</div> : null}
+      {requestId ? <p className="mt-3 font-mono text-xs text-fg-subtle">请求号 {requestId}</p> : null}
+    </Card>
+  );
+}
+
+/**
+ * 读请求失败时的整块错误态：501 走 `PendingNotice`，其余走全站统一的 `ErrorState`。
+ *
+ * 页面把自己的文案表算好了传进来（`copy`），这里只负责**分支**这一件事 ——
+ * 每个调用点各写一次 `isNotImplemented` 的后果是总有一处会漏，
+ * 而漏掉的表现是「我们这边出了问题，去看状态页」这句假话。
+ */
+export function QueryError({
+  error,
+  what,
+  copy,
+  onRetry,
+  extra,
+}: {
+  error: ApiError;
+  /** 「什么东西」没能加载，进 501 文案里，例如「节点列表」。 */
+  what: string;
+  copy: ErrorCopy;
+  onRetry?: (() => void) | undefined;
+  extra?: ReactNode;
+}) {
+  if (isNotImplemented(error)) {
+    return <PendingNotice what={what} requestId={error.requestId} />;
+  }
+  return (
+    <ErrorState
+      kind={error.kind}
+      title={copy.title}
+      description={copy.description}
+      {...(error.requestId === undefined ? {} : { requestId: error.requestId })}
+      {...(onRetry === undefined ? {} : { onRetry })}
+      extra={extra}
+    />
   );
 }

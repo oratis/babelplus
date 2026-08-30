@@ -11,8 +11,9 @@
  * 或者前端放过一个后端一定拒绝的输入（一次注定失败的往返，且错误文案是兜底的那句）。
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError } from '@babelplus/shared/api';
+import { ApiError, unwrapEmpty } from '@babelplus/shared/api';
 import { runtimeConfig } from '@babelplus/shared';
+import { api } from '../../lib/api.ts';
 
 /* ─────────────────────────── 口令策略 ─────────────────────────── */
 
@@ -109,6 +110,30 @@ export function PasswordStrengthBar({ password }: { password: string }) {
       </p>
     </div>
   );
+}
+
+/* ─────────────────────────── 邮箱 ─────────────────────────── */
+
+/**
+ * 邮箱的**结构**检查。事实源：`handler/auth.go` 的 `validEmail`
+ * （长度 3–254、能被 `mail.ParseAddress` 解析且解析结果与原串一致、域名部分含点且不以点开头/结尾）。
+ *
+ * 🔴 这里**刻意比后端宽松**，只挡掉「一眼就知道发过去必然 422」的输入：
+ * 空、没有 `@`、带空白、域名里没有点。真正的判定权在后端。
+ * 写一条比后端严的正则的后果很具体 —— 用户拿着一个完全合法的地址
+ * （带 `+` 标签、新顶级域、`.museum` 这类长后缀）被自己这边的表单挡在门外，
+ * 而他没有任何办法说服这个正则。宁可多一次注定失败的往返。
+ *
+ * 存在的意义只有一个：找回密码那一页对 422 也显示成功页（防枚举），
+ * 所以一个手滑打错的地址在那里**不会有任何反馈** —— 只能在发出去之前拦一次。
+ */
+export function emailLooksValid(email: string): boolean {
+  if (email.length < 3 || email.length > 254) return false;
+  if (/\s/.test(email)) return false;
+  const at = email.lastIndexOf('@');
+  if (at <= 0 || at === email.length - 1) return false;
+  const domain = email.slice(at + 1);
+  return domain.includes('.') && !domain.startsWith('.') && !domain.endsWith('.');
 }
 
 /* ─────────────────────────── 邀请码 ─────────────────────────── */
@@ -243,6 +268,69 @@ export function fallbackErrorCopy(error: ApiError): ErrorCopy {
 export function detailReason(error: ApiError, field: string): string | null {
   const hit = error.details?.find((d) => d.field === field);
   return hit ? hit.reason : null;
+}
+
+/* ─────────────────────── 找回密码：发一封重置信 ─────────────────────── */
+
+/** 重置令牌有效期，只用于文案。事实源：`handler/auth.go` 的 `resetTokenTTL = 30 * time.Minute`。 */
+export const RESET_TOKEN_TTL_TEXT = '30 分钟';
+
+/**
+ * 「这个失败会不会泄漏邮箱在不在我们这里」——**只在这里判一次**。
+ *
+ * 名单是**白名单**而不是黑名单：不认识的码一律走「如实报错」。
+ * 反过来写（「除了这几个码之外都当成功」）的话，后端将来新增一个
+ * 「该邮箱已被封禁」之类的码会被默默吞成成功页 —— 而那正好是一条泄漏。
+ */
+export function looksLikeEnumerationLeak(error: ApiError): boolean {
+  return (
+    error.code === 'RESOURCE_NOT_FOUND' ||
+    error.code === 'VALIDATION_FAILED' ||
+    error.code === 'STATE_CONFLICT'
+  );
+}
+
+/**
+ * 发一封重置信。**成功与「可能泄漏的失败」都 resolve**，其余 reject。
+ *
+ * 🔴 「一律显示同一个成功页」这条规则只能有一处实现。
+ * `/auth/forgot` 与 `/auth/reset`（token 过期时在本页重发）都调它 ——
+ * 两页各写一遍的话，迟早有一页漏掉 404，而漏掉的表现是**一条可用的账号枚举侧信道**，
+ * 页面上不会有任何异常。
+ *
+ * 收窄的那一半同样重要：5xx / 网络不可达 / 501 **如实报错**。
+ * 防枚举要防的是「存在与不存在两条路径可被区分」，而这几种失败对两种邮箱同样会发生，
+ * 假装成功拿不到任何防枚举收益，只会让一个正在找回账号的人白等一封永远不会到的信 ——
+ * 而这一页的成功率就是失联恢复的成功率（ADR 0002）。
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  try {
+    await unwrapEmpty(api().POST('/api/v1/auth/password/forgot', { body: { email } }));
+  } catch (cause) {
+    const error = asApiError(cause, '重置邮件没能发出');
+    if (looksLikeEnumerationLeak(error)) return;
+    throw error;
+  }
+}
+
+/**
+ * 发信失败的文案。两页共用 —— 它们打的是同一个端点、同一套限流。
+ *
+ * 能走到这里的失败都过了 `requestPasswordReset` 的筛选，所以可以照实说。
+ * 429 是 **per IP** 的（per email 超限仍返回 204，见 api-contract §10.1 的不对称），
+ * 说出来不泄漏任何东西。
+ */
+export function resetMailErrorCopy(error: ApiError, seconds: number | null): ErrorCopy {
+  if (error.code === 'QUOTA_RATE_LIMITED') {
+    return {
+      title: '这个网络地址请求得太频繁了',
+      description:
+        seconds === null
+          ? '找回密码会消耗邮件配额，所以同一个网络地址每小时最多 10 次。稍后再试，或者换个网络。'
+          : `找回密码会消耗邮件配额，所以同一个网络地址每小时最多 10 次。${seconds} 秒后可以再试。`,
+    };
+  }
+  return fallbackErrorCopy(error);
 }
 
 /* ─────────────────────── 发信域名白名单引导 ─────────────────────── */
