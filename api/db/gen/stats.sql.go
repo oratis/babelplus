@@ -701,50 +701,6 @@ func (q *Queries) ListUsersDueForReset(ctx context.Context, limit int32) ([]List
 	return items, nil
 }
 
-const markExpiredUsers = `-- name: MarkExpiredUsers :many
-
-UPDATE users
-SET expiry_applied_at = now(), updated_at = now()
-WHERE expired_at IS NOT NULL
-  AND expired_at <= now()
-  AND expiry_applied_at IS NULL
-  AND deleted_at IS NULL
-RETURNING id, email, expired_at
-`
-
-type MarkExpiredUsersRow struct {
-	ID        int64              `json:"id"`
-	Email     string             `json:"email"`
-	ExpiredAt pgtype.Timestamptz `json:"expired_at"`
-}
-
-// ============================================================
-// 到期扫描（Cloud Scheduler 每分钟，命中 users_expiry_due_idx，平时 0 行）
-// ============================================================
-// 🔴 到期本身不产生任何写操作 —— 没有写就没有触发点。
-//
-//	这条 UPDATE 把「时间流逝」变成一次写，expiry_applied_at 进了触发器的监视列表，
-//	因此它会自动 bump user_rev（data-model §8.4 补全 2）。
-func (q *Queries) MarkExpiredUsers(ctx context.Context) ([]MarkExpiredUsersRow, error) {
-	rows, err := q.db.Query(ctx, markExpiredUsers)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []MarkExpiredUsersRow{}
-	for rows.Next() {
-		var i MarkExpiredUsersRow
-		if err := rows.Scan(&i.ID, &i.Email, &i.ExpiredAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const resetUserTraffic = `-- name: ResetUserTraffic :one
 UPDATE user_traffic
 SET u_lifetime = u_lifetime + u,

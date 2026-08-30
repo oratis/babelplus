@@ -277,17 +277,17 @@ LIMIT $2 OFFSET $3;
 
 
 -- ============================================================
--- 到期扫描（Cloud Scheduler 每分钟，命中 users_expiry_due_idx，平时 0 行）
+-- 到期扫描 —— **已迁走，本文件不再有这条查询**
 -- ============================================================
-
--- 🔴 到期本身不产生任何写操作 —— 没有写就没有触发点。
---    这条 UPDATE 把「时间流逝」变成一次写，expiry_applied_at 进了触发器的监视列表，
---    因此它会自动 bump user_rev（data-model §8.4 补全 2）。
--- name: MarkExpiredUsers :many
-UPDATE users
-SET expiry_applied_at = now(), updated_at = now()
-WHERE expired_at IS NOT NULL
-  AND expired_at <= now()
-  AND expiry_applied_at IS NULL
-  AND deleted_at IS NULL
-RETURNING id, email, expired_at;
+--
+-- 曾经的 `MarkExpiredUsers` 已删除，唯一实现是 tasks.sql 的 `SweepExpiredUsers`。
+-- 两条 UPDATE 语义完全重合（同样的 SET、同样的四个 WHERE 条件），只差 RETURNING：
+-- 后者多带 `group_id`，而 group_id 正是 expire-check 显式 bump node_rev 唯一需要的东西。
+--
+-- 🔴 **留下这段墓碑而不是静静删掉**，是因为「到期不是写操作、必须靠扫描把时间流逝变成一次写」
+--    这条推理会让下一个人在 stats.sql 里找不到它时以为它根本不存在，然后照着
+--    data-model §8.4 补全 2 再写一条 —— 而两条并存的后果不是重复劳动：
+--    两个调用方会各自扫到一半的行（第一条把 expiry_applied_at 写非 NULL，
+--    第二条的 `expiry_applied_at IS NULL` 就再也匹配不到），
+--    于是**只有其中一条的调用方会去 bump node_rev**，另一半用户到期后节点收 304、
+--    永远不知道该踢掉他们。完整推理在 tasks.sql 的 SweepExpiredUsers 注释里。

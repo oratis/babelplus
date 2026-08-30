@@ -1469,6 +1469,29 @@ type Querier interface {
 	//    真正断开靠的是节点侧的 device_limit 判定。这条 SQL 做不到更多，页面上也不该承诺更多。
 	KickUserDeviceByID(ctx context.Context, arg KickUserDeviceByIDParams) (int32, error)
 	// 响应只含 device_limit IS NOT NULL 的用户（api-contract §3.7）
+	//
+	// 🔴 **计数单位是 IP，不是行。** `count(DISTINCT device_ip)`，不是 `count(*)`。
+	//
+	// ① 口径是**按 IP** 而不是按设备，这是 data-model §8.5 的裁决，也有实证：
+	//    B16 确认 v2node 上报的形状就是 `{uid: ["ip1","ip2"]}` —— 一个 IP 列表。
+	//    节点侧从头到尾没有「设备」这个概念，所以我们这一侧也不该凭空发明一个。
+	//    （「同一台手机切 Wi-Fi/蜂窝会占两个名额」说的正是 IP 变了，不是连了几个节点。）
+	//
+	// ② **为什么 `count(*)` 在这张表上是错的**：`user_device_state` 的主键是
+	//    `(user_id, server_id, device_ip)`（0005），同一个 IP 同时连三个节点在表里就是**三行**。
+	//    `count(*)` 数的是行，于是它数的其实是「IP × 节点」的连接数。
+	//    而多连几个节点恰恰是正常用法（分流规则会把不同流量送到不同节点），
+	//    所以这个误差**不是边缘情况，是常态**，且用得越熟的用户偏得越多。
+	//
+	// ③ 用户可见的现象：本端点是节点执行设备数限制的唯一输入，偏大 = **误判超限**。
+	//    他只开了 2 台、每台连 3 个节点，我们报 6，`device_limit = 3` 于是他被踢 ——
+	//    而面板上的「在线设备」列表（devices.sql，一直是 DISTINCT device_ip）显示的是 **2**。
+	//    两个数字各自看都合理，用户看到的是「面板说 2 台，你们按 6 台踢我」，
+	//    工单里没有任何可以对质的东西。修掉之后两处口径同源。
+	//
+	// ⚠️ 修的是偏大的那一半，**不代表这个数字准**。设备数仍是软限制且系统性偏小：
+	//    alivelist 拉取失败时 v2node 静默降级为「零在线设备」（B16 实证，node.go 的
+	//    GetUniProxyAliveList 注释里有完整推理）。少一行的含义是「我们不知道」，不是「他没在线」。
 	ListAliveDeviceCounts(ctx context.Context) ([]ListAliveDeviceCountsRow, error)
 	// ============================================================
 	// GET /api/v1/server/UniProxy/user — 该节点的用户列表
@@ -2112,13 +2135,6 @@ type Querier interface {
 	//    PG 直接报 "column reference is ambiguous"。
 	MarkEmailProbeRedeemed(ctx context.Context, arg MarkEmailProbeRedeemedParams) error
 	MarkEmailVerified(ctx context.Context, id int64) error
-	// ============================================================
-	// 到期扫描（Cloud Scheduler 每分钟，命中 users_expiry_due_idx，平时 0 行）
-	// ============================================================
-	// 🔴 到期本身不产生任何写操作 —— 没有写就没有触发点。
-	//    这条 UPDATE 把「时间流逝」变成一次写，expiry_applied_at 进了触发器的监视列表，
-	//    因此它会自动 bump user_rev（data-model §8.4 补全 2）。
-	MarkExpiredUsers(ctx context.Context) ([]MarkExpiredUsersRow, error)
 	// 发信失败的回滚。sent_at 一并清掉：它的语义是「真的发出去的时刻」，
 	// 留着会让 sent_at → redeemed_at 的送达时延统计（0011 列注释里的探针口径）混进没发出去的信。
 	MarkMailSendFailed(ctx context.Context, arg MarkMailSendFailedParams) error
