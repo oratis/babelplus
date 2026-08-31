@@ -337,20 +337,22 @@ func (q *Queries) CountUsersForAdmin(ctx context.Context, arg CountUsersForAdmin
 
 const createEmailLog = `-- name: CreateEmailLog :one
 
-INSERT INTO email_log (user_id, to_email, to_domain, esp, template, subject, status, sent_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO email_log (user_id, to_email, to_domain, esp, template, subject, status, sent_at, provider_msg_id, bounce_code)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, user_id, to_email, to_domain, esp, template, subject, provider_msg_id, status, bounce_code, bounce_type, sent_at, delivered_at, redeemed_at, created_at
 `
 
 type CreateEmailLogParams struct {
-	UserID   *int64             `json:"user_id"`
-	ToEmail  string             `json:"to_email"`
-	ToDomain string             `json:"to_domain"`
-	Esp      string             `json:"esp"`
-	Template string             `json:"template"`
-	Subject  string             `json:"subject"`
-	Status   string             `json:"status"`
-	SentAt   pgtype.Timestamptz `json:"sent_at"`
+	UserID        *int64             `json:"user_id"`
+	ToEmail       string             `json:"to_email"`
+	ToDomain      string             `json:"to_domain"`
+	Esp           string             `json:"esp"`
+	Template      string             `json:"template"`
+	Subject       string             `json:"subject"`
+	Status        string             `json:"status"`
+	SentAt        pgtype.Timestamptz `json:"sent_at"`
+	ProviderMsgID *string            `json:"provider_msg_id"`
+	BounceCode    *string            `json:"bounce_code"`
 }
 
 // ---------- 邮件发送日志 / 送达率探针 ----------
@@ -360,6 +362,10 @@ type CreateEmailLogParams struct {
 //	而 api-contract §5.1 把「每次发码写一条 email_probe」定为该端点**存在的第二个理由**
 //	（ADR 0002：邮件是唯一失联恢复通道，收不到验证码的用户就是封锁当天必然失联的用户）。
 //	等 ops 面的查询成文时应当整体迁走。
+//
+// provider_msg_id / bounce_code 随同步发信路径一起写：验证码信在签发时就发出并落结果
+// （sent / failed），不走队列 —— 正文需要明文码，而码只在签发那一刻存在（只存哈希）。
+// 队列信（提醒 / 广播）建行时这两列留 NULL，由 mail-send 任务发信后回写。
 func (q *Queries) CreateEmailLog(ctx context.Context, arg CreateEmailLogParams) (EmailLog, error) {
 	row := q.db.QueryRow(ctx, createEmailLog,
 		arg.UserID,
@@ -370,6 +376,8 @@ func (q *Queries) CreateEmailLog(ctx context.Context, arg CreateEmailLogParams) 
 		arg.Subject,
 		arg.Status,
 		arg.SentAt,
+		arg.ProviderMsgID,
+		arg.BounceCode,
 	)
 	var i EmailLog
 	err := row.Scan(

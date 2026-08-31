@@ -1458,6 +1458,9 @@ type Querier interface {
 	//    而 api-contract §5.1 把「每次发码写一条 email_probe」定为该端点**存在的第二个理由**
 	//    （ADR 0002：邮件是唯一失联恢复通道，收不到验证码的用户就是封锁当天必然失联的用户）。
 	//    等 ops 面的查询成文时应当整体迁走。
+	// provider_msg_id / bounce_code 随同步发信路径一起写：验证码信在签发时就发出并落结果
+	// （sent / failed），不走队列 —— 正文需要明文码，而码只在签发那一刻存在（只存哈希）。
+	// 队列信（提醒 / 广播）建行时这两列留 NULL，由 mail-send 任务发信后回写。
 	CreateEmailLog(ctx context.Context, arg CreateEmailLogParams) (EmailLog, error)
 	// ============================================================
 	// 邮箱验证码 / 找回密码

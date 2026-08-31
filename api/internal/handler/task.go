@@ -109,13 +109,16 @@ type ChainScanner interface {
 	Scan(ctx context.Context, chain, address string, cursorMS *int64) ([]ChainTransfer, error)
 }
 
-// MailMessage 是一封待发的信。渲染（正文模板）本轮不做，
-// 所以只带发信必需的四项 —— 加字段比删字段容易。
+// MailMessage 是一封待发的信。
 type MailMessage struct {
 	To       string
 	Subject  string
 	Template string
 	UserID   *int64
+	// Body 是渲染好的纯文本正文。渲染发生在入口侧：队列信在 runMailSend 按模板键渲染
+	// （bodyForQueuedTemplate），验证码信在 issueVerification 用明文码渲染 ——
+	// 码只在签发那一刻存在，库里只有哈希，所以那类信不能走队列（mailwire.go 有全套理由）。
+	Body string
 }
 
 // MailSender 是发信能力。同样是接口而不是具体实现：ESP 未选型（ADR 0002 §7 要求
@@ -149,15 +152,23 @@ func (unconfiguredMailSender) Send(context.Context, MailMessage) (string, error)
 // 包级可变状态在多测试并发时是共享的，改一处会让另一个测试莫名其妙地挂。
 // 单测的注入方式是把自己的实现直接传给 runChainScan / runMailSend，不碰这两个变量。
 //
-// TODO(P1): 装配时从 config 注入真实实现需要给 Server 加两个字段，
-// 而 server.go 不在本轮范围内。接线时把下面两个方法改成读字段、零值回退到这里。
+// TODO(P1): 扫描器的装配注入同发信（server.go 的 New 里装 Server 字段）——
+// 但它先等 ADR 0012 批准（用哪家 RPC 未裁决），批准前保持未配置。
 var (
 	defaultChainScanner ChainScanner = unconfiguredChainScanner{}
 	defaultMailSender   MailSender   = unconfiguredMailSender{}
 )
 
 func (s *Server) chainScanner() ChainScanner { return defaultChainScanner }
-func (s *Server) mailSender() MailSender     { return defaultMailSender }
+
+// mailSender 返回装配好的 ESP 实现；未配置（Server.mail 为 nil）时回退到
+// unconfiguredMailSender，发信路径按「ESP 未配置」优雅跳过。
+func (s *Server) mailSender() MailSender {
+	if s.mail != nil {
+		return s.mail
+	}
+	return defaultMailSender
+}
 
 // ============================================================
 // 常量
@@ -1191,11 +1202,30 @@ func runMailSend(
 		return res, fmt.Errorf("抢占待发邮件失败: %w", err)
 	}
 
+	body, renderable := bodyForQueuedTemplate(row.Template)
+	if !renderable {
+		// 队列里出现渲染不了的模板键，两种来路：verify_code / password_reset 的记账行
+		// （ESP 未配置时期只记账不发；正文需要明文码，而码只存哈希且早已过期），
+		// 或者新模板忘了加渲染分支。两种都不该重试 —— 重试也渲染不出来。
+		// 标 failed 让它在送达率统计里可见，ERROR 让第二种来路有人看。
+		if markErr := q.MarkMailSendFailed(ctx, dbgen.MarkMailSendFailedParams{
+			ID:         row.ID,
+			BounceCode: truncateBounceCode("unrenderable_template:" + row.Template),
+		}); markErr != nil {
+			log.ErrorContext(ctx, "标记不可渲染邮件失败（该行会停留在 sent）", "mail_id", row.ID, "err", markErr)
+		}
+		log.ErrorContext(ctx, "队列信的模板无法渲染正文，已标 failed（不重试）",
+			"metric", "bp_mail_unrenderable", "mail_id", row.ID, "template", row.Template)
+		res.Skipped = true
+		return res, nil
+	}
+
 	msgID, sendErr := sender.Send(ctx, MailMessage{
 		To:       row.ToEmail,
 		Subject:  row.Subject,
 		Template: row.Template,
 		UserID:   row.UserID,
+		Body:     body,
 	})
 	if sendErr != nil {
 		// 把状态改回 failed，让这封信在送达率统计里算作失败而不是成功。

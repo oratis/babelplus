@@ -1290,31 +1290,79 @@ func (s *Server) issueVerification(ctx context.Context, email string, purpose db
 		return nil
 	}
 
-	// TODO(P1): 接 ESP 真正发信（ADR 0002 定的 AWS SES）。
-	// 发信成功后要把 email_log 的 status 改成 'sent'、写 provider_msg_id 与 sent_at，
-	// 并挂一个 bounce/complaint 回调把 bounce_code 与 delivered_at 写回来 ——
-	// 那三列才是 ADR 0002 §7 要求的送达率数据的主体。
-	// 当前 status 恒为 'queued'，任何按 status='delivered' 做的统计都会是 0，
-	// 这是「还没接」而不是「送达率为 0」，别看着面板下结论。
-	if _, err := s.db.CreateEmailLog(ctx, dbgen.CreateEmailLogParams{
-		UserID:   userID,
-		ToEmail:  email,
-		ToDomain: emailDomain(email),
-		Esp:      espUnwired,
-		Template: template,
-		Subject:  subject,
-		Status:   "queued",
-		SentAt:   pgtype.Timestamptz{}, // 还没真发，保持 NULL
-	}); err != nil {
-		s.logger.WarnContext(ctx, "写 email_log 失败（探针数据丢失，不影响发码）", "err", err)
+	sender := s.mailSender()
+	if !sender.Configured() {
+		// ESP 未配置：只记账（status='queued'）。这些行在接线之后也发不出去 ——
+		// 正文需要验证码明文，而库里只有哈希、且 10 分钟即过期；mail-send 重投它们时
+		// 会按「不可渲染」标 failed（bodyForQueuedTemplate 的注释是全套理由）。
+		// 记这一行的意义：让「没接 ESP 的日子里有多少人要过码」留在数据里。
+		if _, err := s.db.CreateEmailLog(ctx, dbgen.CreateEmailLogParams{
+			UserID:   userID,
+			ToEmail:  email,
+			ToDomain: emailDomain(email),
+			Esp:      espUnwired,
+			Template: template,
+			Subject:  subject,
+			Status:   "queued",
+			SentAt:   pgtype.Timestamptz{}, // 没发，保持 NULL
+		}); err != nil {
+			s.logger.WarnContext(ctx, "写 email_log 失败（探针数据丢失，不影响发码）", "err", err)
+		}
+		// 🔴 只在 dev 打明文。staging/prod 打出来等于把验证码写进 Cloud Logging，
+		// 而日志的读取权限比数据库宽得多。
+		if s.cfg.Env == "dev" {
+			s.logger.WarnContext(ctx, "【仅 dev】验证码明文（ESP 未接入）",
+				"email", email, "purpose", string(purpose), "secret", secret)
+		}
+		return nil
 	}
 
-	// 🔴 只在 dev 打明文。staging/prod 打出来等于把验证码写进 Cloud Logging，
-	// 而日志的读取权限比数据库宽得多。
-	if s.cfg.Env == "dev" {
-		s.logger.WarnContext(ctx, "【仅 dev】验证码明文（ESP 未接入）",
-			"email", email, "purpose", string(purpose), "secret", secret)
+	// ESP 已接线：**同步**发送。验证码只在此刻存在明文（库里是哈希），不能走队列 ——
+	// email_log 没有正文列，重投也无从渲染。同步的代价是把 SMTP 的往返（数百毫秒）
+	// 留在请求路径上；换来的是明文码不落任何持久层。
+	// 发信结果如实落 email_log（sent / failed）—— 这三列（status / provider_msg_id /
+	// bounce_code）正是 ADR 0002 §7 要求的送达率实测数据的主体。
+	msgID, sendErr := sender.Send(ctx, MailMessage{
+		To:       email,
+		Subject:  subject,
+		Template: template,
+		UserID:   userID,
+		Body:     renderVerificationBody(purpose, secret, ttl),
+	})
+	logStatus := "sent"
+	sentAt := tstz(time.Now())
+	var providerMsgID, bounceCode *string
+	if sendErr != nil {
+		logStatus = "failed"
+		sentAt = pgtype.Timestamptz{}
+		bc := truncateBounceCode(sendErr.Error())
+		bounceCode = &bc
+	} else if msgID != "" {
+		providerMsgID = &msgID
 	}
+	if _, err := s.db.CreateEmailLog(ctx, dbgen.CreateEmailLogParams{
+		UserID:        userID,
+		ToEmail:       email,
+		ToDomain:      emailDomain(email),
+		Esp:           sender.Name(),
+		Template:      template,
+		Subject:       subject,
+		Status:        logStatus,
+		SentAt:        sentAt,
+		ProviderMsgID: providerMsgID,
+		BounceCode:    bounceCode,
+	}); err != nil {
+		s.logger.WarnContext(ctx, "写 email_log 失败（探针数据丢失，不影响结论）", "err", err)
+	}
+	if sendErr != nil {
+		// 发不出去必须失败：吞掉错误的话用户会盯着收件箱等一封永远不来的信。
+		// email_verifications 那一行留着没有危害 —— 码没送达就永远不会被兑换。
+		s.logger.ErrorContext(ctx, "验证码发信失败（ESP 已配置但发送失败）",
+			"metric", "bp_mail_send_fail", "esp", sender.Name(),
+			"to_domain", emailDomain(email), "purpose", string(purpose), "err", sendErr)
+		return fmt.Errorf("发送验证码失败: %w", sendErr)
+	}
+	// 🔴 真实发信之后 dev 也不再打明文：信已经能送达，日志里的码只剩风险没有用处。
 	return nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	nmail "net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -122,6 +123,51 @@ type Config struct {
 	// 「危险操作做不了」，不是「危险操作不需要 TOTP」。
 	// 环境变量：BP_ADMIN_TOTP_ENC_KEY
 	AdminTOTPEncKey []byte
+
+	// ---- 邮件发信（ESP，可整组缺省）----
+	//
+	// 为什么是 SMTP 而不是某家的 HTTP API：ADR 0002 §7 要求「以国内邮箱实测送达率
+	// 为唯一选型依据」，候选五家（Resend / SES / Postmark / Mailgun / Brevo）全部提供
+	// SMTP 提交端口 —— SMTP 让「换一家测」是一次配置变更，不是一次代码变更。
+	// 选型定稿后要用该家的高级能力（退信回调签名、模板、批量）再换 SDK 不迟，
+	// 到那时 email_log 里已经有按 esp 分组的实测数据了。
+	//
+	// 与内部面 / 管理面同一条纪律：整组要么都配、要么都不配，半配在启动期拒绝
+	// （parseMailSettings）—— 半配的现象是「信永远停在 queued」，与没配完全一样，
+	// 但配置者会以为自己已经接上了。零值 = 未配置：MailSender 不装配，
+	// 发信路径按「ESP 未配置」优雅退出。
+
+	// SMTPHost 是 SMTP 提交主机，如 email-smtp.ap-northeast-1.amazonaws.com。
+	// 环境变量：BP_SMTP_HOST
+	SMTPHost string
+	// SMTPPort 只允许 587（STARTTLS）或 465（隐式 TLS）。25 不接受 —— 那是明文口。
+	// 环境变量：BP_SMTP_PORT（组内缺省 587）
+	SMTPPort int
+	// 环境变量：BP_SMTP_USERNAME / BP_SMTP_PASSWORD
+	SMTPUsername string
+	SMTPPassword string
+	// MailFrom 是 RFC 5322 形态的发件人，如 "babel.plus <no-reply@babel.plus>"。
+	// 启动期解析校验：写错的 From 会在第一封信上被 ESP 拒掉，而那封信多半是验证码。
+	// 环境变量：BP_MAIL_FROM
+	MailFrom string
+	// MailESP 写进 email_log.esp（NOT NULL 列），是 ADR 0002 §7 送达率统计的分组键。
+	// 显式配置而不是从 SMTPHost 推导：推导错一次，两家 ESP 的实测数据就混进同一组。
+	// 环境变量：BP_MAIL_ESP（如 'ses' / 'resend'）
+	MailESP string
+}
+
+// MailConfigured 表示发信整组是否齐备（parseMailSettings 保证「有 Host 即有全部」）。
+func (c *Config) MailConfigured() bool { return c.SMTPHost != "" }
+
+// MailSettings 是 parseMailSettings 的解析结果袋，Load 把它摊平进 Config
+// （Config 保持扁平，见类型注释）。
+type MailSettings struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
+	ESP      string
 }
 
 // required 列出所有必需的环境变量及其写入位置。
@@ -238,12 +284,71 @@ func Load() (*Config, error) {
 				"  两种现象都不指向配置本身")
 	}
 
+	// 邮件发信组（可整组缺省；半配按启动错误拒绝，理由见 MailSettings 的注释）。
+	mailCfg, err := parseMailSettings(
+		os.Getenv("BP_SMTP_HOST"), os.Getenv("BP_SMTP_PORT"),
+		os.Getenv("BP_SMTP_USERNAME"), os.Getenv("BP_SMTP_PASSWORD"),
+		os.Getenv("BP_MAIL_FROM"), os.Getenv("BP_MAIL_ESP"))
+	if err != nil {
+		return nil, err
+	}
+	c.SMTPHost, c.SMTPPort = mailCfg.Host, mailCfg.Port
+	c.SMTPUsername, c.SMTPPassword = mailCfg.Username, mailCfg.Password
+	c.MailFrom, c.MailESP = mailCfg.From, mailCfg.ESP
+
 	// 一条低成本的防呆：项目 ID 写错会把资源建到别的项目里。
 	if c.Env == "prod" && c.GCPProjectID != "oratis-491316" {
 		return nil, fmt.Errorf("prod 环境的 BP_GCP_PROJECT_ID 应为 oratis-491316，当前值 %q", c.GCPProjectID)
 	}
 
 	return c, nil
+}
+
+// parseMailSettings 校验 BP_SMTP_* / BP_MAIL_* 整组的形状。
+//
+// 全空 → 未配置（零值），这是合法状态；半配 → 启动错误。
+// 端口只认 587 / 465：25 是明文提交口，凭据会裸奔；其它端口多半是抄错了文档。
+func parseMailSettings(host, port, username, password, from, esp string) (MailSettings, error) {
+	m := MailSettings{
+		Host:     strings.TrimSpace(host),
+		Username: strings.TrimSpace(username),
+		Password: strings.TrimSpace(password),
+		From:     strings.TrimSpace(from),
+		ESP:      strings.TrimSpace(esp),
+	}
+	given := 0
+	for _, v := range []string{m.Host, m.Username, m.Password, m.From, m.ESP} {
+		if v != "" {
+			given++
+		}
+	}
+	if given == 0 {
+		if strings.TrimSpace(port) != "" {
+			return MailSettings{}, errors.New(
+				"配了 BP_SMTP_PORT 却没配其余 BP_SMTP_* / BP_MAIL_* —— 端口单独存在没有意义，多半是漏了另外五项")
+		}
+		return MailSettings{}, nil
+	}
+	if given != 5 {
+		return MailSettings{}, errors.New(
+			"BP_SMTP_HOST / BP_SMTP_USERNAME / BP_SMTP_PASSWORD / BP_MAIL_FROM / BP_MAIL_ESP 必须整组配置或整组留空：\n" +
+				"  半配时发信路径按「ESP 未配置」跳过，现象是信永远停在 queued —— 与没配一样，但配置者会以为已经接上")
+	}
+	p := strings.TrimSpace(port)
+	if p == "" {
+		p = "587"
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil || (n != 587 && n != 465) {
+		return MailSettings{}, fmt.Errorf(
+			"BP_SMTP_PORT 只允许 587（STARTTLS）或 465（隐式 TLS），当前值 %q —— 25 是明文口，不接受", p)
+	}
+	m.Port = n
+	if _, err := nmail.ParseAddress(m.From); err != nil {
+		return MailSettings{}, fmt.Errorf(
+			"BP_MAIL_FROM 不是合法的 RFC 5322 地址（例：\"babel.plus <no-reply@babel.plus>\"）：%v", err)
+	}
+	return m, nil
 }
 
 // Redacted 返回可安全写进启动日志的配置快照 —— 所有密钥只显示长度。
@@ -264,11 +369,19 @@ func (c *Config) Redacted() map[string]any {
 		"admin_iap_audience":     c.AdminIAPAudience,
 		"internal_oidc_audience": c.InternalOIDCAudience,
 		"internal_task_callers":  c.InternalTaskCallers,
+		// 发信面开没开、准备用谁发 —— 排查「信停在 queued」时第一个要看的东西。
+		// host / from / esp 不是秘密；username 与 password 只显示长度。
+		"smtp_host": c.SMTPHost,
+		"smtp_port": c.SMTPPort,
+		"mail_from": c.MailFrom,
+		"mail_esp":  c.MailESP,
 		"secrets_len": map[string]int{
 			"subscription_token_pepper": len(c.SubscriptionTokenPepper),
 			"node_key_pepper":           len(c.NodeKeyPepper),
 			"session_signing_key":       len(c.SessionSigningKey),
 			"admin_totp_enc_key":        len(c.AdminTOTPEncKey),
+			"smtp_username":             len(c.SMTPUsername),
+			"smtp_password":             len(c.SMTPPassword),
 		},
 	}
 }

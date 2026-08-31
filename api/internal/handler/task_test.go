@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -1155,6 +1156,32 @@ func TestRunMailSend(t *testing.T) {
 		}
 		if len(sender.sends) != 1 || sender.sends[0].Template != templateExpireRemind {
 			t.Fatalf("发信参数不对：%+v", sender.sends)
+		}
+		if strings.TrimSpace(sender.sends[0].Body) == "" {
+			t.Fatal("队列信必须带渲染好的正文（空信在用户眼里就是钓鱼）")
+		}
+	})
+
+	// 🔴 静默边界 C：渲染不了的模板（verify_code 的记账死信、或新模板忘了加渲染分支）
+	// 必须标 failed 且不重试 —— 重试也渲染不出来，而停在 'sent' 会让送达率统计撒谎。
+	t.Run("静默边界：不可渲染的模板标 failed，不调 ESP、不重试", func(t *testing.T) {
+		db := newFakeMailSend(42)
+		row := db.queued[42]
+		row.Template = emailTemplateVerifyCode // ESP 未配置时期落进队列的记账行
+		db.queued[42] = row
+		sender := &stubMailSender{name: "ses", ready: true}
+		res, err := runMailSend(context.Background(), db, sender, testLogger(), 42)
+		if err != nil {
+			t.Fatalf("不可渲染是终态，不该报错触发重投：%v", err)
+		}
+		if !res.Skipped || res.Sent {
+			t.Fatalf("结果不对：%+v", res)
+		}
+		if len(sender.sends) != 0 {
+			t.Fatal("渲染不出正文还调了 ESP")
+		}
+		if db.status[42] != "failed" || !strings.Contains(db.bounces[42], "unrenderable_template") {
+			t.Fatalf("必须标 failed 并写明原因：status=%q bounce=%q", db.status[42], db.bounces[42])
 		}
 	})
 
