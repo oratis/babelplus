@@ -1,0 +1,17 @@
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+Start: 2026-08-31T17:23:55+0000
+HOST: bp-node-hk1                 Loss%   Snt   Last   Avg  Best  Wrst StDev
+  1.|-- 142.251.49.8               0.0%   100  135.5 135.7 135.4 137.0   0.3
+  2.|-- ALTER.NET                 50.0%   100  135.9 136.1 135.9 136.8   0.2
+  3.|-- 0.ae28.GW7.SJC7.ALTER.NET  0.0%   100  154.0 155.2 153.4 167.5   3.1
+  4.|-- 63.127.132.246             3.0%   100  249.9 192.4 153.7 470.6  72.5
+  5.|-- 202.97.6.1                12.0%   100  285.9 286.5 285.5 301.5   2.5
+  6.|-- 202.97.12.202             87.0%   100  285.2 285.0 284.7 285.6   0.3
+  7.|-- 202.97.57.158             34.0%   100  297.3 292.0 285.9 303.4   4.9
+  8.|-- 101.95.88.153             74.0%   100  307.0 305.9 300.1 311.2   4.3
+  9.|-- 180.169.255.118           13.0%   100  334.2 331.0 322.4 348.2   5.8
+ 10.|-- ns-pd.online.sh.cn         2.0%   100  287.7 292.4 286.8 298.6   4.6

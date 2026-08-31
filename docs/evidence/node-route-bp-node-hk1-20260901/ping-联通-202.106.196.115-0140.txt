@@ -1,0 +1,10 @@
+WARNING: 
+
+To increase the performance of the tunnel, consider installing NumPy. For instructions,
+please see https://cloud.google.com/iap/docs/using-tcp-forwarding#increasing_the_tcp_upload_bandwidth
+
+PING 202.106.196.115 (202.106.196.115) 56(84) bytes of data.
+
+--- 202.106.196.115 ping statistics ---
+100 packets transmitted, 0 received, 100% packet loss, time 31680ms
+
