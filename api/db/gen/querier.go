@@ -713,7 +713,13 @@ type Querier interface {
 	//      · 入账路径仍然判它 underpaid，订单卡在 `underpaid` 不动；
 	//      · 而少付清单的谓词 `received < expected` 变成 false，**这张单从队列里消失**。
 	//    于是「我们不认这笔钱」这件事对操作者不可见，用户投诉之前没有任何人会看到它。
-	//    两个口径必须同源；改了 SumAddressReceipts 就要同时改这里（反之亦然）。
+	//    blacklisted 的排除必须同源；改了 SumAddressReceipts 的这一半就要同时改这里（反之亦然）。
+	//    ⚠️ **state 维度自 B53 起刻意不同源**：SumAddressReceipts 的 received 只数 'paid'（判定口径），
+	//       这里仍数 confirming（对账口径）。理由：若这里也只数 'paid'，每一笔正常到账在固化前的
+	//       约 1 分钟里都会把订单闪进少付队列一次 —— 一个每分钟误报的常驻对账页等于没有这个页面。
+	//       残留窗口：一笔 confirming 的钱恰好补上缺口、随后被链重组抹掉且再也不固化时，
+	//       订单停在 underpaid 而本队列不显示（received 含那笔幽灵钱 ≥ expected）。
+	//       此时流水列表里那一行的 state 恒为 'confirming'，是唯一的人工线索 —— 已登记进 roadmap B53 的残留。
 	//    ⚠️ 被排除的那笔钱不会凭空消失：它自己那一行仍然在流水列表里，且 `aml_verdict`
 	//       就在投影里 —— 操作者看到的是「有一笔钱到了但被拉黑，这张单还差这么多」，
 	//       这正是这一页该说的话。
@@ -2095,6 +2101,10 @@ type Querier interface {
 	//
 	// LEFT JOIN LATERAL 而不是三个标量子查询：聚合只扫一次 payments_addr_idx (to_address, received_at DESC)，
 	// 且三个数来自同一次扫描 —— 分开写会让 received 与 shortfall 在并发入账时对不上。
+	//
+	// ⚠️ 本 LATERAL 是**显示口径**：confirming 的钱计入 received —— 用户要看到「钱到了，
+	//    我们在等链上确认」。付清判定用的 SumAddressReceipts **自 B53 起是另一个口径**
+	//    （只数 state='paid'，理由见那条的注释）。两处对 blacklisted 的排除仍必须同源。
 	GetOrderCheckout(ctx context.Context, arg GetOrderCheckoutParams) (GetOrderCheckoutRow, error)
 	// A7 地板断言的**分子里那个最容易被忘掉的项**：本单的返佣计提（分）。
 	//
@@ -3608,6 +3618,18 @@ type Querier interface {
 	// 条件带 status = 'sent'：并发把它改成 failed 之后就不该再盖 provider_msg_id。
 	MarkMailSent(ctx context.Context, arg MarkMailSentParams) error
 	MarkWebhookProcessed(ctx context.Context, arg MarkWebhookProcessedParams) error
+	// B53 的前一半：重访一笔已入账、仍是 confirming 的到账，链上已固化 → 升级 state。
+	//
+	// 🔴 没有这条，收紧后的付清判定（上面的 SumAddressReceipts 只数 'paid'）会把订单
+	//    **永久卡在未付清**：InsertPaymentIfNew 是 ON CONFLICT DO NOTHING，重扫同一笔 tx
+	//    走「已入账」分支，而 AttributePayment 只在新插入的分支上跑 —— 结构上没有任何人
+	//    会把 confirming 升成 paid。所以本条必须与收紧同一个 PR（roadmap B53 的原话）。
+	//    升级由重扫自然触发：扫描游标回看 10 分钟（lookbackCursor），TRON 固化约 1 分钟，
+	//    必然落在回看窗口内，不需要新的定时任务。
+	//
+	// WHERE 带 state = 'confirming' 是一次 CAS：0 行 = 已被并发的另一次重访升级过，
+	// 调用方直接返回、不重复结算。confirmations 取 greatest：重扫结果可能乱序到达。
+	PromoteSolidifiedPayment(ctx context.Context, arg PromoteSolidifiedPaymentParams) (Payment, error)
 	RateTicket(ctx context.Context, arg RateTicketParams) (Ticket, error)
 	// 唯一真相是视图，缓存表只是性能。每日 Cloud Scheduler 必须跑这条对账，
 	// 返回非空行 = 立即告警，且**以视图为准**（data-model §7.1）。
@@ -3839,10 +3861,28 @@ type Querier interface {
 	// A 档存在的理由是一条结构性的事实：要求用户补足 1.5 USDT 是走不通的 ——
 	// 补足会被再扣一次同样的提币费，净到账 0。**我们不去要一笔要不来的钱。**
 	//
-	// 与 GetOrderCheckout 里那个 LATERAL 是同一个口径，两处必须一起改。
+	// 🔴 `received_usdt6` 只数 `state = 'paid'`（已固化）的钱（roadmap B53）：
+	//    TRON 的最终性是固化（ADR 0012 §10.5），`confirming` 的钱在链重组时会凭空消失，
+	//    让它进付清判定的分子，等于在链重组时开通一个没付钱的订阅。
+	//    未固化的钱单独走 `confirming_usdt6`：settleDeposit 拿它判断「钱在路上」——
+	//    那种时刻既不能置 paid，也不该把订单标成 underpaid 去催一个已经付了钱的人。
+	//    固化后由重访路径（PromoteSolidifiedPayment，见下）升级 state 并重新结算。
+	//
+	// ⚠️ 与 GetOrderCheckout 里那个 LATERAL **自 B53 起刻意不同口径**（此前同口径、必须一起改）：
+	//    收银台是**显示口径**，confirming 的钱要算进 received —— 用户要看到「钱到了，
+	//    我们在等链上确认」（paymentStateView 的 confirming 档），而不是继续怀疑自己转错了地址。
+	//    这里是**判定口径**。两处对 blacklisted 的排除仍然必须同源。
 	// 单独留一条是因为入账路径拿不到 trade_no + user_id（它只有地址）。
 	SumAddressReceipts(ctx context.Context, payAddress string) (SumAddressReceiptsRow, error)
 	SumConfirmedCommissions(ctx context.Context, inviterID int64) (int64, error)
+	// B54：这张订单还挂着多少没被冲销的写销（1e-6 USDT）。
+	//
+	// A 档写销（postShortfallWriteoff，EntryNo 前缀 WOF）**借记** expense:payment_shortfall，
+	// 补足款到账后的冲销（postWriteoffRecovery，前缀 WOR）**贷记**同一科目 —— 按分录腿求和，
+	// 差额就是「订单被当作付清、但用户实际还欠」的那部分。paid 之后再到的钱要先填这里
+	// （把我们垫掉的损失收回来），填完才轮到入余额（roadmap B54 的「已认领额」口径）。
+	// 走 ledger_entries_ref_idx (ref_type, ref_id)。
+	SumOrderShortfallWriteoff(ctx context.Context, orderID int64) (int64, error)
 	// ============================================================
 	// 4 · traffic-reset（Scheduler，每小时）
 	// ============================================================

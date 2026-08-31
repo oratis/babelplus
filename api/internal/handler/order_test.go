@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -891,6 +893,10 @@ type fakeDeposit struct {
 	payerAddr    []dbgen.RecordOrderPayerAddressParams
 	walletTopups []dbgen.UpsertWalletBalanceParams
 	payments     []dbgen.RecordOrderPaymentParams
+
+	promoted            []dbgen.PromoteSolidifiedPaymentParams
+	promoteErr          error
+	writeoffOutstanding int64
 }
 
 func (f *fakeDeposit) GetPayAddressByAddress(context.Context, dbgen.GetPayAddressByAddressParams) (dbgen.GetPayAddressByAddressRow, error) {
@@ -927,6 +933,20 @@ func (f *fakeDeposit) AttributePayment(_ context.Context, arg dbgen.AttributePay
 
 func (f *fakeDeposit) SumAddressReceipts(context.Context, string) (dbgen.SumAddressReceiptsRow, error) {
 	return f.receipts, nil
+}
+
+func (f *fakeDeposit) PromoteSolidifiedPayment(_ context.Context, arg dbgen.PromoteSolidifiedPaymentParams) (dbgen.Payment, error) {
+	f.promoted = append(f.promoted, arg)
+	if f.promoteErr != nil {
+		return dbgen.Payment{}, f.promoteErr
+	}
+	p := f.existing
+	p.State = dbgen.PaymentStatePaid
+	return p, nil
+}
+
+func (f *fakeDeposit) SumOrderShortfallWriteoff(context.Context, int64) (int64, error) {
+	return f.writeoffOutstanding, nil
 }
 
 func (f *fakeDeposit) TransitionOrderStatus(_ context.Context, arg dbgen.TransitionOrderStatusParams) (dbgen.TransitionOrderStatusRow, error) {
@@ -1172,6 +1192,207 @@ func TestProcessDepositOverpayCreditsWallet(t *testing.T) {
 	}
 	if len(f.walletTopups) != 1 {
 		t.Fatal("超额部分必须入余额")
+	}
+	// 🔴 B54 收紧：入余额的是**超出应收的部分**（累计 12 − 应收 10 = 2 USDT），
+	// 不是整笔转账。旧实现整笔入余额 —— 在「订单被 D6/写销推成 paid、链上钱不足应收」
+	// 的形态下，那会把用户没多付的钱也送出去。
+	if want := usdt6ToCents(2_000_000, 71500); f.walletTopups[0].Balance != want {
+		t.Fatalf("入余额应当只是超出应收的部分（%d 分），实际 %d", want, f.walletTopups[0].Balance)
+	}
+}
+
+// ============================================================
+// 🔴 B53：付清判定只认已固化的钱；confirming → paid 靠重访升级
+// ============================================================
+
+// 未固化的到账**不许**推进订单：链重组时这笔钱会凭空消失，
+// 用它置 paid 等于开通一个没付钱的订阅（roadmap B53 的洞本体）。
+// 同时也不许置 underpaid —— 那是在催一个已经把钱付了的人再付一次。
+func TestProcessDepositConfirmingMoneyDoesNotSettle(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusPaying, 10_000_000, 0)
+	f.receipts.ConfirmingUsdt6 = 10_000_000 // 全额都在路上，只是还没固化
+
+	in := depositIn(10_000_000)
+	in.Transfer.Solidified = false
+	in.Transfer.Confirmations = 3
+	if err := processDeposit(context.Background(), f, testLogger(), in); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.inserted) != 1 || f.inserted[0].State != dbgen.PaymentStateConfirming {
+		t.Fatalf("未固化的到账 state 必须是 confirming，实际 %+v", f.inserted)
+	}
+	if len(f.transitions) != 0 {
+		t.Fatalf("未固化的钱不得推进订单状态（paid 与 underpaid 都不行），实际 %+v", f.transitions)
+	}
+	if len(f.payments) != 0 {
+		t.Fatal("未固化的钱不得写 amount_paid")
+	}
+	if len(f.walletTopups) != 0 {
+		t.Fatal("未固化的钱不得入余额")
+	}
+}
+
+// 已固化的钱不够、但加上确认中的钱就够：等固化，而不是把订单标成 underpaid。
+func TestProcessDepositHoldsWhileConfirmingCoversGap(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusPaying, 10_000_000, 4_000_000)
+	f.receipts.ConfirmingUsdt6 = 6_000_000
+
+	if err := processDeposit(context.Background(), f, testLogger(), depositIn(4_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.transitions) != 0 {
+		t.Fatalf("确认中的钱能补上缺口时不得标 underpaid，实际 %+v", f.transitions)
+	}
+}
+
+// B53 的另一半：重访「confirming 且已固化」→ 升级 state 并重新结算。
+// 没有这条，收紧后的判定会把订单**永久卡在未付清** —— 用户付了钱却永远开通不了。
+func TestProcessDepositSolidifiedRevisitPromotesAndSettles(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusPaying, 10_000_000, 10_000_000)
+	f.insertErr = pgx.ErrNoRows // ON CONFLICT DO NOTHING 命中：这笔钱首扫时已入账
+	entryID := int64(77)
+	f.existing = dbgen.Payment{ID: 7, EnteredBy: "scanner", State: dbgen.PaymentStateConfirming, LedgerEntryID: &entryID}
+
+	if err := processDeposit(context.Background(), f, testLogger(), depositIn(10_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.promoted) != 1 || f.promoted[0].PaymentID != 7 {
+		t.Fatalf("重访已固化的 confirming 到账必须升级 state，实际 %+v", f.promoted)
+	}
+	if len(f.transitions) != 1 || f.transitions[0].ToStatus != dbgen.OrderStatusPaid {
+		t.Fatalf("固化后应当重新结算并置 paid，实际 %+v", f.transitions)
+	}
+	if len(f.payments) != 1 {
+		t.Fatal("固化后结算必须写 amount_paid（四个下游的共同基数）")
+	}
+	if len(f.entries) != 0 {
+		t.Fatal("重访不得重复记收款凭证（RCV 首扫时已落）")
+	}
+}
+
+// 并发的两次重访：CAS 打不到行的那一次必须安静退出，不重复结算。
+func TestProcessDepositRevisitPromoteRace(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusPaying, 10_000_000, 10_000_000)
+	f.insertErr = pgx.ErrNoRows
+	f.existing = dbgen.Payment{ID: 7, EnteredBy: "scanner", State: dbgen.PaymentStateConfirming}
+	f.promoteErr = pgx.ErrNoRows // 另一个实例刚升级过
+
+	if err := processDeposit(context.Background(), f, testLogger(), depositIn(10_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.transitions) != 0 {
+		t.Fatal("CAS 没打到行就不得再结算（另一边已经做完了）")
+	}
+}
+
+// 分支 ④ 同款纪律：过期订单的到账未固化时不入余额，固化重访后才入。
+func TestProcessDepositExpiredOrderWaitsForSolidified(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusExpired, 10_000_000, 0)
+	f.receipts.ConfirmingUsdt6 = 10_000_000
+	in := depositIn(10_000_000)
+	in.Transfer.Solidified = false
+	if err := processDeposit(context.Background(), f, testLogger(), in); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.walletTopups) != 0 {
+		t.Fatal("未固化的钱不得入余额（链重组时它会凭空消失，而余额已经能花了）")
+	}
+
+	// 固化后的重访：升级 + 入余额，一次且只有一次。
+	f2 := depositFixture(dbgen.OrderStatusExpired, 10_000_000, 10_000_000)
+	f2.insertErr = pgx.ErrNoRows
+	f2.existing = dbgen.Payment{ID: 7, EnteredBy: "scanner", State: dbgen.PaymentStateConfirming}
+	if err := processDeposit(context.Background(), f2, testLogger(), depositIn(10_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f2.walletTopups) != 1 {
+		t.Fatalf("固化后的重访必须把过期订单的钱入余额，实际 %d 次", len(f2.walletTopups))
+	}
+	if want := usdt6ToCents(10_000_000, 71500); f2.walletTopups[0].Balance != want {
+		t.Fatalf("入余额金额应当是 %d 分，实际 %d", want, f2.walletTopups[0].Balance)
+	}
+}
+
+// ============================================================
+// 🔴 B54：订单 paid 之后到达的补足款不许被静默吞掉
+// ============================================================
+
+// A 档写销后用户补足：先冲销 expense:payment_shortfall（把我们垫掉的损失收回来），
+// 剩下的按超额入余额。旧实现里 shortfall >= 0 直接 return nil —— 钱在我们地址上，
+// 没有任何记录指向那个用户。
+func TestProcessDepositTopupAfterWriteoffRecovers(t *testing.T) {
+	// 应收 10，实付 9，写销 1 后 paid；用户又补 1.5 → 冲销 1，入余额 0.5。
+	f := depositFixture(dbgen.OrderStatusPaid, 10_000_000, 10_500_000)
+	f.writeoffOutstanding = 1_000_000
+
+	if err := processDeposit(context.Background(), f, testLogger(), depositIn(1_500_000)); err != nil {
+		t.Fatal(err)
+	}
+	var sawRecovery bool
+	for _, e := range f.entries {
+		if strings.HasPrefix(e.EntryNo, "WOR-") {
+			sawRecovery = true
+		}
+	}
+	if !sawRecovery {
+		t.Fatal("写销过的订单收到补足款必须先冲销 expense:payment_shortfall")
+	}
+	if len(f.walletTopups) != 1 {
+		t.Fatalf("冲销后剩余的 0.5 USDT 必须入余额，实际 %d 次", len(f.walletTopups))
+	}
+	if want := usdt6ToCents(500_000, 71500); f.walletTopups[0].Balance != want {
+		t.Fatalf("入余额应当是冲销后的余量（%d 分），实际 %d", want, f.walletTopups[0].Balance)
+	}
+	if len(f.transitions) != 0 {
+		t.Fatal("已付清的订单状态不该再动")
+	}
+}
+
+// 补足款恰好只够填写销：全额冲销、不入余额，但**有分录留痕**，不是静默。
+func TestProcessDepositTopupExactlyRecoversWriteoff(t *testing.T) {
+	f := depositFixture(dbgen.OrderStatusPaid, 10_000_000, 9_800_000)
+	f.writeoffOutstanding = 1_000_000
+
+	if err := processDeposit(context.Background(), f, testLogger(), depositIn(800_000)); err != nil {
+		t.Fatal(err)
+	}
+	var sawRecovery bool
+	for _, e := range f.entries {
+		if strings.HasPrefix(e.EntryNo, "WOR-") {
+			sawRecovery = true
+		}
+	}
+	if !sawRecovery {
+		t.Fatal("补足款必须冲销写销（哪怕填不满）")
+	}
+	if len(f.walletTopups) != 0 {
+		t.Fatal("累计仍未超过应收，不该入余额")
+	}
+}
+
+// 🔴 自动归属不了的钱（如 D6 手工标 paid、链上又来钱）至少不许静默：
+// ERROR + bp_pay_unclaimed_topup，钱挂在递延收入上等人看（roadmap B54 的底线要求）。
+func TestProcessDepositUnclaimedTopupIsLoud(t *testing.T) {
+	var buf bytes.Buffer
+	loud := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// 订单被 D6 标成 paid，链上累计只有这笔 5 USDT（< 应收 10），没有写销可冲。
+	f := depositFixture(dbgen.OrderStatusPaid, 10_000_000, 5_000_000)
+	if err := processDeposit(context.Background(), f, loud, depositIn(5_000_000)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.walletTopups) != 0 {
+		t.Fatal("该退多少算不准就不猜 —— 不得入余额")
+	}
+	if len(f.transitions) != 0 {
+		t.Fatal("已付清的订单状态不该再动")
+	}
+	logged := buf.String()
+	if !strings.Contains(logged, "bp_pay_unclaimed_topup") {
+		t.Fatalf("无法归属的到账必须打 bp_pay_unclaimed_topup，实际日志：%s", logged)
+	}
+	if !strings.Contains(logged, `"level":"ERROR"`) {
+		t.Fatalf("必须是 ERROR 级（这是要有人看的钱），实际日志：%s", logged)
 	}
 }
 
