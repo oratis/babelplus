@@ -360,9 +360,12 @@ WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL;
 --    （ADR 0002：邮件是唯一失联恢复通道，收不到验证码的用户就是封锁当天必然失联的用户）。
 --    等 ops 面的查询成文时应当整体迁走。
 
+-- provider_msg_id / bounce_code 随同步发信路径一起写：验证码信在签发时就发出并落结果
+-- （sent / failed），不走队列 —— 正文需要明文码，而码只在签发那一刻存在（只存哈希）。
+-- 队列信（提醒 / 广播）建行时这两列留 NULL，由 mail-send 任务发信后回写。
 -- name: CreateEmailLog :one
-INSERT INTO email_log (user_id, to_email, to_domain, esp, template, subject, status, sent_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO email_log (user_id, to_email, to_domain, esp, template, subject, status, sent_at, provider_msg_id, bounce_code)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- 用户回填验证码的时刻。sent_at → redeemed_at 的差值就是**真实端到端送达时延**，
