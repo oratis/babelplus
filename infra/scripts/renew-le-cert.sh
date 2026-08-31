@@ -139,7 +139,9 @@ start_watcher() {
 }
 
 stop_watcher() {
-  [ -n "$WATCHER_PID" ] && kill "$WATCHER_PID" 2>/dev/null || true
+  if [ -n "$WATCHER_PID" ]; then
+    kill "$WATCHER_PID" 2>/dev/null || true
+  fi
   gcloud storage rm -r "gs://${ACME_BUCKET}/acme/**" --project="$PROJECT_ID" >/dev/null 2>&1 || true
 }
 
