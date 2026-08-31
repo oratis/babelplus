@@ -242,7 +242,9 @@ type depositQuerier interface {
 	GetOrderByPayAddressForUpdate(ctx context.Context, payAddress string) (dbgen.GetOrderByPayAddressForUpdateRow, error)
 	GetPayAddressByAddress(ctx context.Context, arg dbgen.GetPayAddressByAddressParams) (dbgen.GetPayAddressByAddressRow, error)
 	AttributePayment(ctx context.Context, arg dbgen.AttributePaymentParams) (dbgen.Payment, error)
+	PromoteSolidifiedPayment(ctx context.Context, arg dbgen.PromoteSolidifiedPaymentParams) (dbgen.Payment, error)
 	SumAddressReceipts(ctx context.Context, payAddress string) (dbgen.SumAddressReceiptsRow, error)
+	SumOrderShortfallWriteoff(ctx context.Context, orderID int64) (int64, error)
 	TransitionOrderStatus(ctx context.Context, arg dbgen.TransitionOrderStatusParams) (dbgen.TransitionOrderStatusRow, error)
 	InsertOrderTransition(ctx context.Context, arg dbgen.InsertOrderTransitionParams) (dbgen.OrderTransition, error)
 	RecordOrderPayerAddress(ctx context.Context, arg dbgen.RecordOrderPayerAddressParams) error
@@ -1498,6 +1500,13 @@ func minInt64(a, b int64) int64 {
 	return b
 }
 
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // ============================================================
 // getOrder / listOrders / cancelOrder
 // ============================================================
@@ -2478,6 +2487,17 @@ func handleAlreadyProcessed(ctx context.Context, q depositQuerier, log *slog.Log
 		log.WarnContext(ctx, "撞到入账幂等锁但读不回既有流水，跳过追认分支")
 		return nil
 	}
+
+	// ---- B53 前一半：重访 `confirming` 且链上已固化 → 升级 state 并重新结算 ----
+	//
+	// 付清判定只数已固化的钱（SumAddressReceipts 只 sum state='paid'），而 InsertPaymentIfNew
+	// 是 ON CONFLICT DO NOTHING —— 没有这条路径，一笔先被扫到 confirming 的钱**永远**
+	// 不会变成 paid，订单永久卡在未付清：用户真金白银付了却开通不了，比链重组开通假订阅更糟。
+	// 游标回看 10 分钟（lookbackCursor）保证固化（约 1 分钟）后必然有一次重访落到这里。
+	if in.Transfer.Solidified && existing.State == dbgen.PaymentStateConfirming {
+		return promoteSolidifiedDeposit(ctx, q, log, in, existing)
+	}
+
 	log.InfoContext(ctx, "这笔到账已经入过账，幂等丢弃（游标回看 10 分钟就是靠它兜底）",
 		"payment_id", existing.ID, "entered_by", existing.EnteredBy)
 
@@ -2515,6 +2535,41 @@ func handleAlreadyProcessed(ctx context.Context, q depositQuerier, log *slog.Log
 	return nil
 }
 
+// promoteSolidifiedDeposit 把一笔已固化的重访到账从 confirming 升级成 paid，并重新结算订单。
+//
+// 顺序与主路径一致：先动 payments 行、再锁订单（GetOrderByPayAddressForUpdate）——
+// 两笔并发到账在订单锁上排队，各自的 promote 动的是自己那一行，不会死锁。
+// 不重复记账：这笔钱的 RCV 收款凭证在首次入账时就已经落了（分录记的是「钱到了地址」，
+// 与固化与否无关），这里只推进 state 与订单状态。
+func promoteSolidifiedDeposit(ctx context.Context, q depositQuerier, log *slog.Logger, in depositInput, existing dbgen.Payment) error {
+	promoted, err := q.PromoteSolidifiedPayment(ctx, dbgen.PromoteSolidifiedPaymentParams{
+		PaymentID: existing.ID, Confirmations: in.Transfer.Confirmations,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// CAS 没打到行：并发的另一次重访已经升级并结算过了。设计内的常态，不是错误。
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	log.InfoContext(ctx, "确认中的到账已固化，升级为 paid 并重新结算",
+		"metric", "bp_pay_solidified", "payment_id", promoted.ID)
+
+	order, err := q.GetOrderByPayAddressForUpdate(ctx, in.ToAddress)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// 未归属（quarantined）的钱：state 已如实升级，但仍然找不到人 —— 留在人工队列。
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var entryID int64
+	if promoted.LedgerEntryID != nil {
+		entryID = *promoted.LedgerEntryID
+	}
+	return settleDeposit(ctx, q, log, in, order, entryID)
+}
+
 // settleDeposit 是 §8.4 的分支 ③④⑤：按累计额重新评估三档规则并推进订单状态。
 func settleDeposit(
 	ctx context.Context,
@@ -2534,6 +2589,9 @@ func settleDeposit(
 	if order.PayAmountUsdt6 != nil {
 		expected = *order.PayAmountUsdt6
 	}
+	// 🔴 B53：`received_usdt6` 只含已固化（state='paid'）的钱。confirming 的钱在链重组时
+	//    会凭空消失，不许进付清判定的分子 —— 它单独走 `confirming_usdt6`，只用来判断
+	//    「钱在路上」（既不置 paid，也不催一个已经付了钱的人补足）。
 	shortfall := expected - sum.ReceivedUsdt6
 
 	actor := in.ActorOverride
@@ -2550,6 +2608,9 @@ func settleDeposit(
 				"metric", "bp_pay_no_expected_amount", "trade_no", order.TradeNo)
 			return nil
 		}
+		// pendingShortfall 把仍在链上确认中的钱也算进来。它只回答「要不要打扰用户/运营」
+		// （hold 与 B/C 档的取档），从不用于把订单推成 paid —— 那一步只认已固化的钱。
+		pendingShortfall := shortfall - sum.ConfirmingUsdt6
 		switch {
 		case shortfall <= in.Settings.WriteoffUsdt6:
 			// A 档：够了，或者差额小到不值得去要。
@@ -2592,18 +2653,27 @@ func settleDeposit(
 			}
 			return markOrderPaid(ctx, q, log, order.ID, order.TradeNo, order.Status, actor,
 				fmt.Sprintf("链上到账 %d（差额 %d，写销档）", sum.ReceivedUsdt6, shortfall))
-		case shortfall <= in.Settings.ReviewUsdt6:
+		case pendingShortfall <= in.Settings.WriteoffUsdt6:
+			// 已固化的钱还不够，但加上确认中的钱就够（或落进写销档）：什么都不做，等固化。
+			// 此刻置 paid 正是 B53 要堵的洞；置 underpaid 则是在催一个已经把钱付了的人再付一次。
+			// 固化后由重访路径（promoteSolidifiedDeposit）重新结算，游标回看 10 分钟保证重访必然发生。
+			log.InfoContext(ctx, "到账仍在链上确认中，等待固化后结算",
+				"metric", "bp_pay_awaiting_solidified", "trade_no", order.TradeNo,
+				"confirming_usdt6", sum.ConfirmingUsdt6, "solidified_shortfall_usdt6", shortfall)
+			return nil
+		case pendingShortfall <= in.Settings.ReviewUsdt6:
 			// B 档：交给人。页面文案明写「无需再次转账」（收银台的 underpaid 分支）。
+			// 差额按 pendingShortfall 报：确认中的钱固化后，它就是运营真正要处理的终态差额。
 			log.ErrorContext(ctx, "少付落在人工复核档，已进人工队列（用户无需再次转账）",
-				"metric", "bp_pay_underpaid_review", "trade_no", order.TradeNo, "shortfall_usdt6", shortfall)
+				"metric", "bp_pay_underpaid_review", "trade_no", order.TradeNo, "shortfall_usdt6", pendingShortfall)
 			return transitionOrder(ctx, q, order.ID, order.Status, dbgen.OrderStatusUnderpaid, actor,
-				fmt.Sprintf("少付 %d（人工复核档）", shortfall))
+				fmt.Sprintf("少付 %d（人工复核档）", pendingShortfall))
 		default:
 			// C 档：提示向**同一地址**补足。归属只看地址，所以补足无歧义。
 			log.WarnContext(ctx, "少付超过人工复核档，提示用户向同一地址补足",
-				"metric", "bp_pay_underpaid_topup", "trade_no", order.TradeNo, "shortfall_usdt6", shortfall)
+				"metric", "bp_pay_underpaid_topup", "trade_no", order.TradeNo, "shortfall_usdt6", pendingShortfall)
 			return transitionOrder(ctx, q, order.ID, order.Status, dbgen.OrderStatusUnderpaid, actor,
-				fmt.Sprintf("少付 %d（需补足）", shortfall))
+				fmt.Sprintf("少付 %d（需补足）", pendingShortfall))
 		}
 
 	case dbgen.OrderStatusExpired, dbgen.OrderStatusCancelled:
@@ -2611,18 +2681,61 @@ func settleDeposit(
 		// `paid → completed` 是唯一的权益发放路径；把过期单改回 paid 等于用一个已经过期的汇率开通，
 		// 汇率敞口由我们承担。钱按到账时刻的汇率折算入余额。
 		// **不做这一条，用户第一次付款的钱就真的进黑洞。**
+		if !in.Transfer.Solidified {
+			// B53 同款纪律：入余额是真实的资金动作，只认已固化的钱。
+			// 固化后重访路径会带着 Solidified=true 再走到这里。
+			log.InfoContext(ctx, "过期订单的到账仍在链上确认中，固化后再入余额",
+				"metric", "bp_pay_awaiting_solidified", "trade_no", order.TradeNo)
+			return nil
+		}
 		return creditWalletFromDeposit(ctx, q, log, in, order, entryID, in.Transfer.AmountUSDT6,
 			"订单已过期，款项入余额")
 
 	case dbgen.OrderStatusPaid, dbgen.OrderStatusCompleted:
-		// 分支 ⑤：超额。同样入余额 + 发信（§6.2）。
-		if shortfall >= 0 {
-			// 没有超额（比如同一笔钱被重扫但订单早已 paid），不重复入余额。
+		// 分支 ⑤（B54 重写）：订单付清之后到达的钱。旧实现只处理超额（shortfall < 0 时整笔入余额），
+		// `shortfall >= 0` 直接静默 return —— 触发形态：C 档少付用户按提示向同一地址补足，
+		// 而补足款到账前另一条路径（A 档写销、或 D6 手工标记）已把订单推成 paid。
+		// 此时钱在我们的地址上，没有任何记录指向那个用户。
+		//
+		// 现在按「已认领额」口径拆成三段，逐段都有归宿、都留痕：
+		//   ① 先冲销写销：订单是靠 A 档写销进的 paid，用户的补足款要先把我们垫掉的损失收回来；
+		//   ② 再算超额入余额：credit = min(本笔 − 冲销, max(0, 累计已固化 − 应收))；
+		//   ③ 还剩下的（如 D6 手工标 paid 后链上又来钱）自动归属不了 —— 至少不许静默，
+		//      打 ERROR + bp_pay_unclaimed_topup，钱挂在 liability:deferred_revenue 等人看。
+		if !in.Transfer.Solidified {
+			log.InfoContext(ctx, "订单已付清后又有到账，仍在链上确认中，固化后再结算",
+				"metric", "bp_pay_awaiting_solidified", "trade_no", order.TradeNo)
 			return nil
 		}
-		// 订单在这笔到账**之前**就已经付清，所以整笔都是超额。
-		return creditWalletFromDeposit(ctx, q, log, in, order, entryID, in.Transfer.AmountUSDT6,
-			"超额付款，超出部分入余额")
+		transfer := in.Transfer.AmountUSDT6
+		outstanding, err := q.SumOrderShortfallWriteoff(ctx, order.ID)
+		if err != nil {
+			return err
+		}
+		recovered := minInt64(transfer, maxInt64(0, outstanding))
+		if recovered > 0 {
+			if err := postWriteoffRecovery(ctx, q, order, recovered, in.Settings.CnyPerUsdtE4, entryID); err != nil {
+				return err
+			}
+			log.WarnContext(ctx, "付清后的补足款到账，已冲销此前的写销",
+				"metric", "bp_pay_writeoff_recovered", "trade_no", order.TradeNo,
+				"recovered_usdt6", recovered, "outstanding_before_usdt6", outstanding)
+		}
+		credit := minInt64(transfer-recovered, maxInt64(0, sum.ReceivedUsdt6-expected))
+		if credit > 0 {
+			if err := creditWalletFromDeposit(ctx, q, log, in, order, entryID, credit,
+				"超额付款，超出部分入余额"); err != nil {
+				return err
+			}
+		}
+		if leftover := transfer - recovered - credit; leftover > 0 {
+			// 多发生在 expected 覆盖不了的形态（如 D6 手工标 paid、链上并没有对应到账）。
+			// 该退多少算不准，就不猜 —— 但**必须响**：静默正是 B54 要消灭的行为。
+			log.ErrorContext(ctx, "订单已付清后到账、且无法自动归属的款项（需人工核对，钱挂在递延收入上）",
+				"metric", "bp_pay_unclaimed_topup", "trade_no", order.TradeNo,
+				"user_id", order.UserID, "leftover_usdt6", leftover, "transfer_usdt6", transfer)
+		}
+		return nil
 
 	default:
 		log.WarnContext(ctx, "到账落在一个不处理的订单状态上，只记流水",
@@ -2695,6 +2808,31 @@ func postShortfallWriteoff(ctx context.Context, q depositQuerier, order dbgen.Ge
 			{AccountCode: acctFxClearingUSDT, Currency: "USDT", Amount: -shortfallUsdt6},
 			{AccountCode: acctFxClearingCNY, Currency: "CNY", Amount: cents},
 			{AccountCode: acctDeferredRevenue, Currency: "CNY", Amount: -cents},
+		},
+	})
+	return err
+}
+
+// postWriteoffRecovery 是 postShortfallWriteoff 的逐腿反向：补足款到账，把写销掉的损失收回来。
+//
+// 这笔钱的 RCV 收款凭证已经把 recovered 对应的 CNY 贷进了递延收入，而写销当时也贷过一次 ——
+// 同一份应收被贷了两遍，反向分录把写销那一遍冲掉，递延收入回到订单的应收口径。
+// CNY 腿按**到账时刻**的汇率折算（与 postShortfallWriteoff 同源取 settings）：
+// 写销与冲销之间汇率变了，差额落在 equity:fx_clearing —— 那正是它存在的用途（§17.6(b)），
+// 汇率敞口由我们承担（与分支 ④ 的裁决同向）。
+// EntryNo 用 TradeNo+RCV 分录 id（与 BAL 同形）：同一笔到账在同一事务里至多冲销一次。
+func postWriteoffRecovery(ctx context.Context, q depositQuerier, order dbgen.GetOrderByPayAddressForUpdateRow, recoveredUsdt6, fxE4, rcvEntryID int64) error {
+	cents := usdt6ToCents(recoveredUsdt6, fxE4)
+	_, err := postLedgerEntry(ctx, q, ledgerEntrySpec{
+		EntryNo:     ledgerEntryNo("WOR", order.TradeNo+":"+strconv.FormatInt(rcvEntryID, 10)),
+		Description: "少付补足到账，冲销写销 " + order.TradeNo,
+		RefType:     "order",
+		RefID:       order.ID,
+		Lines: []ledgerLineSpec{
+			{AccountCode: acctShortfall, Currency: "USDT", Amount: -recoveredUsdt6},
+			{AccountCode: acctFxClearingUSDT, Currency: "USDT", Amount: recoveredUsdt6},
+			{AccountCode: acctFxClearingCNY, Currency: "CNY", Amount: -cents},
+			{AccountCode: acctDeferredRevenue, Currency: "CNY", Amount: cents},
 		},
 	})
 	return err

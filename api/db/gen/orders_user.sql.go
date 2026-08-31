@@ -612,6 +612,11 @@ type GetOrderCheckoutRow struct {
 //
 // LEFT JOIN LATERAL 而不是三个标量子查询：聚合只扫一次 payments_addr_idx (to_address, received_at DESC)，
 // 且三个数来自同一次扫描 —— 分开写会让 received 与 shortfall 在并发入账时对不上。
+//
+// ⚠️ 本 LATERAL 是**显示口径**：confirming 的钱计入 received —— 用户要看到「钱到了，
+//
+//	我们在等链上确认」。付清判定用的 SumAddressReceipts **自 B53 起是另一个口径**
+//	（只数 state='paid'，理由见那条的注释）。两处对 blacklisted 的排除仍必须同源。
 func (q *Queries) GetOrderCheckout(ctx context.Context, arg GetOrderCheckoutParams) (GetOrderCheckoutRow, error) {
 	row := q.db.QueryRow(ctx, getOrderCheckout, arg.TradeNo, arg.UserID)
 	var i GetOrderCheckoutRow
@@ -1491,6 +1496,60 @@ func (q *Queries) ListUserOrdersPage(ctx context.Context, arg ListUserOrdersPage
 	return items, nil
 }
 
+const promoteSolidifiedPayment = `-- name: PromoteSolidifiedPayment :one
+UPDATE payments SET
+  state         = 'paid',
+  confirmations = greatest(confirmations, $1::integer)
+WHERE id = $2::bigint
+  AND state = 'confirming'
+RETURNING id, provider, external_id, entered_by, order_id, user_id, chain, txid, log_index, from_address, to_address, amount_usdt6, amount_cny_cents, state, confirmations, aml_checked_at, aml_verdict, ledger_entry_id, raw, received_at
+`
+
+type PromoteSolidifiedPaymentParams struct {
+	Confirmations int32 `json:"confirmations"`
+	PaymentID     int64 `json:"payment_id"`
+}
+
+// B53 的前一半：重访一笔已入账、仍是 confirming 的到账，链上已固化 → 升级 state。
+//
+// 🔴 没有这条，收紧后的付清判定（上面的 SumAddressReceipts 只数 'paid'）会把订单
+//
+//	**永久卡在未付清**：InsertPaymentIfNew 是 ON CONFLICT DO NOTHING，重扫同一笔 tx
+//	走「已入账」分支，而 AttributePayment 只在新插入的分支上跑 —— 结构上没有任何人
+//	会把 confirming 升成 paid。所以本条必须与收紧同一个 PR（roadmap B53 的原话）。
+//	升级由重扫自然触发：扫描游标回看 10 分钟（lookbackCursor），TRON 固化约 1 分钟，
+//	必然落在回看窗口内，不需要新的定时任务。
+//
+// WHERE 带 state = 'confirming' 是一次 CAS：0 行 = 已被并发的另一次重访升级过，
+// 调用方直接返回、不重复结算。confirmations 取 greatest：重扫结果可能乱序到达。
+func (q *Queries) PromoteSolidifiedPayment(ctx context.Context, arg PromoteSolidifiedPaymentParams) (Payment, error) {
+	row := q.db.QueryRow(ctx, promoteSolidifiedPayment, arg.Confirmations, arg.PaymentID)
+	var i Payment
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.ExternalID,
+		&i.EnteredBy,
+		&i.OrderID,
+		&i.UserID,
+		&i.Chain,
+		&i.Txid,
+		&i.LogIndex,
+		&i.FromAddress,
+		&i.ToAddress,
+		&i.AmountUsdt6,
+		&i.AmountCnyCents,
+		&i.State,
+		&i.Confirmations,
+		&i.AmlCheckedAt,
+		&i.AmlVerdict,
+		&i.LedgerEntryID,
+		&i.Raw,
+		&i.ReceivedAt,
+	)
+	return i, err
+}
+
 const recordOrderPayerAddress = `-- name: RecordOrderPayerAddress :exec
 UPDATE orders SET
   pay_from_address = coalesce(pay_from_address, $1::text),
@@ -1576,7 +1635,8 @@ func (q *Queries) SpendWalletBalance(ctx context.Context, arg SpendWalletBalance
 
 const sumAddressReceipts = `-- name: SumAddressReceipts :one
 SELECT
-  coalesce(sum(pm.amount_usdt6), 0)::bigint               AS received_usdt6,
+  coalesce(sum(pm.amount_usdt6) FILTER (WHERE pm.state = 'paid'), 0)::bigint       AS received_usdt6,
+  coalesce(sum(pm.amount_usdt6) FILTER (WHERE pm.state = 'confirming'), 0)::bigint AS confirming_usdt6,
   count(*)::bigint                                        AS payment_count,
   count(*) FILTER (WHERE pm.state = 'confirming')::bigint AS confirming_count,
   coalesce(min(pm.confirmations), 0)::integer             AS min_confirmations
@@ -1587,6 +1647,7 @@ WHERE pm.to_address = $1::text
 
 type SumAddressReceiptsRow struct {
 	ReceivedUsdt6    int64 `json:"received_usdt6"`
+	ConfirmingUsdt6  int64 `json:"confirming_usdt6"`
 	PaymentCount     int64 `json:"payment_count"`
 	ConfirmingCount  int64 `json:"confirming_count"`
 	MinConfirmations int32 `json:"min_confirmations"`
@@ -1605,18 +1666,57 @@ type SumAddressReceiptsRow struct {
 // A 档存在的理由是一条结构性的事实：要求用户补足 1.5 USDT 是走不通的 ——
 // 补足会被再扣一次同样的提币费，净到账 0。**我们不去要一笔要不来的钱。**
 //
-// 与 GetOrderCheckout 里那个 LATERAL 是同一个口径，两处必须一起改。
+// 🔴 `received_usdt6` 只数 `state = 'paid'`（已固化）的钱（roadmap B53）：
+//
+//	TRON 的最终性是固化（ADR 0012 §10.5），`confirming` 的钱在链重组时会凭空消失，
+//	让它进付清判定的分子，等于在链重组时开通一个没付钱的订阅。
+//	未固化的钱单独走 `confirming_usdt6`：settleDeposit 拿它判断「钱在路上」——
+//	那种时刻既不能置 paid，也不该把订单标成 underpaid 去催一个已经付了钱的人。
+//	固化后由重访路径（PromoteSolidifiedPayment，见下）升级 state 并重新结算。
+//
+// ⚠️ 与 GetOrderCheckout 里那个 LATERAL **自 B53 起刻意不同口径**（此前同口径、必须一起改）：
+//
+//	收银台是**显示口径**，confirming 的钱要算进 received —— 用户要看到「钱到了，
+//	我们在等链上确认」（paymentStateView 的 confirming 档），而不是继续怀疑自己转错了地址。
+//	这里是**判定口径**。两处对 blacklisted 的排除仍然必须同源。
+//
 // 单独留一条是因为入账路径拿不到 trade_no + user_id（它只有地址）。
 func (q *Queries) SumAddressReceipts(ctx context.Context, payAddress string) (SumAddressReceiptsRow, error) {
 	row := q.db.QueryRow(ctx, sumAddressReceipts, payAddress)
 	var i SumAddressReceiptsRow
 	err := row.Scan(
 		&i.ReceivedUsdt6,
+		&i.ConfirmingUsdt6,
 		&i.PaymentCount,
 		&i.ConfirmingCount,
 		&i.MinConfirmations,
 	)
 	return i, err
+}
+
+const sumOrderShortfallWriteoff = `-- name: SumOrderShortfallWriteoff :one
+SELECT coalesce(sum(l.amount), 0)::bigint AS outstanding_usdt6
+FROM ledger_entries e
+JOIN ledger_lines l    ON l.entry_id = e.id
+JOIN ledger_accounts a ON a.id = l.account_id
+WHERE e.ref_type = 'order'
+  AND e.ref_id = $1::bigint
+  AND a.code = 'expense:payment_shortfall'
+  AND l.currency = 'USDT'
+`
+
+// B54：这张订单还挂着多少没被冲销的写销（1e-6 USDT）。
+//
+// A 档写销（postShortfallWriteoff，EntryNo 前缀 WOF）**借记** expense:payment_shortfall，
+// 补足款到账后的冲销（postWriteoffRecovery，前缀 WOR）**贷记**同一科目 —— 按分录腿求和，
+// 差额就是「订单被当作付清、但用户实际还欠」的那部分。paid 之后再到的钱要先填这里
+// （把我们垫掉的损失收回来），填完才轮到入余额（roadmap B54 的「已认领额」口径）。
+// 走 ledger_entries_ref_idx (ref_type, ref_id)。
+func (q *Queries) SumOrderShortfallWriteoff(ctx context.Context, orderID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, sumOrderShortfallWriteoff, orderID)
+	var outstanding_usdt6 int64
+	err := row.Scan(&outstanding_usdt6)
+	return outstanding_usdt6, err
 }
 
 const tradeNoExists = `-- name: TradeNoExists :one

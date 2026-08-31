@@ -2614,7 +2614,13 @@ type AdminListPaymentsPageRow struct {
 //	  · 入账路径仍然判它 underpaid，订单卡在 `underpaid` 不动；
 //	  · 而少付清单的谓词 `received < expected` 变成 false，**这张单从队列里消失**。
 //	于是「我们不认这笔钱」这件事对操作者不可见，用户投诉之前没有任何人会看到它。
-//	两个口径必须同源；改了 SumAddressReceipts 就要同时改这里（反之亦然）。
+//	blacklisted 的排除必须同源；改了 SumAddressReceipts 的这一半就要同时改这里（反之亦然）。
+//	⚠️ **state 维度自 B53 起刻意不同源**：SumAddressReceipts 的 received 只数 'paid'（判定口径），
+//	   这里仍数 confirming（对账口径）。理由：若这里也只数 'paid'，每一笔正常到账在固化前的
+//	   约 1 分钟里都会把订单闪进少付队列一次 —— 一个每分钟误报的常驻对账页等于没有这个页面。
+//	   残留窗口：一笔 confirming 的钱恰好补上缺口、随后被链重组抹掉且再也不固化时，
+//	   订单停在 underpaid 而本队列不显示（received 含那笔幽灵钱 ≥ expected）。
+//	   此时流水列表里那一行的 state 恒为 'confirming'，是唯一的人工线索 —— 已登记进 roadmap B53 的残留。
 //	⚠️ 被排除的那笔钱不会凭空消失：它自己那一行仍然在流水列表里，且 `aml_verdict`
 //	   就在投影里 —— 操作者看到的是「有一笔钱到了但被拉黑，这张单还差这么多」，
 //	   这正是这一页该说的话。
