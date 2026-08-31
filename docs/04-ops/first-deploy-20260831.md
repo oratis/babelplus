@@ -162,10 +162,44 @@ Scheduler bp-expire-check 手工触发                   200（内部面未被�
 verify-isolation.sh 部署前后                         18 项通过 / 0 失败
 ```
 
-⚠️ **管理面仍进不去**：IAP 的 `oauth2ClientId` 为空（502 `Empty Google Account OAuth client ID(s)`）。
-IAP OAuth Admin API **已于 2026-03-19 永久关停**，且本项目不属于组织 —— gcloud 与 API 都没有路径，
-**只能控制台**：配 Google Auth Platform 品牌（External / Testing）后，在 IAP 页面把两个后端服务
-的开关关掉再打开，由控制台挂上 Google 托管的 OAuth 客户端。
+### 管理面准入：当天稍晚已打通（含一条走了弯路的记录）
+
+✅ **`https://admin.babel.plus` 已可登录并操作**，`/api/v1/admin/dashboard` 实测 **200 带真实数据**
+（IAP 断言经 LB 传到 `bp-api`，`AuthenticateAdmin` 验签通过并查到 `admin_users` 的 owner 记录）。
+
+🔴 **走了弯路的那一段值得逐条留下，它推翻了两个看起来合理的做法**：
+
+1. **IAP 的 `oauth2ClientId` 为空时报 502 `Empty Google Account OAuth client ID(s)`**，
+   而 `gcloud compute backend-services update --iap=enabled` **不会**挂上任何 OAuth 客户端。
+2. **控制台里把 IAP 开关关掉再打开也不会**（本次实测，两种方式各试一次，客户端 id 始终为空）。
+   ⚠️ 控制台 IAP 列表页此时显示 **Status: Ok**，与真实可用性不符 —— **别拿那一列当判据**。
+3. **`gcloud alpha iap oauth-brands` 这条路已经不存在**：命令自己警告
+   「IAP OAuth Admin APIs 于 2026-03-19 永久关停」，且对本项目直接报
+   `INVALID_ARGUMENT: Project must belong to an organization`。
+
+**真正可行的做法是手工建一个 Web 类型的 OAuth 客户端再显式配给 IAP**（四步）：
+
+```bash
+# ① 控制台 → Google Auth Platform → Clients → Create client → Web application（名字 bp-admin-iap）
+#    创建后弹窗里的 client secret **只显示这一次**，立刻存好。
+# ② 存进 Secret Manager（本次已存：bp-admin-iap-oauth-client-id / bp-admin-iap-oauth-secret）
+# ③ 配给两个后端服务
+CID=$(gcloud secrets versions access latest --secret=bp-admin-iap-oauth-client-id --project=oratis-491316)
+CSEC=$(gcloud secrets versions access latest --secret=bp-admin-iap-oauth-secret   --project=oratis-491316)
+for b in bp-admin-backend bp-api-admin-backend; do
+  gcloud compute backend-services update "$b" --global --project=oratis-491316 \
+    --iap="enabled,oauth2-client-id=${CID},oauth2-client-secret=${CSEC}"
+done
+# ④ 回控制台给该客户端加 Authorized redirect URI（缺它登录回调会失败）：
+#    https://iap.googleapis.com/v1/oauth/clientIds/<CLIENT_ID>:handleRedirect
+```
+
+⚠️ **③ 之后到边缘真正生效之间有几分钟传播延迟**，期间仍报同一个 502 ——
+不要因为「配完立刻还是 502」就回头改配置，先等一轮再判。
+
+**登录路径实测**（Google 账号选择 → 同意页只请求 `email` 一项 → 落到 `/admin` 看板）。
+边界同时复测：`api.babel.plus` 上的 admin 端点 **403**（那条路径不经 IAP，靠应用层 fail-closed），
+经 LB 带伪造 `x-goog-iap-jwt-assertion` 头 **302**（IAP 在应用之前就拦掉了）。
 
 ---
 
@@ -184,13 +218,18 @@ IAP OAuth Admin API **已于 2026-03-19 永久关停**，且本项目不属于�
 
 - **出口节点仍是 0 台。** 用户现在能注册、能下单，但**买了也没有节点可连**，
   `/user/nodes` 返回空数组。P1 的八条出口标准依然 0/8。
-- **管理面进不去。** 需要 GCLB + IAP + OAuth 品牌，而 OAuth 同意屏是控制台交互步骤。
-  见 roadmap B51。
-- **ESP 未接线。** 注册验证码写进了 `email_verifications`，但没有任何邮件真的发出去。
-  本次的测试账号是靠直接往那张表里插一行已知验证码完成注册的 —— **真人做不到这件事**。
-  也就是说，**现在这套东西还不能让任何一个真实用户自助注册**。
-- **`bp-` 告警策略仍是 0 条。** 8 条 Scheduler 从此会跑，而「某条任务从此不再执行」
-  在告警面上**完全静默**，最坏的那条（`expire-check`）的现象是「到期用户继续免费上网」。
-- **roadmap B53 / B54 两条动钱的缺陷未修**，理由见 roadmap（都不是能顺手改一行的）。
+- ~~**管理面进不去。**~~ ✅ **当天稍晚已解决**（§4.1 末节：GCLB + IAP + 手工建的 OAuth 客户端，
+  `admin.babel.plus` 实测可登录、`/admin/dashboard` 200）。roadmap **B51 可关闭**。
+- **ESP 未接线** —— 🔶 **代码侧已就绪**（PR #26：`internal/mail` 的 SMTP 发信器 + 装配注入 +
+  正文渲染，验证码信在签发时同步发送并如实落 `email_log`），**但没有 ESP 账号，六个
+  `BP_SMTP_*` / `BP_MAIL_*` 变量全空 = 发信路径按「未配置」跳过**。
+  所以结论不变：**现在这套东西仍不能让任何一个真实用户自助注册**，
+  差的只剩「注册一家 ESP 并把六个变量配上」。
+- ~~**`bp-` 告警策略仍是 0 条。**~~ 🔶 **当天已建第一条**（`bp-scheduler-task-failed`，§4.1）——
+  8 条 Scheduler 任一非 2xx 单次即告警，最坏那条（`expire-check` 停跑 = 到期用户继续免费上网）
+  从此有信号。⚠️ 仍只有这一条：ADR 0014 未批准，`setup-alerts.sh --apply` 不许跑；
+  批准后须**先删掉这条手工策略**再由脚本统一接管，否则同一事件会告警两次。
+- ~~**roadmap B53 / B54 两条动钱的缺陷未修**~~ ✅ **已修并已上线**（PR #25，当天合入并随
+  修订版 `bp-api-00009-7dn` 部署）。
 - **`deploy.yml` 仍然从未运行过**（B47）。本次走的是本机脚本 + Cloud Build，
   没有可审计的 CI 部署记录。
