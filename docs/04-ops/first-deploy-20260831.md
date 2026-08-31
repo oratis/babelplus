@@ -162,6 +162,48 @@ Scheduler bp-expire-check 手工触发                   200（内部面未被�
 verify-isolation.sh 部署前后                         18 项通过 / 0 失败
 ```
 
+## 4.2 · ESP 接通：第一封真实送达的邮件（2026-08-31 追记）
+
+选型 **Resend**（用户裁决），发信域 **`mail.babel.plus`**，区域 `ap-northeast-1`。
+ADR 0002 §7 要求「以国内邮箱实测送达率为唯一选型依据」——**本次没有做那个比较**，
+是用户直接指定的。那份实测仍然欠着（B22），只是现在有了产生数据的手段：
+`email_log` 从此按 `esp` 分组记录 `status` / `provider_msg_id` / `bounce_code`。
+
+**接线形态**：走 Resend 的 **SMTP** 接口而不是它的 HTTP SDK ——
+PR #26 的实现因此开箱即用，且「换一家 ESP 测送达率」仍然只是一次配置变更。
+
+| 变量 | 值 |
+|---|---|
+| `BP_SMTP_HOST` | `smtp.resend.com` |
+| `BP_SMTP_PORT` | `465`（隐式 TLS） |
+| `BP_SMTP_USERNAME` | `resend`（Resend 的 SMTP 用户名是固定字符串） |
+| `BP_SMTP_PASSWORD` | Secret Manager `bp-resend-api-key`（**即 Resend API key 本身**） |
+| `BP_MAIL_FROM` | `babel.plus <no-reply@mail.babel.plus>` |
+| `BP_MAIL_ESP` | `resend` |
+
+**DNS（阿里云，三条，均已生效并验证通过）**：
+`resend._domainkey.mail` TXT（DKIM）· `rsend.mail` CNAME · `send.mail` CNAME。
+域名状态经 `POST /domains/{id}/verify` 后转 **verified**。
+
+### 实测（观测，不是推断）
+
+```
+POST /api/v1/auth/email-code {scene:"register"}          204
+Resend 侧 last_event                                      delivered
+  from "babel.plus" <no-reply@mail.babel.plus>
+  subject 【babel.plus】邮箱验证码
+email_log 第 2 行  esp=resend  status=sent  provider_msg_id=有  sent_at=有
+email_log 第 1 行  esp=unwired status=queued provider_msg_id=无 sent_at=无   ← 上线当天那封，对照组
+verify-isolation.sh 前后                                  18 项通过 / 0 失败
+```
+
+两行的差别正是「接线前 vs 接线后」的全部形态差异。
+
+⚠️ **切流量前先验候选版能起来**：`config.Load` 对这六项是**整组校验**，
+半配会让容器**拒绝启动**——现象是新修订版起不来而不是发不出信。本次按两段式做了这一步。
+
+---
+
 ### 管理面准入：当天稍晚已打通（含一条走了弯路的记录）
 
 ✅ **`https://admin.babel.plus` 已可登录并操作**，`/api/v1/admin/dashboard` 实测 **200 带真实数据**
@@ -220,11 +262,8 @@ done
   `/user/nodes` 返回空数组。P1 的八条出口标准依然 0/8。
 - ~~**管理面进不去。**~~ ✅ **当天稍晚已解决**（§4.1 末节：GCLB + IAP + 手工建的 OAuth 客户端，
   `admin.babel.plus` 实测可登录、`/admin/dashboard` 200）。roadmap **B51 可关闭**。
-- **ESP 未接线** —— 🔶 **代码侧已就绪**（PR #26：`internal/mail` 的 SMTP 发信器 + 装配注入 +
-  正文渲染，验证码信在签发时同步发送并如实落 `email_log`），**但没有 ESP 账号，六个
-  `BP_SMTP_*` / `BP_MAIL_*` 变量全空 = 发信路径按「未配置」跳过**。
-  所以结论不变：**现在这套东西仍不能让任何一个真实用户自助注册**，
-  差的只剩「注册一家 ESP 并把六个变量配上」。
+- ~~**ESP 未接线**~~ ✅ **已接通并实测送达**（同日，见 §4.2）。
+  **「真人无法自助注册」这条从此不成立** —— 验证码邮件真的会到收件箱。
 - ~~**`bp-` 告警策略仍是 0 条。**~~ 🔶 **当天已建第一条**（`bp-scheduler-task-failed`，§4.1）——
   8 条 Scheduler 任一非 2xx 单次即告警，最坏那条（`expire-check` 停跑 = 到期用户继续免费上网）
   从此有信号。⚠️ 仍只有这一条：ADR 0014 未批准，`setup-alerts.sh --apply` 不许跑；
