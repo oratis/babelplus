@@ -98,6 +98,77 @@
 
 ---
 
+## 4.1 · 当天晚些时候：域名接入与两处纪律事故（2026-08-31 追记）
+
+同日在 §4 之上又做了一轮，**本节只记执行过的动作与观测到的结果**。
+裁决依据：[ADR 0016](../05-adr/0016-domain-babelplus.md)（域名统一 `babel.plus`，当日批准）。
+
+### 新增资源
+
+| 资源 | 形态 | 备注 |
+|---|---|---|
+| `bp-admin-lb-ip` | 全局静态 IP `34.117.101.225` | 三个子域共用一个 LB |
+| `bp-admin-lb` | 全局外部 HTTPS LB（URL map） | 三条 host 规则：`admin.` / `web.` / `api.` |
+| `bp-admin-neg` / `bp-api-admin-neg` / `bp-web-neg` / `bp-api-public-neg` | serverless NEG（us-central1） | ⚠️ 后端服务**不能带 `--protocol`**：serverless NEG 会拒绝 port-name（实测踩到，删了重建） |
+| `bp-admin-backend` / `bp-api-admin-backend` | 后端服务，**IAP=enabled** | `admin.` 的默认路由与 `/api/*` |
+| `bp-web-backend` / `bp-api-public-backend` | 后端服务，无 IAP | `web.` / `api.` |
+| `bp-admin-config-bucket` / `bp-web-config-bucket` | backend bucket（GCS） | 只托管一个 `/runtime-config.js`，理由见下 |
+| `bp-admin-cert` / `bp-public-cert` | Google 托管证书 | `admin.` / `web.`+`api.`，均 ACTIVE |
+| `bp-admin-totp-enc-key` | Secret Manager | `openssl rand -base64 32`，已授权 `bp-api-sa` |
+| `bp-scheduler-task-failed` | 告警策略（**`bp-` 的第一条**） | `job_id=~"^bp-"` 非 2xx 单次即告警，走既有 email 渠道 |
+| `admin_users` 首行 | id=1，`owner`，四个权限位全开 | 一次性引导程序（跑完即删，不进仓库），解 B52 的引导死结 |
+
+### 🔴 两处必须留在记录里的事故
+
+**① `runtime-config.js` 指向 `run.app` 绝对地址，经 LB 访问会绕过 IAP。**
+两个 SPA 容器里那份配置是 §2 上线时写死的 `apiBaseUrl: 'https://bp-api-…run.app'`。
+从 `admin.babel.plus` 打开时，浏览器会直连 run.app —— **请求不带 IAP 断言，全部 403**，
+而现象是「后台能打开、每个接口都 403」，指向的是鉴权配置而不是这一行。
+处置：LB 上给 `/runtime-config.js` 加一条 backend bucket 路径规则，
+`apiBaseUrl` 留空 = 同源（`web/admin/src/lib/api.ts:40` 的 `|| window.location.origin`）。
+**用户面同理**，只是它指向 `https://api.babel.plus` 且保留 run.app 作 `apiFallbackBaseUrls`。
+
+**② 生产流量被钉在旧修订版上，导致「验证通过」是假绿。**
+`gcloud run services update` 改环境变量会**建新修订版**，而流量此前被
+`--to-revisions=bp-api-87886e4=100` 钉死 —— 新修订版建了三个都是 0% 流量。
+于是「admin 无凭据 403」这条验证**看起来通过、实际来自没配 audience 的旧版本**：
+它 403 的原因是「压根没配所以全拒」，而不是「配了且验签失败」。两者现象一样，结论完全相反。
+判据：`gcloud run services describe --format='value(status.traffic)'`，不要只看 `describe` 的 spec。
+⚠️ 同一个坑还有第二半：`candidate` **标签也不会自动跟着最新修订版走**，
+本次实测标签仍指向上一个候选版，对着 `candidate---` 域名做的验证同样验错了对象。
+
+### 本次上线暴露的第三条（已修）
+
+**`deploy-api.sh` 会静默删掉线上已配的四个环境变量。**
+`--set-env-vars` 是全量替换，而内部面/管理面那四项走「没 export 就不进列表」的路径 ——
+合起来的后果不是部署失败，是**功能静默消失**：内部面两项没了 → 8 条 Scheduler 全部 403
+（`expire-check` 停跑 = 到期用户继续免费上网，无人察觉）；管理面两项没了 → 后台整体拒绝。
+本次候选版实际已经丢了这四项 + `BP_ALLOWED_ORIGINS` 的四个 run.app 源，**切流量前发现**。
+处置见 [PR #28](https://github.com/oratis/babelplus/pull/28)：部署前读线上实况，
+只在「线上有、这次没传」时拦截并给出处置。这是 [deploy.md](deploy.md) 地雷 4 的可执行形态。
+
+### 实测结果（观测，不是推断）
+
+```
+DoH 解析（dns.google）  web./api./admin.babel.plus → 34.117.101.225   三个全对
+api.babel.plus/-/healthz                            ok
+api.babel.plus/api/v1/admin/dashboard               403（无凭据）
+bp-api（生产，修订版 bp-api-00009-7dn）
+  /-/healthz                                        ok
+  admin 无凭据 / 伪造 IAP 断言                        403 / 403
+  CORS：web./admin.babel.plus 与 4 个 run.app 源      逐个回显
+  CORS：evil.example.com                            0 命中
+Scheduler bp-expire-check 手工触发                   200（内部面未被切流量弄坏）
+verify-isolation.sh 部署前后                         18 项通过 / 0 失败
+```
+
+⚠️ **管理面仍进不去**：IAP 的 `oauth2ClientId` 为空（502 `Empty Google Account OAuth client ID(s)`）。
+IAP OAuth Admin API **已于 2026-03-19 永久关停**，且本项目不属于组织 —— gcloud 与 API 都没有路径，
+**只能控制台**：配 Google Auth Platform 品牌（External / Testing）后，在 IAP 页面把两个后端服务
+的开关关掉再打开，由控制台挂上 Google 托管的 OAuth 客户端。
+
+---
+
 ## 代价
 
 - **两个 SPA 共享 `*.run.app` 这一个可注册主域名。** ADR 0003 §3.2 明确要求用户面板与后台
