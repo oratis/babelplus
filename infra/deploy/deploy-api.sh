@@ -581,6 +581,63 @@ BP_ALLOWED_ORIGINS=${origins}"
     env_vars="${env_vars};;BP_ADMIN_TOTP_ENC_KEY=${BP_ADMIN_TOTP_ENC_KEY}"
   fi
 
+  # ---- 🔴 静默降级闸门：线上已经配了、而这次没传，就是一次静默的功能拆除 ----
+  #
+  # `--set-env-vars` 是**全量替换**语义（deploy.md 地雷 4）：上面这四项走的是
+  # 「不给就不进列表」的路径，而「不进列表」在全量替换下等于**从线上删掉**。
+  # 两处设计各自都对，合起来是一个陷阱：**忘记 export 的代价不是部署失败，是功能消失**。
+  #
+  # 2026-08-31 实测差点踩进去（当时四项都已在线上配好）：
+  #   · 内部面两项被删 → 8 条 Cloud Scheduler 全部 403。最坏的是 expire-check，
+  #     它停跑的现象是「到期用户继续免费上网、面板一切正常」，没有任何人会发现；
+  #   · 管理面两项被删 → 后台整体拒绝，而现象与「IAP 配错了」一模一样。
+  # 两类故障都**不指向这次部署**，排查会先去查 Scheduler、查 IAM、查 IAP。
+  #
+  # 所以这里主动读一次线上实况，只在「线上有、这次没传」时拦截。判据是线上事实，
+  # 不是猜测：查不到服务（首次部署）或读不出来时不拦，宁可放过也不制造假阻塞。
+  #
+  # 不自动继承线上值的理由：那会让「线上现在到底配的是什么」变成一个没人回答得了的问题，
+  # 而这四项里有两项直接决定谁能进管理面。**要么显式传，要么显式说不要。**
+  local live_env=""
+  if [ "${BP_ALLOW_ENV_DROP:-0}" != "1" ] && live_env="$(gcloud run services describe "$SERVICE" \
+        --project="$PROJECT_ID" --region="$REGION" \
+        --format='value(spec.template.spec.containers[0].env)' 2>/dev/null)"; then
+    local dropped=""
+    local k
+    for k in BP_INTERNAL_OIDC_AUDIENCE BP_INTERNAL_TASK_CALLERS \
+             BP_ADMIN_IAP_AUDIENCE BP_ADMIN_TOTP_ENC_KEY; do
+      # 线上有这一项，而本次 env_vars 里没有它 → 这次部署会把它删掉。
+      case "$live_env" in
+        *"$k"*)
+          case "$env_vars" in
+            *";;${k}="*) ;;
+            *) dropped="${dropped} ${k}" ;;
+          esac
+          ;;
+      esac
+    done
+    if [ -n "$dropped" ]; then
+      die "线上已配置以下环境变量，但本次部署没有传，--set-env-vars 会把它们**从线上删掉**：
+    ${dropped# }
+
+  这不是一次会失败的部署，是一次会静默拆掉功能的部署：
+    · 内部面两项没了 → 8 条 Cloud Scheduler 全部 403（expire-check 停跑 = 到期用户继续免费上网，无人察觉）
+    · 管理面两项没了 → 后台整体拒绝，现象与「IAP 配错了」无法区分
+
+  处置二选一：
+    ① 带上它们再跑（当前线上值可用下面这条命令查）：
+         gcloud run services describe ${SERVICE} --project=${PROJECT_ID} --region=${REGION} \\
+           --format='value(spec.template.spec.containers[0].env)' | tr ';' '\\n'
+       然后 export 同名变量后重跑本脚本。
+       ⚠️ BP_ADMIN_TOTP_ENC_KEY 在线上是 Secret Manager 引用，用本脚本传会退化成**明文环境变量**。
+          要保持 secret 形态，改用：
+            gcloud run services update ${SERVICE} --region=${REGION} --project=${PROJECT_ID} \\
+              --update-secrets=BP_ADMIN_TOTP_ENC_KEY=bp-admin-totp-enc-key:latest
+          在本脚本部署出候选修订版之后补一次，再切流量。
+    ② 确实要关掉它们：设 BP_ALLOW_ENV_DROP=1 重跑，本闸门放行。"
+    fi
+  fi
+
   local -a args=(
     gcloud run deploy "$SERVICE"
     --project="$PROJECT_ID"
