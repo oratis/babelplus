@@ -204,6 +204,86 @@ verify-isolation.sh 前后                                  18 项通过 / 0 失
 
 ---
 
+## 4.3 · GTS → Let's Encrypt：B9 的剩余部分已解决（2026-09-01）
+
+`web.` / `api.babel.plus` 的证书从 **Google 托管（GTS 签发）换成 Let's Encrypt**。
+这不是洁癖：GTS 证书在中国触发 **IP 级单向丢包**（ADR 0004 §3.4，2026-08-21 实测），
+失效形态是「慢」而不是「断」，在我们当前的可观测性水平上根本发现不了。
+ADR 0016 §3.1 把它列为「域名裁决改不掉的硬约束」，roadmap **B9 的剩余部分**即此。
+
+`admin.babel.plus` **刻意保留 Google 托管证书**：它走 IAP，管理员本来就要先过
+`accounts.google.com`（ADR 0003 §2.1 基线 95% 异常），GTS 对它不构成额外损失，
+而托管证书会自动续期 —— 少一处要维护的东西。
+
+### 🔴 两个把路堵死、必须记下来的实测
+
+**① GCS 硬拒 `.well-known/acme-challenge/` 这个对象路径。**
+
+```
+HTTPError 400: ACME HTTP challenges are not supported.
+```
+
+Google 主动封堵，防的是「谁都能拿桶托管一个挑战响应去劫持域名」。
+所以「backend bucket + HTTP-01」这条最直觉的路**直接不通**。
+处置：对象存 `acme/<token>`，由 URL map 的 `routeAction.urlRewrite.pathPrefixRewrite: /acme/`
+把 `/.well-known/acme-challenge/` 前缀重写过去。**两边必须一起改** ——
+只改一边的现象是 LE 拿到 404、报 `unauthorized`。
+
+**② `google/cloud-sdk` 镜像在 arm64 上跑 amd64 模拟时，容器内的 gcloud 自身不可用。**
+只读挂 `~/.config/gcloud` 报 `Read-only file system: credentials.db`；
+复制成可写之后 gcloud 仍报诊断异常、上传静默失败。
+而 certbot 又必须在容器里（本机没装）。
+处置：**容器只跑 certbot，挑战上传由宿主机做**，两者靠共享目录接力
+（容器写 `pending/<token>`，宿主机 watcher 轮询上传）。
+⚠️ 附带一条老坑：本机 Docker 是 **colima**，bind mount **只在 `/Users/...` 下有效** ——
+挂 `/private/tmp/...` 会得到**空目录**（不是报错，是静默为空），工作目录因此固定在 `$HOME` 下。
+
+### 新增资源与脚本
+
+| 资源 | 用途 |
+|---|---|
+| `bp-acme-challenge`（GCS）+ `bp-acme-bucket`（backend bucket） | 托管 ACME 挑战响应，对象路径 `acme/<token>` |
+| `bp-acme-http-lb` + `bp-acme-http-proxy` + `bp-acme-http-fr`（80 端口） | HTTP-01 的入口；**非挑战路径一律 301 到 HTTPS** |
+| `bp-public-le-20260901`（自管证书） | 替换掉 Google 托管的 `bp-public-cert` |
+| `bp-acme-certbot-state`（Secret Manager） | certbot 账号状态，续期不必重新注册 |
+| `infra/scripts/renew-le-cert.sh` | 续期脚本，三模式：`--check` / `--dry-run` / `--apply` |
+
+### 实测
+
+```
+签发者  web./api.babel.plus   C=US, O=Let's Encrypt, CN=YE1     （到期 2026-11-29）
+       admin.babel.plus      O=Google Trust Services, CN=WR3   （刻意保留）
+仓库自己的 check-cert-issuer.sh --domains=web,api                2 项通过 / 0 失败
+80 端口                       301 → https://web.babel.plus:443/
+web / api / admin             200 / ok / 302（IAP 正常拦截）
+verify-isolation.sh                                             16 项通过 / 0 失败
+```
+
+⚠️ **90 天后要续**（2026-11-29 到期）。忘了续的兜底见 §4.4 的 `bp-api-healthz-down`：
+uptime check 会校验 TLS，证书过期即告警。
+
+---
+
+## 4.4 · 告警：从 0 条到 3 条（2026-09-01）
+
+| 策略 | 抓什么 | 备注 |
+|---|---|---|
+| `bp-scheduler-task-failed` | `bp-*` 的 Scheduler 任一非 2xx，单次即告警 | 最坏那条 `expire-check` 停跑 = 到期用户继续免费上网，此前**完全静默** |
+| `bp-api-healthz-down` | `api.babel.plus/-/healthz` 连续探测失败 | uptime check **校验 TLS**，所以它同时兜住「证书过期」 |
+| `bp-cert-issuer-bad` | 签发者不再是 Let's Encrypt（P0） | 指标 `bp_cert_issuer_bad` 已按 `check-cert-issuer.sh` 的契约建好（**B42 三条建不了的指标解决一条**） |
+
+🔴 **`bp-cert-issuer-bad` 目前收不到任何信号**，这一条必须写清楚：
+它依赖 `check-cert-issuer.sh` 每日写日志，而**那个每日作业还没有挂**。
+ADR 0014 §14 要求这类检测**带外**运行（「检测『我们的前置基础设施是否被替换』
+不应依赖那套基础设施」），而我们没有带外机器 —— 这条仍然欠着。
+**在它挂上之前，「签发者被换成 GTS」这类故障只能靠人跑 `renew-le-cert.sh --check` 发现。**
+（`bp-api-healthz-down` 抓不到它：GTS 证书是受信任的，TLS 校验照样通过。）
+
+⚠️ ADR 0014 批准并跑 `setup-alerts.sh --apply` 时，**须先删掉这三条手工策略**，
+否则同一事件会告警两次。
+
+---
+
 ### 管理面准入：当天稍晚已打通（含一条走了弯路的记录）
 
 ✅ **`https://admin.babel.plus` 已可登录并操作**，`/api/v1/admin/dashboard` 实测 **200 带真实数据**
