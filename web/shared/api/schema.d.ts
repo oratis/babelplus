@@ -50,6 +50,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/server/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 节点自身配置（v2node ≥ v0.4.0 实际请求的路径）
+         * @description **与 `getUniProxyConfig` 是同一件事，响应逐字节相同。** 存在的唯一理由是实测：
+         *
+         *     `wyx2685/v2node`（本项目选定的节点 agent，ADR 0006）自 **v0.4.0 起**把
+         *     **且仅把**配置端点迁到了 `/api/v2/server/config`
+         *     （`api/v2board/node.go:122` 的 `const path`），
+         *     而 `/user` `/push` `/alive` `/alivelist` **四个仍留在 `/api/v1/server/UniProxy/*`**。
+         *     它没有 `/status` 调用。
+         *
+         *     🔴 **这条不一致是 2026-09-01 第一次真机装机时才发现的**，因为冻结契约抄的是
+         *     **v2board 1.7.4 / Xboard**，而我们跑的是 v2node —— 两者在这一个端点上分了叉。
+         *     失败形态极具误导性：v2node 拿到 Go 默认的 `404 page not found`，
+         *     把它当 JSON 解析，报 `decode node params error: invalid character 'p' after top-level value`
+         *     （`404` 是合法的顶层数字，后面的 `p` 才是报错点），**日志里完全看不出是路由不匹配**。
+         *
+         *     响应结构无需改动：v2node 的 `CommonNode` 与本契约的 `NodeConfig` 字段逐个对得上，
+         *     含 `tls_settings.xver` 是**字符串**这一条（`json:"xver,string"`）。
+         */
+        get: operations["getNodeConfigV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/server/UniProxy/user": {
         parameters: {
             query?: never;
@@ -3964,6 +3999,55 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description 节点配置（**裸 JSON，无信封**） */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    "Cache-Control": components["headers"]["CacheControlNoCache"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeConfig"];
+                };
+            };
+            304: components["responses"]["NodeNotModified"];
+            401: components["responses"]["NodeUnauthorized"];
+            403: components["responses"]["NodeForbidden"];
+            429: components["responses"]["NodeRateLimited"];
+            500: components["responses"]["NodeInternalError"];
+        };
+    };
+    getNodeConfigV2: {
+        parameters: {
+            query?: {
+                /**
+                 * @description **只用于日志与一致性检查，不用于查询。** 权威来源是密钥绑定的 `node_keys.node_id`。
+                 *     与密钥绑定的不一致 → 403 `NODE_ID_MISMATCH` + 写告警（**不是静默忽略** ——
+                 *     静默忽略会让「配置写错了哪台机器」这类事故无法被发现）。
+                 */
+                node_id?: components["parameters"]["NodeIdQuery"];
+                /**
+                 * @description **只用于日志。** 节点类型的权威来源是 `servers.type`。
+                 * @example v2node
+                 */
+                node_type?: components["parameters"]["NodeTypeQuery"];
+            };
+            header?: {
+                /**
+                 * @description 上一次响应的 `ETag`。**弱比较**（RFC 9110 §8.8.3.2），命中返回 304。
+                 *
+                 *     > 🔴 **v2node 是否发送这个头 需实测。不发则整套 ETag 一行都不生效**
+                 *     > （ADR 0006 §11.4 已记为最高优先级）。ETag 不是优化，是让请求量算得平的前提：
+                 *     > 10 节点 = 1,728,000 请求/月，占 Cloud Run 免费额度 200 万/月的 86%。
+                 * @example W/"3-u482"
+                 */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 节点配置（**裸 JSON，无信封**），与 `getUniProxyConfig` 相同 */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];

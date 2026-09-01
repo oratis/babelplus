@@ -615,6 +615,11 @@ func (Unimplemented) ListWalletTransactions(_ context.Context, _ gen.ListWalletT
 	return nil, ErrNotImplemented
 }
 
+// GetNodeConfigV2 尚未实现。
+func (Unimplemented) GetNodeConfigV2(_ context.Context, _ gen.GetNodeConfigV2RequestObject) (gen.GetNodeConfigV2ResponseObject, error) {
+	return nil, ErrNotImplemented
+}
+
 // RunAliveGcTask 尚未实现。
 func (Unimplemented) RunAliveGcTask(_ context.Context, _ gen.RunAliveGcTaskRequestObject) (gen.RunAliveGcTaskResponseObject, error) {
 	return nil, ErrNotImplemented

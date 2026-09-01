@@ -171,11 +171,21 @@ func TestNoteNodeAlive_Throttled(t *testing.T) {
 // 结果就是一个活得好好的节点被 metric absence 判成离线，
 // 值班在半夜被叫起来去查一台没问题的机器。
 //
-// 用例数写死成 5 是**故意**的：将来实现 PushUniProxyStatus（当前是 501 stub）时
-// 本用例会失败，失败信息会告诉你「新端点也要调 noteNodeAlive，然后把这里改成 6」。
+// 用例数写死是**故意**的：新增节点面端点时本用例会失败，
+// 失败信息会告诉你「新端点也要调 noteNodeAlive，然后把这里的数字改掉」。
 // 那正是我们希望有人停下来想一秒的时刻。
+//
+// 🔴 2026-09-01 改了两处，都是为了不让这条防护在重构后变成假绿：
+//
+//	① 识别范围加上 GetNodeConfig 前缀 —— v2node 实际请求的是 /api/v2/server/config，
+//	   它的 handler 叫 GetNodeConfigV2，不带 UniProxy 字样。
+//	   不加这一条，新端点会**完全落在本用例视野之外**，而它同样要贡献心跳采样点。
+//	② 允许**间接**调用：两条 config 路径共用 s.nodeConfig，心跳在那里上报。
+//	   只认直接调用的话，「把公共逻辑抽出去」这个正确的重构会让本用例变红，
+//	   于是下一个人的修法多半是把断言删掉 —— 那比没有这条防护更糟。
+//	   只跟一层，且被调者必须是同文件内 *Server 的方法：再深就等于在测试里写一个调用图分析器。
 func TestEveryUniProxyHandlerRecordsHeartbeat(t *testing.T) {
-	const wantHandlers = 5
+	const wantHandlers = 6
 
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "node.go", nil, 0)
@@ -189,11 +199,13 @@ func TestEveryUniProxyHandlerRecordsHeartbeat(t *testing.T) {
 		if !ok || fn.Recv == nil || fn.Body == nil {
 			continue
 		}
-		if !strings.HasPrefix(fn.Name.Name, "GetUniProxy") && !strings.HasPrefix(fn.Name.Name, "PushUniProxy") {
+		if !strings.HasPrefix(fn.Name.Name, "GetUniProxy") &&
+			!strings.HasPrefix(fn.Name.Name, "PushUniProxy") &&
+			!strings.HasPrefix(fn.Name.Name, "GetNodeConfig") {
 			continue
 		}
 		found++
-		if !callsNoteNodeAlive(fn.Body) {
+		if !recordsHeartbeat(fn.Body, serverMethods(f)) {
 			t.Errorf("%s 没有调用 s.noteNodeAlive —— 该端点不再贡献 bp_node_alive 采样点", fn.Name.Name)
 		}
 	}
@@ -203,6 +215,52 @@ func TestEveryUniProxyHandlerRecordsHeartbeat(t *testing.T) {
 			"如果你刚加了一个端点：先在它里面调 s.noteNodeAlive（node_id 校验通过之后），再把 wantHandlers 改成 %d",
 			found, wantHandlers, found)
 	}
+}
+
+// serverMethods 收集本文件内所有 *Server 方法的函数体，供间接调用解析用。
+func serverMethods(f *ast.File) map[string]*ast.BlockStmt {
+	out := map[string]*ast.BlockStmt{}
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Body == nil {
+			continue
+		}
+		out[fn.Name.Name] = fn.Body
+	}
+	return out
+}
+
+// recordsHeartbeat 判定 body 是否（直接或经由本文件内一层 *Server 方法）上报了心跳。
+func recordsHeartbeat(body *ast.BlockStmt, methods map[string]*ast.BlockStmt) bool {
+	if callsNoteNodeAlive(body) {
+		return true
+	}
+	for _, name := range calledServerMethods(body) {
+		if b, ok := methods[name]; ok && callsNoteNodeAlive(b) {
+			return true
+		}
+	}
+	return false
+}
+
+// calledServerMethods 列出 body 里所有 s.Xxx(...) 形式的调用名。
+func calledServerMethods(body *ast.BlockStmt) []string {
+	var names []string
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "s" {
+			names = append(names, sel.Sel.Name)
+		}
+		return true
+	})
+	return names
 }
 
 func callsNoteNodeAlive(body *ast.BlockStmt) bool {
