@@ -324,15 +324,51 @@
 **1.A · 节点侧（照 [ADR 0007 §9](../05-adr/0007-node-migration.md) 与
 [node-provisioning](../04-ops/node-provisioning.md) 执行）**
 
+> 🟢 **2026-09-01 三次复核（基线 master `85ae3e2e494`）：本组第一次勾上三条。**
+> `gcloud compute instances list --project=oratis-491316` 现返回三台 ——
+> `vpn-us` / `vpn-jp` / **`bp-node-hk1`（asia-east2-a，RUNNING）**（本次只读实查）。
+> **上面那两段「一台机器都没建」的原文一律保留，它记的是 2026-08-30 的实况。**
+> 🔴 **但本组仍然只勾得动前三条，因为「建机」与「装机」是两件事** ——
+> 机器在跑，**机器上一个协议栈都没装**。§4.3 的八条出口标准因此仍是 **0/8**：
+> 出口标准 2–7 全部要求节点上有一个在跑的 v2node，而它不存在。
+> 证据 [node-provision-bp-node-hk1-20260901](../evidence/node-provision-bp-node-hk1-20260901/)。
+
 - [ ] 阶段 0 · 核查：清零 ADR 0007 §3 的九个待核实项（与 P0 的 0.B 重叠）
-- [ ] 阶段 1 · **防火墙先行**：建 4 条 `bp-*` 规则，**必须在实例创建之前就位**
+- [x] ~~阶段 1 · **防火墙先行**：建 4 条 `bp-*` 规则，**必须在实例创建之前就位**
       （`default-allow-ssh` 0.0.0.0/0 对所有实例生效，压制它的 `vpn-public-ssh-deny`
-      只覆盖 `vpn-node` 标签）
-- [ ] 建 `bp-node-sa`，**故意不授予任何 IAM 角色**（不能用 Compute 默认 SA，它常带 Editor）
+      只覆盖 `vpn-node` 标签）~~
+      **✅ 2026-08-31 建成，四条齐，且优先级关系正确**：`bp-allow-hy2-udp443`(udp:443/1000) ·
+      `bp-allow-reality-443`(tcp:443/1000) · `bp-iap-ssh-allow`(tcp:22/**900**) ·
+      `bp-public-ssh-deny`(deny tcp:22/**1000**) —— **900 < 1000，即 IAP 段放行压过全网拒绝**。
+      规则在实例创建**之前**就位（清点时间戳 `17:14:21Z` → `17:21:30Z` 同一批）。
+      证据 [node-provision-bp-node-hk1-20260901](../evidence/node-provision-bp-node-hk1-20260901/)。
+- [x] ~~建 `bp-node-sa`，**故意不授予任何 IAM 角色**（不能用 Compute 默认 SA，它常带 Editor）~~
+      **✅ 2026-08-31 建成**：`bp-node-sa@oratis-491316.iam.gserviceaccount.com`
+      （描述 `babel.plus node runtime`），出现在建机后清点里。
+      ⚠️ **「零角色」这一半本次没有单独取证** —— 清点命令列的是 SA 存在，不是它的 IAM 绑定。
+      要坐实还需一条 `gcloud projects get-iam-policy --flatten=bindings --filter=bp-node-sa`。
 - [ ] IP 网段预筛（预留 5 个看落段，优先 35.220.x、避开 34.92.x，留 1 删 4）
-- [ ] 阶段 2 · 建 `bp-node-hk1`（asia-east2-a 或 -c、e2-small、Premium、IPv6）
-- [ ] 装机 9 步（sysctl / v2node / xray / hysteria2 / ss-2022 / acme.sh + LE / systemd 硬化
+      🔶 **2026-09-01：没有按这条做，所以不勾。** 实际是**只留了 1 个**（`bp-node-hk1-ip-cand1`
+      = `35.215.140.154`），随后因误判换过一次，现网是 `35.215.158.52`。
+      🔴 **而「换 IP」这个动作本身是被一个已被推翻的判据触发的** —— 见 §9 **B55**：
+      两个 Standard IP 连续给出同样形态，**再换下去只是重复同一个测量误差**。
+      本条的预筛方法在新判据落定之前无法执行。
+- [x] ~~阶段 2 · 建 `bp-node-hk1`（asia-east2-a 或 -c、e2-small、Premium、IPv6）~~
+      **✅ 2026-08-31 建成**：`bp-node-hk1` · **asia-east2-a** · **e2-small** · RUNNING ·
+      Shielded VM · 删除保护 · IAP SSH 实测可登录 · 隔离核对 16/16。
+      ⚠️ **两处与本行原文的偏差，都要记**：① 网络层级实建为 **Standard 不是 Premium**
+      （照 [ADR 0008](../05-adr/0008-network-tier-standard.md)，且被
+      [node-route-methodology-20260901 §2.3](../evidence/node-route-methodology-20260901/)
+      的 A/B 事后支持：Premium 36.4 ms vs Standard 36.2 ms，**无可测差异** ——
+      但那是单目标单时段的握手延迟，**不是吞吐**）；
+      ② **IPv6 未核实**（本次清点无相关字段），承 B20 的二次阻塞。
+- [ ] 🔴 装机 9 步（sysctl / v2node / xray / hysteria2 / ss-2022 / acme.sh + LE / systemd 硬化
       含 `AmbientCapabilities=CAP_NET_BIND_SERVICE` / unattended-upgrades 关自动重启 / swap）
+      🔴 **2026-09-01：一步都没做。** 这是现在挡着 P1 的**唯一一件事**，
+      也是「只差一台机器」这句话在 2026-09-01 之后的准确形态：
+      **机器有了，机器上什么都没装。** 出口标准 2（v2node 拉配置 + 180 秒 `1×200 + 2×304`）、
+      4（真实订阅在两个客户端各加载一次）、5（72 小时 + 流量差 < 1%）、
+      6（三态生效计时）、7（密钥两步轮换）**全部悬在这一条上**。
 - [ ] 阶段 3 · 单人验证 **72 小时**
 
 **1.B · API 与数据侧**
@@ -422,6 +458,15 @@
       **不勾的理由换成了纯粹的一条**：`gcloud scheduler jobs list`（us-central1 / asia-east2 / us-west1
       三个 location 各查一次，2026-08-30 只读实查）返回的**只有 `lisa-autonomy-sweep` 一条，
       `bp-` 作业 0 条**。**端点在那里，没有任何东西会去调它。**
+      🟢 **2026-09-01 三次复核：本条勾上，上面那句「没有任何东西会去调它」已经不成立。**
+      `setup-scheduler.sh --only=scheduler --apply --yes` 于 **2026-08-31 首次上线时执行**
+      （[first-deploy §2](../04-ops/first-deploy-20260831.md) 第 8 步），建成 **8 条**作业：
+      `bp-alive-gc` / `bp-expire-check` / `bp-order-timeout` / `bp-chain-scan` /
+      `bp-traffic-reset` / `bp-stat-rollup-hourly` / `bp-stat-rollup-daily` / `bp-remind-sweep`,
+      **全部 ENABLED，走 OIDC，实测 200**（`gcloud scheduler jobs list --location=us-central1`
+      2026-09-01 只读实查，逐条对上）。
+      ⚠️ **原文那条「六条 Cloud Scheduler + 一条 Cloud Tasks 入账队列」的计数也要订正**：
+      实建 **8 条 Scheduler**（`stat-rollup` 拆成 hourly / daily 两条，另多一条 `remind-sweep`）。
 - [ ] 🔴 十条 log-based metrics **必须在 `bp-api` 第一次部署之前建好**（它们不追溯）
       **2026-08-30：这一条已经失败了，不是「还没做」而是「做晚了，损失已经发生」。**
       `bp-api` 首次部署是 2026-08-17，而当天 `gcloud logging metrics list` 返回空 ——
@@ -702,6 +747,19 @@
 >    `AuthenticateAdmin` 从不读 `Authorization`），而它要的 IAP audience 形态
 >    `/projects/<数字>/global/backendServices/<数字>` **只能来自一个挂 IAP 的 GCLB 后端服务** ——
 >    **那套东西一件都没建**。见 §9 **B51** 与 B19。
+>
+> 🟢 **2026-09-01 三次复核：上面 ① ② 两条全部不成立了，原文保留，订正写在这里。**
+> ① **`BP_INTERNAL_*` 已配**（2026-08-31 首次上线，8 条 Scheduler 带 OIDC 实测 200）；
+>    **`BP_ADMIN_IAP_AUDIENCE` 与 `BP_ADMIN_TOTP_ENC_KEY` 也已配**（同日稍晚）。
+> ② **那套 GCLB + IAP 建起来了**：全局静态 IP `34.117.101.225`、`bp-admin-lb`、
+>    四个 serverless NEG、两个 IAP=enabled 的后端服务、两张证书。
+>    **`https://admin.babel.plus` 实测可登录，`/api/v1/admin/dashboard` 200 带真实数据。**
+> **也就是说 B51 可关闭、B19 的部署形态问题已被实际选择回答**（GCLB + IAP，`bp-admin` 独立服务）。
+> 逐条与踩坑记录见 [first-deploy §4.1 末节](../04-ops/first-deploy-20260831.md)——
+> 其中「IAP 开关打开但 `oauth2ClientId` 为空 → 502」与「控制台 IAP 列表页显示 Status: Ok 与真实可用性不符」
+> 两条值得单独记住。
+> 🔴 **本组仍有一条没被这次订正覆盖**：**后台 17 个模块里第 17 个（域名池与可达性）三个端点仍是 501**，
+> `DomainsPage` 仍刻意不接线 —— 承 B5 / ADR 0011（提案，未批准）。
 > **一句话：后台的 21 页现在打得开，但没有人进得去。**
 
 - [ ] 🔶 后台 17 个模块（P1 档 11 个），16 条危险操作 D1–D16 全部落审计日志（含改前/改后值）
@@ -840,6 +898,17 @@
       `git merge-base --is-ancestor 618bf1c HEAD` 为真、`git rev-list --count 618bf1c..HEAD` = **14**。
       **也就是说：生产跑的是 14 个提交之前的代码，在那个 commit 上 operation 实现数是 18/128，
       而 HEAD 是 120/128。今天做的 102 个 operation，生产上一个都没有。**
+      🟢 **2026-09-01 三次复核：上面这一整段已经不成立，但它记的是 2026-08-30 的实况，按本文规矩原样保留。**
+      **2026-08-31 部署过一次**，生产 `bp-api` 的 serving revision 从 `bp-api-618bf1c` 推到
+      **`bp-api-87886e4` = 当时的 master**（[first-deploy §1–§2](../04-ops/first-deploy-20260831.md)），
+      随后又因配环境变量与 IAP 前移到 `bp-api-00009-7dn`。
+      **这是本项目第一次「仓库口径 = 线上口径」。**
+      🔴 **而本条（IaC）仍然不勾，理由一个字没变，且现在更硬**：
+      部署走的是本机 `deploy-api.sh` + Cloud Build，**`deploy.yml` 至今一次都没运行过**（B47），
+      仓库的 variables / secrets / environments 三者仍是空的。
+      🔴 **2026-08-31 → 09-01 之间新增的 GCLB + IAP + ACME 那一整套（十余个资源）同样全是手敲的**，
+      它把「无 IaC」的敞口从「一台节点」扩大到「整个入口层」——
+      见 [first-deploy §4.1 / §4.3](../04-ops/first-deploy-20260831.md) 的资源表。
       🟢 **好消息只有一条，但它关掉了一笔欠了九天的账**：镜像 tag 可溯源、commit 仍被 `master` 引用，
       B41 那种「对应关系断掉」的事故没有重演。
 - [ ] 🔶 CI / 契约测试：testcontainers-go 起真实 Postgres；**UniProxy 契约测试起真实 v2node 容器**
@@ -1110,6 +1179,11 @@ flowchart TD
 | **B52** | 🔴 **两个直接动钱的权限位在 API 上看不见也授不了**（2026-08-30 二次复核新增）。`admin_users` 有 **4 个** `perm_` boolean 列（`0002_foundation.up.sql:62-65`）：`perm_mark_order_paid`(D6) · **`perm_refund`(D7)** · **`perm_adjust_balance`(D10)** · `perm_export_csv`(D14)，另有 `role`。而契约的 `AdminPermission` 枚举**只有 7 个值**：`admin.order.mark_paid` `admin.user.export` `admin.user.write` `admin.node.write` `admin.plan.write` `admin.ticket.write` `admin.settings.write` —— **`perm_refund` 与 `perm_adjust_balance` 没有任何对应枚举值**。本轮的处置：写侧只接受那两个对得上的，其余一律 **422 并说明「由角色决定」——绝不假装成功**（静默忽略会让「我给他授了退款权限」与「他有退款权限」变成两件事，而这个差值只会在有人退了一笔不该退的钱之后才被发现）。<br>**同族的两条一并登记在此**：① 🔴 **`createAdmin` 造出来的管理员登不进去** —— `totp_confirmed_at` 是 NOT NULL（库里不存在「待绑 2FA」状态），而 `createAdmin` 的 201 响应是 `AdminAccount`、**没有 `TotpEnrollment`**，明文 secret 无处可去；**正确开户是两步：`createAdmin` → 立刻 `resetAdminTotp`**，不写进后台操作文档的话现场唯一的「解法」是直接改库。本轮给 201 多带了一个 `X-Next-Step` 头指向 reset-totp，**那是补丁不是修复**。② 佣金状态机差一格，见 **B37**。 | D7 / D10 两条危险操作的 L4 强制在服务端是有的，**授权路径却是断的**；以及一条无法从 API 完成的开户流程 | 🔴 **需裁决**（给契约加枚举值 = 改冻结契约；或裁定这两个权限位只由 `role` 决定并把列去掉）。登记处：`openapi.yaml` 的 `AdminPermission`、`api/db/migrations/0002_foundation.up.sql:62`、`api/internal/handler/admin_users.go:223` |
 | **B53** | 🔴 **链上入账完全不看 `Solidified`，未固化的转账立刻把订单置为 `paid`**（2026-08-31 新增，PR #19 审查）。`settleDeposit` 的付清判定用 `SumAddressReceipts`，而那条 SQL 只排除 `aml_verdict = 'blacklisted'`，**不按 `payments.state` 过滤** —— 一笔 `state = 'confirming'`（即 `Solidified = false`）的到账会照样计入分子，于是 `shortfall <= 0` 成立、订单直接 `paying → paid`。`processDeposit` 自己是知道固化与否的（它据此决定 `state` 写 `paid` 还是 `confirming`），但那个事实在付清判定里**一次都没被读过**。TRON 的最终性是固化而不是 N 个确认（[ADR 0012](../05-adr/0012-payment-gateway.md) §10.5，代码注释也逐字写着「拿 `Confirmations >= 19` 当判据，在链重组时会开通一个没付钱的订阅」）—— 现在的实现比那还宽一档 | 链重组时会开通一个**没付钱**的订阅，且没有任何告警：订单已 `paid`，`payments` 行停在 `confirming`，两者不再有人比对 | 🔴 **不是一处小改，别照着「加个 `AND pm.state = 'paid'`」直接动手。** 现状下 `InsertPaymentIfNew` 是 `ON CONFLICT DO NOTHING`，重扫同一笔 tx **不会**把 `confirming` 升成 `paid`（`AttributePayment` 只在新插入的分支上跑）。所以只加过滤条件会把订单**永久卡在未付清** —— 用户真金白银付了却永远开通不了，比现状更糟。正确顺序是：先给扫描器补一条「重访 `confirming` 且已固化 → 升级 state」的路径，**再**收紧付清判定。两者必须同一个 PR<br>✅ **2026-08-31：已修（[PR #25](https://github.com/oratis/babelplus/pull/25)），按本栏要求的顺序、同一个 PR**：① 重访路径 `promoteSolidifiedDeposit` —— `handleAlreadyProcessed` 遇「confirming 且本次已固化」时经 `PromoteSolidifiedPayment`（`WHERE state='confirming'` 的 CAS，并发重访只结算一次）升级后重新结算，由扫描游标的 10 分钟回看自然触发；② `SumAddressReceipts.received_usdt6` 只数 `state='paid'`，confirming 单独成列，`settleDeposit` 在「钱在路上」时既不置 paid 也不标 underpaid（新增 hold 分支，`bp_pay_awaiting_solidified`），分支 ④/⑤ 的资金动作同样只认已固化。**口径刻意拆分**：收银台与少付队列仍含 confirming（显示/对账口径，否则每笔正常到账固化前都会闪进少付队列）。**残留**：重组后的幽灵 confirming 使订单停在 underpaid 而队列不显示 —— 那一行 state 恒为 'confirming' 是唯一人工线索，登记在 `admin_ops.sql` 注释。回归测试 5 条 |
 | **B54** | 🔴 **订单 `paid` 之后到达的补足款被静默吞掉**（2026-08-31 新增，PR #19 审查）。`settleDeposit` 的 `case OrderStatusPaid, OrderStatusCompleted` 分支里，`shortfall >= 0` 时直接 `return nil` —— 既不入余额，也不记日志、不打指标。触发形态很具体：C 档少付（`shortfall > ReviewUsdt6`）的用户按提示**向同一地址补足**，而在补足款到账之前，另一条路径（A 档写销、或 D6 手工标记）已经把订单推成了 `paid`；此时补足款落进这个分支，钱在我们的地址上，**没有任何记录指向那个用户** | 与「订单过期后到账入余额」是同一类风险，而那一条在同一个函数里被郑重处理过（「**不做这一条，用户第一次付款的钱就真的进黑洞**」）—— 这一条是同一个黑洞的另一个入口，只是没人注意到 | 🔴 需要「本单已认领额」的口径才能算准该退多少。`amount_paid` 现在**已经会涨了**（PR #19 审查时修的另一条），所以这条的前置条件已经具备：`credit = min(本笔到账, max(0, 累计到账 − 已认领))`，`credit > 0` 入余额；写销过的订单要先冲销 `expense:payment_shortfall`。**在补齐之前至少不许静默** —— `credit == 0` 也要打一条 ERROR + `bp_pay_unclaimed_topup`<br>✅ **2026-08-31：已修（同一个 [PR #25](https://github.com/oratis/babelplus/pull/25)）**：paid/completed 分支重写为三段、各有归宿都留痕 —— ① 先按 `SumOrderShortfallWriteoff`（WOF−WOR 按分录腿求和）冲销写销（`postWriteoffRecovery` 为 `postShortfallWriteoff` 的逐腿反向：用户补足款先收回我们垫掉的损失）；② `credit = min(本笔 − 冲销, max(0, 累计已固化 − 应收))` 入余额，顺带把旧实现「整笔入余额」封顶到超出应收的部分（D6 标 paid 而链上钱不足应收时，旧实现会把用户没多付的钱也送出去）；③ 剩余无法归属的打 ERROR + `bp_pay_unclaimed_topup`，钱留在 `liability:deferred_revenue` 上等人看。回归测试 4 条（含「恰好填平写销」与「无法归属必须响」） |
+| **B55** | 🔴 **路由验收的判据被自己的实测推翻，`verify-route.sh` 的 J1–J3 当前处于作废状态**（2026-09-01 新增，PR #33 证据）。判据建立在「ICMP 打三个运营商 DNS」之上，而那三个目标对 ICMP 的响应与真实路径质量无关：联通 `202.106.196.115` **ICMP 100% 丢包 → 脚本判「硬否决，立即换 IP」**，而同一时刻同一目标的**真实 DNS 查询 5/5 成功**（中位 331 ms）——**路径是通的，只是不回 ICMP**；电信 `202.96.209.133` ICMP 293–302 ms 却对 UDP/53 无应答。对照组 `114.114.114.114:53`（确定在大陆、确定开 TCP）**TCP 中位 36.2 ms，8/8**。**按现有判据，一个到大陆 TCP 中位 36 ms 的健康节点会被判「IP 不合格」** —— 而这已经真的发生过一次（`35.215.140.154` 被换掉，两个 IP 形态逐条复现）。证据 [node-route-methodology-20260901](../evidence/node-route-methodology-20260901/) | 🔴 **P1 出口标准 1「通过 J1–J6，含 ≥1 次晚高峰采样」当前无法被判定** —— 不是「没通过」，是**判据本身作废了**。这比「还没做」更麻烦：它让出口标准 1 从一个可判真伪的观察退化成一个悬空条件。顺带卡住 §4.2 的「IP 网段预筛」（预筛靠的就是这套判据） | 🔴 **可直接做，但不是改一行**：① 判据换 TCP 握手，目标换成确定在大陆且确定开放某 TCP 端口的地址；② ICMP 降为参考值，不再硬否决；③ **J2/J3 的 120 ms / 5% 阈值要在新口径下重新标定** —— 而重标定需要多个节点的样本，现在只有一台；④ `node-provisioning.md` §5.2/§5.3 的探测点清单要跟着改，并写明「目标为什么选它、它开哪个端口」。**证据文档刻意只登记不改脚本**，理由即③。登记处：`node-route-methodology-20260901/README.md` §4、`infra/node/verify-route.sh`、`node-provisioning.md` §5.2 |
+| **B56** | 🔴 **线上存在一个四权限全开的 owner，而其中两个直接动钱的权限位在 API 上收不回**（2026-09-01 新增）。B52 的处置是**绕过**不是修复：2026-08-31 用「一次性引导程序（跑完即删，不进仓库）」直接往 `admin_users` 插了 id=1 的 `owner` 行，**四个 `perm_` 位全开**（[first-deploy §4.1](../04-ops/first-deploy-20260831.md) 资源表最后一行）。而 B52 的根因没动：契约的 `AdminPermission` 枚举**仍然只有 7 个值**，`perm_refund`(D7) 与 `perm_adjust_balance`(D10) **没有对应枚举值**。两件事合起来的形态是新的：**这两个权限位现在既授不了、也撤不了** —— 写侧对它们一律 422，唯一的收回途径是直接改库 | D7（退款）与 D10（改余额）两条危险操作的 L4 强制在服务端是有的，**而授权与撤销路径两头都断**；且「跑完即删、不进仓库」意味着**这一步不可复现** —— 下一个人建第二个管理员时没有可照做的东西（`createAdmin` 造出来的管理员登不进去，仍要走 `createAdmin` → `resetAdminTotp` 两步，见 B52） | 🔴 **需裁决**（承 B52）：给契约加枚举值 = 改冻结契约；或裁定这两位只由 `role` 决定并把列去掉。**在裁决之前至少要做一件可直接做的事**：把那段引导程序按脱敏形式落进 `docs/04-ops/` 或 `infra/`，否则「怎么开出第一个管理员」这个知识只存在于一次性脚本和本条登记里。登记处：`openapi.yaml` 的 `AdminPermission`、`0002_foundation.up.sql:62`、`admin_users.go:223`、first-deploy §4.1 |
+| **B57** | 🔴 **三条手工告警与 `setup-alerts.sh` 的接管冲突，且其中一条收不到任何信号**（2026-09-01 新增）。2026-09-01 建了 `bp-` 的头三条告警策略（`gcloud alpha monitoring policies list` 实查，确为 3 条）：`bp-scheduler-task-failed` / `bp-api-healthz-down` / `bp-cert-issuer-bad`。两个问题：① 🔴 **`bp-cert-issuer-bad` 目前收不到任何信号** —— 它依赖 `check-cert-issuer.sh` 每日写结构化日志，而**那个每日作业没有挂**；[ADR 0014 §14](../05-adr/0014-slo-and-oncall.md) 要求这类检测**带外**运行（「检测『我们的前置基础设施是否被替换』不应依赖那套基础设施」），而我们没有带外机器。在它挂上之前，「签发者被换回 GTS」只能靠人跑 `renew-le-cert.sh --check` 发现，`bp-api-healthz-down` 抓不到它（GTS 证书受信任，TLS 校验照样通过）。② ⚠️ **这三条是手工建的，`setup-alerts.sh` 的 17 条里也有同题** —— ADR 0014 批准后跑 `--apply` **必须先删掉这三条**，否则同一事件告警两次，而「告警响两次」正是训练所有人忽略告警的标准方式 | 从「告警 0 条」到「告警 3 条」是真进步，但**其中 1/3 是空的**；且这一条是**未批准的裁决正在产生运维债**的第一个具体样本 —— 不是返工风险，是已经存在的、需要在批准那一刻记得处理的状态 | 🔴 **两半分开做**：前半「挂每日作业」**可直接做**（Cloud Scheduler 一条，或按 ADR 0014 §14 找带外落点 —— 后者需采购决策，与 B31 境内探针是同一笔）；后半**需先批 ADR 0014**，且批准动作要连带「先删三条手工策略」这一步。登记处：[first-deploy §4.4](../04-ops/first-deploy-20260831.md)、`infra/scripts/setup-alerts.sh`、`infra/scripts/check-cert-issuer.sh` |
+| **B58** | 🔴 **`web.` / `api.babel.plus` 的 Let's Encrypt 证书 2026-11-29 到期，而续期没有任何调度**（2026-09-01 新增）。本次实查：两个域名签发者 `C=US, O=Let's Encrypt, CN=YE1`，`notAfter=Nov 29 15:58:48 2026 GMT`（`openssl s_client` 2026-09-01 实跑）。`infra/scripts/renew-le-cert.sh` 已写好（`--check` / `--dry-run` / `--apply` 三模式），**但没有任何东西会去调它** —— 与 B57 的每日证书核对作业是同一个形状的缺口。兜底是 `bp-api-healthz-down`（uptime check 校验 TLS），**而那是过期之后才响，不是之前** | 忘了续的现象是**全站 TLS 失败**：`web.` 与 `api.` 同时挂，用户面板与订阅下发一起断。且 ACME 这条链路本身有两个已知的坑（GCS 硬拒 `.well-known/acme-challenge/` 需 URL rewrite；容器内 gcloud 在 arm64 模拟下不可用需宿主机接力），**90 天后重跑时如果换了人或换了机器，会重新踩一遍** | 🔴 **可直接做，成本接近零**：挂一条 Cloud Scheduler 在到期前 30 天调 `renew-le-cert.sh --check`，或至少在日历上钉一条。⚠️ 与 B57 前半是同一个动作类别（「已经写好的脚本没有调度器」），建议一次做完。登记处：[first-deploy §4.3](../04-ops/first-deploy-20260831.md)、`infra/scripts/renew-le-cert.sh` |
+| **B59** | 🔴 **`user-journey.md` 的收款设计与已实现的 ADR 0012 直接冲突，且它是面向用户的文案来源**（2026-09-01 新增）。[user-journey §6.1](../03-product/user-journey.md) 第 2 条写「**不是一单一地址**。用小地址池 + 金额唯一性做匹配（冲突则金额 `+0.0001` 递增重试，最多 100 次）」，§7 卡点 3「金额带四位小数，看着像诈骗」的整条应对（「**尾数是订单识别码，少一位就无法自动到账**」）建立在它之上。而 [ADR 0012 §3.6](../05-adr/0012-payment-gateway.md) 已裁决为**一单一址、地址永不复用、归属只看 `to_address`、金额只用于判定 `paid` / `underpaid`**，数据库侧 `pay_addresses.assigned_order_id UNIQUE` 已在库，**代码也已按新裁决实现完并上线**。roadmap §5.2 的对应条目已划掉，**但 user-journey 一个字没改** | 🔴 **它不是一处内部矛盾，是一句会被抄进收银台页面的错误解释** —— 按 §7 卡点 3 写出来的文案会告诉用户「尾数是识别码」，而在一单一址之下这句话是假的；而这一页是 [page-inventory §3.1](../03-product/page-inventory.md) 里唯一标注「**无替代（付款中断=丢单）**」的路由。同族还有一处：§6.1 第 1 条「默认预选年付」与 [pricing §3.2](../03-product/pricing-and-plans.md) 的「**年付不随首发上架**」也已不一致 | 🔴 **可直接做**（一次文档修订），**但要按 [docs/README §4](../README.md) 的规矩逐条交代落点**，因为它推翻的是 user-journey 自己的两条明文设计。⚠️ 修的时候要连带回答一个 ADR 0012 没有回答的产品问题：**一单一址之下，收银台还需不需要展示四位小数的精确金额** —— 需要（金额仍用于判定 `underpaid`），但**理由变了**，文案不能照抄。登记处：`user-journey.md` §6.1 / §7、`0012-payment-gateway.md` §3.6 |
 
 > **统计**（按主归属计，跨类的取第一归属）：初版 40 条时是
 > **需用户决策 9 条、需实测 9 条、需申请 4 条、可直接做 15 条、待裁决 2 条、已可撤销 1 条**。
@@ -1125,6 +1199,42 @@ flowchart TD
 > **B54** 订单 paid 之后的补足款被静默吞掉）。两条都动钱，且**都不是能顺手改一行的**：
 > B53 直接照抄「加一个 state 过滤」会让订单永久卡在未付清，比现状更糟。
 > **按解决状态计：✅ 已解决 13 · 🔶 部分 20 · 🔴 开放 19。**
+>
+> ⚠️ **上面那行的算术漏了两条，先订正再往下写**：宣布「为 54 条」的同一段里仍写着
+> `13 + 20 + 19 = 52` —— **B53 / B54 这两条新增没有进计数**。
+> 54 条的正确拆分是 **✅ 13 · 🔶 20 · 🔴 21**。
+> （同族还有一处更小的：下方 ✅ 那一栏列了 **14** 个编号却写着「已解决（13）」。
+> 本次**不改那两张表的原文**，只在这里记明差异 —— 按本文规矩，追加不抹掉。）
+>
+> **2026-09-01 三次复核（基线 master `85ae3e2e494`）：为 59 条。**
+> 这一轮是全项目**第一次 ✅ 那一栏真的变多** —— 此前 25,000 行代码没能让任何一条从 🔶/🔴 转 ✅，
+> 而这一轮五条同时关掉，因为它们要的**全部是「去执行一次」而不是「再写一遍」**。
+>
+> | 变化 | 条目 |
+> |---|---|
+> | 🔴 → ✅（3） | **B51** 管理面准入（GCLB + IAP + 手工 OAuth 客户端已建，`admin.babel.plus` 实测可登录、`/admin/dashboard` 200）· **B53** / **B54** 两条动钱缺陷（[PR #25](https://github.com/oratis/babelplus/pull/25) 已合并并随 `bp-api-00009-7dn` 上线） |
+> | 🔶 → ✅（2） | **B19** `bp-admin` 部署形态（问题被实际选择回答：GCLB + IAP，`bp-admin` 独立 Cloud Run 服务）· **B4** 域名（[ADR 0016](../05-adr/0016-domain-babelplus.md) **已批准**统一用 `babel.plus`，[ADR 0010](../05-adr/0010-domain-strategy.md) **已否决**，那 5 个未采购的镜像域名**不再是缺口**） |
+> | 🔶 内容大变但状态不变（2） | **B22** ESP（**已接通 Resend 并实测送达第一封信**，`email_log` 出现 `esp=resend / status=sent`；🔴 而 ADR 0002 §7 要的**按收件域名分组的送达率实测仍是零** —— 选型是用户直接指定的，不是实测出来的）· **B42** 日志指标（11 条建了 **8** 条，新增 `bp_cert_issuer_bad`；仍缺 `bp_mail_bounce`（ESP 无退信回调端点）、`bp_node_alive`、`bp_ratelimit_degraded`） |
+> | 🔶 部分推进（1） | **B20** Premium vs Standard：**握手延迟这一半做了**（同机同区同目标，36.4 vs 36.2 ms，无可测差异，**实测证实 ADR 0008**），**吞吐与晚高峰仍是零** |
+> | 🔴 新增（5） | **B55** 路由验收判据作废 · **B56** 引导 owner 的两个动钱权限位收不回 · **B57** 三条手工告警的接管冲突 + `bp-cert-issuer-bad` 无信号源 · **B58** LE 证书 11-29 到期无续期调度 · **B59** user-journey 的收款设计与已实现的 ADR 0012 冲突 |
+>
+> **算式**：54 = 13✅ + 20🔶 + 21🔴 →
+> ✅ 13 + 3（B51/B53/B54）+ 2（B19/B4）= **18**；
+> 🔶 20 − 2（B19/B4 转出）= **18**；
+> 🔴 21 − 3（B51/B53/B54 转出）+ 5（B55–B59）= **23**。
+> **18 + 18 + 23 = 59。**
+>
+> 🔴 **这一轮新增的五条里有四条是同一个形状，值得单独记住**：
+> **B55（判据作废）· B57（脚本没有调度器）· B58（脚本没有调度器）· B56（绕过而不是修复）**
+> —— 它们全部产生于「终于开始执行」这个动作本身。
+> 上一轮的规律是「写了代码不等于上线」；**这一轮的规律是「上线了不等于接管了」**：
+> 一次性手敲出来的东西（引导管理员、手工告警、手工签证书）**都缺一个「谁在之后维持它」的答案**，
+> 而这个缺口在敲完的当天是看不见的 —— 它在 90 天后、在批准 ADR 0014 的那一刻、
+> 在下一个人建第二个管理员的时候才显形。
+> ⚠️ 与之相对，**B59 是另一个形状**：它是文档之间的漂移，
+> 而本仓的 `contract-drift` 只卡生成物，**卡不住两份产品文档对同一件事的两种写法**。
+> 这是继 B50/B51/B52「契约与 schema 语义不兼容」之后，
+> **第二类没有任何自动化手段的漂移**。
 > **算式**：上一轮 49 = 13 + 18 + 18；本轮 **B19 与 B37 由 🔴 转 🔶**（18 → 20 部分，18 → 16 开放），
 > **新增 B50 / B51 / B52 三条一律记 🔴**（16 → 19 开放）。13 + 20 + 19 = 52。
 >
