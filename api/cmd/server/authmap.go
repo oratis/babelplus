@@ -27,9 +27,13 @@ import (
 // 节点密钥是**按 scope 白名单**授权的，「是不是节点面」与「需要哪个 scope」
 // 必须在同一处声明，分开写就会出现「表里有这个 operation，但 scope 字段忘了改」。
 //
-// 共 6 个。
+// 共 7 个。
+//
+// 🔴 GetNodeConfigV2 与 GetUniProxyConfig 是**同一件事的两条路径**，因此 scope 必须相同。
+// 两者不同步的后果是安全性的：一条路径上被拒的节点密钥，从另一条路径照样能读到配置。
 var nodeOperationScopes = map[string]string{
 	"GetUniProxyConfig":    "node:config:read",   // GET  /api/v1/server/UniProxy/config
+	"GetNodeConfigV2":      "node:config:read",   // GET  /api/v2/server/config（v2node ≥ v0.4.0 实际请求的）
 	"GetUniProxyUsers":     "node:users:read",    // GET  /api/v1/server/UniProxy/user
 	"GetUniProxyAliveList": "node:alive:read",    // GET  /api/v1/server/UniProxy/alivelist
 	"PushUniProxyTraffic":  "node:traffic:write", // POST /api/v1/server/UniProxy/push

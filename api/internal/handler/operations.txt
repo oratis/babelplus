@@ -42,6 +42,7 @@ GetAdminUser
 GetClientSubscription
 GetCurrentUser
 GetHealthz
+GetNodeConfigV2
 GetNotificationPrefs
 GetOrder
 GetOrderPayment

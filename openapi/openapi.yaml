@@ -163,6 +163,59 @@ paths:
         '500':
           $ref: '#/components/responses/NodeInternalError'
 
+  /api/v2/server/config:
+    get:
+      tags: [node]
+      operationId: getNodeConfigV2
+      summary: 节点自身配置（v2node ≥ v0.4.0 实际请求的路径）
+      description: |
+        **与 `getUniProxyConfig` 是同一件事，响应逐字节相同。** 存在的唯一理由是实测：
+
+        `wyx2685/v2node`（本项目选定的节点 agent，ADR 0006）自 **v0.4.0 起**把
+        **且仅把**配置端点迁到了 `/api/v2/server/config`
+        （`api/v2board/node.go:122` 的 `const path`），
+        而 `/user` `/push` `/alive` `/alivelist` **四个仍留在 `/api/v1/server/UniProxy/*`**。
+        它没有 `/status` 调用。
+
+        🔴 **这条不一致是 2026-09-01 第一次真机装机时才发现的**，因为冻结契约抄的是
+        **v2board 1.7.4 / Xboard**，而我们跑的是 v2node —— 两者在这一个端点上分了叉。
+        失败形态极具误导性：v2node 拿到 Go 默认的 `404 page not found`，
+        把它当 JSON 解析，报 `decode node params error: invalid character 'p' after top-level value`
+        （`404` 是合法的顶层数字，后面的 `p` 才是报错点），**日志里完全看不出是路由不匹配**。
+
+        响应结构无需改动：v2node 的 `CommonNode` 与本契约的 `NodeConfig` 字段逐个对得上，
+        含 `tls_settings.xver` 是**字符串**这一条（`json:"xver,string"`）。
+      security:
+        - nodeKey: []
+        - nodeKeyQueryTransitional: []
+      x-required-scope: node:config:read
+      parameters:
+        - $ref: '#/components/parameters/NodeIdQuery'
+        - $ref: '#/components/parameters/NodeTypeQuery'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: 节点配置（**裸 JSON，无信封**），与 `getUniProxyConfig` 相同
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControlNoCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeConfig'
+        '304':
+          $ref: '#/components/responses/NodeNotModified'
+        '401':
+          $ref: '#/components/responses/NodeUnauthorized'
+        '403':
+          $ref: '#/components/responses/NodeForbidden'
+        '429':
+          $ref: '#/components/responses/NodeRateLimited'
+        '500':
+          $ref: '#/components/responses/NodeInternalError'
+
   /api/v1/server/UniProxy/user:
     get:
       tags: [node]
@@ -5072,6 +5125,21 @@ components:
           type: string
         dest:
           type: string
+          description: |
+            REALITY 回落目标的**主机名，不含端口** —— 端口在 `server_port`。
+
+            🔴 这一条是实测定下来的，不是照抄：v2node（`core/inbound.go` 的 Reality 分支）
+            把两者拼成 `fmt.Sprintf("%s:%s", dest, server_port)`。
+            如果 `dest` 里已经带了端口，拼出来就是 `www.example.com:443:`，
+            xray 报 `please fill in a valid value for "target"` ——
+            **报错指向 target 字段，而真正的原因是我们多发了一个冒号**。
+            2026-09-01 首次真机接入时实测。
+        server_port:
+          type: string
+          description: |
+            REALITY 回落目标的端口，**字符串**（v2node 的 `TlsSettings.ServerPort` 是 string）。
+            注意它与 `NodeConfig.server_port`（节点自己的监听端口，整数）**不是一回事**，
+            同名是 v2node 的既成事实，不改。
         xver:
           type: string
 

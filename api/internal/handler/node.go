@@ -128,15 +128,33 @@ const (
 // GetUniProxyConfig 下发节点自身配置。
 //
 // ETag 用 config_rev 生成，**不需要先序列化响应体**。
-func (s *Server) GetUniProxyConfig(ctx context.Context, req gen.GetUniProxyConfigRequestObject) (gen.GetUniProxyConfigResponseObject, error) {
+// nodeConfigResult 是 /config 的路径无关结果。
+//
+// 抽出来的唯一理由是**两条路径返回同一件事**：
+//
+//	/api/v1/server/UniProxy/config —— 冻结契约（抄 v2board 1.7.4 / Xboard）
+//	/api/v2/server/config          —— v2node ≥ v0.4.0 实际请求的路径
+//
+// 见 openapi.yaml 里 getNodeConfigV2 的 description。
+// 两个 handler 只做响应类型转换，业务分支一份，不允许有第二处。
+type nodeConfigResult struct {
+	forbidden   *gen.NodeForbiddenJSONResponse
+	notModified bool
+	etag        string
+	body        gen.NodeConfig
+}
+
+func (s *Server) nodeConfig(ctx context.Context, nodeID *int64, ifNoneMatch *string) (nodeConfigResult, error) {
+	var out nodeConfigResult
+
 	auth, ok := middleware.NodeAuthFrom(ctx)
 	if !ok {
-		return nil, errNoNodeAuth
+		return out, errNoNodeAuth
 	}
-	if !s.nodeIDMatches(ctx, auth, req.Params.NodeId) {
-		return gen.GetUniProxyConfig403JSONResponse{
-			NodeForbiddenJSONResponse: gen.NodeForbiddenJSONResponse(errNodeIDMismatch()),
-		}, nil
+	if !s.nodeIDMatches(ctx, auth, nodeID) {
+		f := gen.NodeForbiddenJSONResponse(errNodeIDMismatch())
+		out.forbidden = &f
+		return out, nil
 	}
 	s.noteNodeAlive(ctx, auth)
 
@@ -147,17 +165,13 @@ func (s *Server) GetUniProxyConfig(ctx context.Context, req gen.GetUniProxyConfi
 			// 这是运维错误，要能在日志里看见，不能静默当成「无变更」。
 			s.logger.ErrorContext(ctx, "节点缺少 node_rev 行", "server_code", auth.ServerCode)
 		}
-		return nil, err
+		return out, err
 	}
 
-	etag := httpx.RevisionETag(httpx.ScopeConfig, rev.ConfigRev)
-	if req.Params.IfNoneMatch != nil && httpx.MatchesETag(string(*req.Params.IfNoneMatch), etag) {
-		return gen.GetUniProxyConfig304Response{
-			Headers: gen.NodeNotModifiedResponseHeaders{
-				CacheControl: httpx.CacheControlNoStore,
-				ETag:         etag,
-			},
-		}, nil
+	out.etag = httpx.RevisionETag(httpx.ScopeConfig, rev.ConfigRev)
+	if ifNoneMatch != nil && httpx.MatchesETag(*ifNoneMatch, out.etag) {
+		out.notModified = true
+		return out, nil
 	}
 
 	row, err := s.db.GetServerConfig(ctx, auth.ServerID)
@@ -167,21 +181,84 @@ func (s *Server) GetUniProxyConfig(ctx context.Context, req gen.GetUniProxyConfi
 			// 所以这里查不到只可能是这两次查询之间节点被软删了 —— 竞态，不是常态。
 			s.logger.ErrorContext(ctx, "节点鉴权通过但配置行不存在", "server_code", auth.ServerCode)
 		}
-		return nil, err
+		return out, err
 	}
 
 	cfg, err := buildNodeConfig(row)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "组装节点配置失败",
 			"server_code", auth.ServerCode, "protocol", string(row.Protocol), "err", err)
+		return out, err
+	}
+	out.body = cfg
+	return out, nil
+}
+
+func (s *Server) GetUniProxyConfig(ctx context.Context, req gen.GetUniProxyConfigRequestObject) (gen.GetUniProxyConfigResponseObject, error) {
+	var inm *string
+	if req.Params.IfNoneMatch != nil {
+		v := string(*req.Params.IfNoneMatch)
+		inm = &v
+	}
+	res, err := s.nodeConfig(ctx, req.Params.NodeId, inm)
+	if err != nil {
 		return nil, err
 	}
-
+	if res.forbidden != nil {
+		return gen.GetUniProxyConfig403JSONResponse{NodeForbiddenJSONResponse: *res.forbidden}, nil
+	}
+	if res.notModified {
+		return gen.GetUniProxyConfig304Response{
+			Headers: gen.NodeNotModifiedResponseHeaders{
+				CacheControl: httpx.CacheControlNoStore,
+				ETag:         res.etag,
+			},
+		}, nil
+	}
 	return gen.GetUniProxyConfig200JSONResponse{
-		Body: cfg,
+		Body: res.body,
 		Headers: gen.GetUniProxyConfig200ResponseHeaders{
 			CacheControl: httpx.CacheControlNoStore,
-			ETag:         etag,
+			ETag:         res.etag,
+		},
+	}, nil
+}
+
+// GetNodeConfigV2 与 GetUniProxyConfig 返回逐字节相同的东西，只是路径不同。
+//
+// 🔴 它的存在是一条实测结论，不是设计偏好：v2node（本项目选定的 agent）
+// 自 v0.4.0 起把**且仅把**配置端点迁到 /api/v2/server/config，
+// 其余四个（/user /push /alive /alivelist）仍在 /api/v1/server/UniProxy/*。
+// 2026-09-01 第一次真机装机时才发现 —— 因为冻结契约抄的是 v2board/Xboard，
+// 而 agent 是 v2node，两者在这一个端点上分了叉。
+// 失败形态极具误导性：v2node 拿到 Go 默认的 404 page not found，把它当 JSON 解，
+// 报 "invalid character 'p' after top-level value"，日志里完全看不出是路由不匹配。
+func (s *Server) GetNodeConfigV2(ctx context.Context, req gen.GetNodeConfigV2RequestObject) (gen.GetNodeConfigV2ResponseObject, error) {
+	var inm *string
+	if req.Params.IfNoneMatch != nil {
+		v := string(*req.Params.IfNoneMatch)
+		inm = &v
+	}
+	res, err := s.nodeConfig(ctx, req.Params.NodeId, inm)
+	if err != nil {
+		return nil, err
+	}
+	if res.forbidden != nil {
+		return gen.GetNodeConfigV2403JSONResponse{NodeForbiddenJSONResponse: *res.forbidden}, nil
+	}
+	if res.notModified {
+		return gen.GetNodeConfigV2304Response{
+			Headers: gen.NodeNotModifiedResponseHeaders{
+				CacheControl: httpx.CacheControlNoStore,
+				ETag:         res.etag,
+			},
+		}, nil
+	}
+	return gen.GetNodeConfigV2200JSONResponse{
+		Body: res.body,
+		Headers: gen.GetNodeConfigV2200ResponseHeaders{
+			CacheControl: httpx.CacheControlNoStore,
+			ETag:         res.etag,
 		},
 	}, nil
 }
@@ -618,13 +695,23 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 		cfg.Network = ptrTo("tcp")
 		cfg.Flow = ptrTo(vlessRealityFlow)
 		cfg.Tls = ptrTo(tlsModeReality)
+		// 🔴 dest 必须拆成「主机名」+「端口」两个字段下发，不能整串发。
+		// v2node 的 core/inbound.go 在 Reality 分支里拼的是
+		//   fmt.Sprintf("%s:%s", TlsSettings.Dest, TlsSettings.ServerPort)
+		// 整串发过去就变成 www.example.com:443:，xray 报
+		//   please fill in a valid value for "target"
+		// —— 报错指向 target，真正的原因是多了一个冒号。2026-09-01 首次真机接入时实测。
+		// 库里的 reality_dest 仍然存 host:port（人读着方便，也是 ADR 的写法），
+		// 拆分只发生在下发这一步。
+		destHost, destPort := splitHostPortDefault(*ps.RealityDest, "443")
 		cfg.TlsSettings = &gen.NodeTlsSettings{
 			// server_name 缺省取 dest 的主机名：REALITY 的 SNI 与回落目标本来就该一致，
 			// 分开配是给「回落到 A、伪装成 B」那种高级用法留的口子，不是常态。
-			ServerName: ptrTo(settingOr(ps.ServerName, hostOf(*ps.RealityDest))),
+			ServerName: ptrTo(settingOr(ps.ServerName, destHost)),
 			PrivateKey: ps.RealityPrivateKey,
 			ShortId:    ps.RealityShortID,
-			Dest:       ps.RealityDest,
+			Dest:       ptrTo(destHost),
+			ServerPort: ptrTo(destPort),
 			// xver 在 Xboard 里是**字符串**（不是数字），照抄不改类型。
 			Xver: ptrTo(settingOr(ps.RealityXver, "0")),
 		}
@@ -997,6 +1084,19 @@ func effectiveServerPort(row dbgen.GetServerConfigRow) int32 {
 }
 
 // hostOf 取 "host:port" 里的 host；没有端口就原样返回。
+// splitHostPortDefault 把 "host:port" 拆成两段；没有端口时用 def。
+// 不用 net.SplitHostPort：它对没有端口的输入返回 error，而「只写主机名」在
+// protocol_settings 里是合法写法（端口默认 443）。
+func splitHostPortDefault(hostPort, def string) (string, string) {
+	if i := strings.LastIndex(hostPort, ":"); i > 0 && !strings.Contains(hostPort[i+1:], "]") {
+		if p := hostPort[i+1:]; p != "" {
+			return hostPort[:i], p
+		}
+		return hostPort[:i], def
+	}
+	return hostPort, def
+}
+
 func hostOf(hostPort string) string {
 	if i := strings.LastIndex(hostPort, ":"); i > 0 {
 		return hostPort[:i]

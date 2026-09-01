@@ -592,3 +592,64 @@ func assertStr(t *testing.T, name string, got *string, want string) {
 		t.Fatalf("%s = %q, want %q", name, *got, want)
 	}
 }
+
+// TestRealityDestIsSplitIntoHostAndPort 钉死 REALITY 回落目标的下发形态。
+//
+// 🔴 这是一条真机实测出来的回归：v2node 的 core/inbound.go 在 Reality 分支里拼的是
+//
+//	fmt.Sprintf("%s:%s", TlsSettings.Dest, TlsSettings.ServerPort)
+//
+// 所以 dest **必须是主机名、不能带端口**。带了的话拼出来是 "www.microsoft.com:443:"，
+// xray 报 `please fill in a valid value for "target"` ——
+// **报错指向 target 字段，而真正的原因是我们多发了一个冒号**。
+// 这种「错误信息指向 A、真因在 B」的缺陷，靠读代码是发现不了的，
+// 2026-09-01 第一次把真节点接上来时才撞到。
+//
+// 库里的 reality_dest 仍然存 host:port（人读着方便），拆分只发生在下发这一步 ——
+// 所以本用例同时钉住「库里带端口」与「下发不带端口」两侧。
+func TestRealityDestIsSplitIntoHostAndPort(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		dest     string
+		wantHost string
+		wantPort string
+	}{
+		{"带端口", "www.microsoft.com:443", "www.microsoft.com", "443"},
+		{"非 443 端口", "example.com:8443", "example.com", "8443"},
+		{"不带端口时默认 443", "example.com", "example.com", "443"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
+				Code:     "bp-node-test",
+				Protocol: dbgen.ServerProtocolVlessReality,
+				Port:     443,
+				ProtocolSettings: []byte(`{
+					"reality_private_key":"PRIVKEY",
+					"reality_short_id":"a1b2c3d4",
+					"reality_dest":"` + tc.dest + `"
+				}`),
+			})
+			if err != nil {
+				t.Fatalf("buildNodeConfig: %v", err)
+			}
+			if cfg.TlsSettings == nil {
+				t.Fatal("tls_settings 为空")
+			}
+			if cfg.TlsSettings.Dest == nil || *cfg.TlsSettings.Dest != tc.wantHost {
+				t.Errorf("dest = %v，期望 %q（**不得带端口**）", cfg.TlsSettings.Dest, tc.wantHost)
+			}
+			if strings.Contains(*cfg.TlsSettings.Dest, ":") {
+				t.Errorf("dest 里出现了冒号：%q —— v2node 会再拼一次端口，结果是无效的 target",
+					*cfg.TlsSettings.Dest)
+			}
+			if cfg.TlsSettings.ServerPort == nil || *cfg.TlsSettings.ServerPort != tc.wantPort {
+				t.Errorf("tls_settings.server_port = %v，期望 %q（**字符串**）",
+					cfg.TlsSettings.ServerPort, tc.wantPort)
+			}
+			// server_name 缺省应取主机名，不是整串。
+			if cfg.TlsSettings.ServerName == nil || *cfg.TlsSettings.ServerName != tc.wantHost {
+				t.Errorf("server_name = %v，期望 %q", cfg.TlsSettings.ServerName, tc.wantHost)
+			}
+		})
+	}
+}

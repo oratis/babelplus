@@ -707,7 +707,33 @@ do_systemd() {
     # 把「内核挑一个进程杀」换成「这个 cgroup 自己先被限住」。
     # 数字取自 e2-small 2 GB − 系统 150–250 MB ≈ 留给代理进程 1.4 GB。
     # **这两个数字是设定值，第一台节点跑完必须按实测重标定。**
-    write_file "/etc/systemd/system/${BP_UNIT}" 0644 <<'UNIT'
+    # 🔴 证书凭据是**条件性**的，不能无条件写死。
+    # systemd 的 LoadCredential= 在源文件不存在时**让单元启动失败**，而本脚本 step 3
+    # 自己已经写明：REALITY ❌ 不需要证书、SS-2022 ❌ 不需要、只有 Hysteria2 ✅ 需要。
+    # 无条件写死这两行的后果是：**一个只跑 REALITY 的节点根本装不起来**，
+    # 且失败现象是 `LoadCredential` 报错，指向的是证书而不是「你没打算要证书」。
+    # 处置：证书文件在就挂，不在就不挂并显式告警 —— 而不是让 HY2 静默降级。
+    _ds_cert=""
+    if [ "$DRY_RUN" = 1 ] || { [ -f "${BP_CERT_DIR}/fullchain.pem" ] && [ -f "${BP_CERT_DIR}/privkey.pem" ]; }; then
+        _ds_cert="LoadCredential=fullchain.pem:${BP_CERT_DIR}/fullchain.pem
+LoadCredential=privkey.pem:${BP_CERT_DIR}/privkey.pem"
+        [ "$DRY_RUN" = 1 ] || ok "证书文件存在，单元将挂载 fullchain/privkey 凭据"
+    else
+        warn "🔴 未找到 ${BP_CERT_DIR}/fullchain.pem —— 单元**不挂载证书凭据**。
+      后果是明确的：**Hysteria2 不可用**（它是唯一需要真证书的通路）。
+      REALITY 与 SS-2022 不受影响，可以正常提供服务。
+      要启用 HY2：跑 --step cert 签发证书后重跑 --step systemd。"
+    fi
+
+    # 🔴 ExecStart 的形态是实测出来的，不要改回 --config：
+    #    v2node 是 cobra 应用，运行子命令是 server，配置标志是 -c/--config。
+    #    写成 "v2node --config <path>" 会走 cobra 的 usage 分支并以**退出码 0** 结束，
+    #    于是 systemd 记 "Deactivated successfully"、Restart=on-failure **不触发**，
+    #    现象是「服务装好了、enable 了、却安静地没在跑」——
+    #    是所有失败形态里最难被发现的那一种。实测于 v0.4.5（2026-09-01）。
+    # ⚠️ 本 heredoc 是**非引号**的（要展开 _ds_cert），所以单元正文里
+    #    不得出现 $ 与反引号，注释一律写在这里。
+    write_file "/etc/systemd/system/${BP_UNIT}" 0644 <<UNIT
 [Unit]
 Description=babel.plus node agent (v2node)
 After=network-online.target
@@ -715,10 +741,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/v2node --config %d/node.json
+ExecStart=/usr/local/bin/v2node server -c %d/node.json
 LoadCredential=node.json:/etc/bp/v2node.json
-LoadCredential=fullchain.pem:/etc/bp/certs/fullchain.pem
-LoadCredential=privkey.pem:/etc/bp/certs/privkey.pem
+${_ds_cert}
 DynamicUser=true
 ProtectSystem=strict
 ProtectHome=true
