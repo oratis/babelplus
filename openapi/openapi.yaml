@@ -5125,6 +5125,21 @@ components:
           type: string
         dest:
           type: string
+          description: |
+            REALITY 回落目标的**主机名，不含端口** —— 端口在 `server_port`。
+
+            🔴 这一条是实测定下来的，不是照抄：v2node（`core/inbound.go` 的 Reality 分支）
+            把两者拼成 `fmt.Sprintf("%s:%s", dest, server_port)`。
+            如果 `dest` 里已经带了端口，拼出来就是 `www.example.com:443:`，
+            xray 报 `please fill in a valid value for "target"` ——
+            **报错指向 target 字段，而真正的原因是我们多发了一个冒号**。
+            2026-09-01 首次真机接入时实测。
+        server_port:
+          type: string
+          description: |
+            REALITY 回落目标的端口，**字符串**（v2node 的 `TlsSettings.ServerPort` 是 string）。
+            注意它与 `NodeConfig.server_port`（节点自己的监听端口，整数）**不是一回事**，
+            同名是 v2node 的既成事实，不改。
         xver:
           type: string
 

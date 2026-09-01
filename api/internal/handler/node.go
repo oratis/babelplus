@@ -695,13 +695,23 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 		cfg.Network = ptrTo("tcp")
 		cfg.Flow = ptrTo(vlessRealityFlow)
 		cfg.Tls = ptrTo(tlsModeReality)
+		// 🔴 dest 必须拆成「主机名」+「端口」两个字段下发，不能整串发。
+		// v2node 的 core/inbound.go 在 Reality 分支里拼的是
+		//   fmt.Sprintf("%s:%s", TlsSettings.Dest, TlsSettings.ServerPort)
+		// 整串发过去就变成 www.example.com:443:，xray 报
+		//   please fill in a valid value for "target"
+		// —— 报错指向 target，真正的原因是多了一个冒号。2026-09-01 首次真机接入时实测。
+		// 库里的 reality_dest 仍然存 host:port（人读着方便，也是 ADR 的写法），
+		// 拆分只发生在下发这一步。
+		destHost, destPort := splitHostPortDefault(*ps.RealityDest, "443")
 		cfg.TlsSettings = &gen.NodeTlsSettings{
 			// server_name 缺省取 dest 的主机名：REALITY 的 SNI 与回落目标本来就该一致，
 			// 分开配是给「回落到 A、伪装成 B」那种高级用法留的口子，不是常态。
-			ServerName: ptrTo(settingOr(ps.ServerName, hostOf(*ps.RealityDest))),
+			ServerName: ptrTo(settingOr(ps.ServerName, destHost)),
 			PrivateKey: ps.RealityPrivateKey,
 			ShortId:    ps.RealityShortID,
-			Dest:       ps.RealityDest,
+			Dest:       ptrTo(destHost),
+			ServerPort: ptrTo(destPort),
 			// xver 在 Xboard 里是**字符串**（不是数字），照抄不改类型。
 			Xver: ptrTo(settingOr(ps.RealityXver, "0")),
 		}
@@ -1074,6 +1084,19 @@ func effectiveServerPort(row dbgen.GetServerConfigRow) int32 {
 }
 
 // hostOf 取 "host:port" 里的 host；没有端口就原样返回。
+// splitHostPortDefault 把 "host:port" 拆成两段；没有端口时用 def。
+// 不用 net.SplitHostPort：它对没有端口的输入返回 error，而「只写主机名」在
+// protocol_settings 里是合法写法（端口默认 443）。
+func splitHostPortDefault(hostPort, def string) (string, string) {
+	if i := strings.LastIndex(hostPort, ":"); i > 0 && !strings.Contains(hostPort[i+1:], "]") {
+		if p := hostPort[i+1:]; p != "" {
+			return hostPort[:i], p
+		}
+		return hostPort[:i], def
+	}
+	return hostPort, def
+}
+
 func hostOf(hostPort string) string {
 	if i := strings.LastIndex(hostPort, ":"); i > 0 {
 		return hostPort[:i]
