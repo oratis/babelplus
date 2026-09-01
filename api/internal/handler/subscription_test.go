@@ -810,3 +810,43 @@ func lowerHeader(rec *httptest.ResponseRecorder, key string) string {
 	}
 	return v[0]
 }
+
+// TestRealitySubscriptionDoesNotEnableMux 钉死 B15 的实测结论。
+//
+// 🔴 mux 与 XTLS-Vision **互斥**（2026-09-01 在第一台真节点上实测）：
+// 两者同时下发时，mihomo 与 sing-box 都是「能导入、能显示节点、连不上」——
+// 不报错、不超时到用户能看懂的程度，只是不通。
+// 这正是本仓反复警告的那类失败：**静默失效**。
+//
+// 本用例存在的意义不是防止有人手滑，而是防止有人读到 ADR 0004 §3.3
+// （「抗 TLS-in-TLS 指纹优先于吞吐」）之后把 Mux 改回 true —— 那份 ADR 的
+// 论证是对的，但它的前提（两者可以共存）被实测推翻了。
+// 要改回来，先去看 roadmap B15 的实测记录。
+func TestRealitySubscriptionDoesNotEnableMux(t *testing.T) {
+	proxies := buildProxies(context.Background(), slog.New(slog.DiscardHandler),
+		[]dbgen.Server{{
+			Code:     "bp-node-hk1",
+			Name:     "hk1",
+			Protocol: dbgen.ServerProtocolVlessReality,
+			Host:     "203.0.113.10",
+			Port:     443,
+			ProtocolSettings: []byte(`{
+				"server_name":"www.bing.com",
+				"reality_public_key":"PUBKEY",
+				"reality_short_id":"a1b2c3d4"
+			}`),
+		}}, "b5039d39-3813-40ee-90b9-90ceab479b09")
+
+	if len(proxies) != 1 {
+		t.Fatalf("期望 1 个下发节点，实际 %d 个", len(proxies))
+	}
+	p := proxies[0]
+	if p.Flow != vlessRealityFlow {
+		t.Fatalf("flow = %q，期望 %q", p.Flow, vlessRealityFlow)
+	}
+	if p.Mux {
+		t.Fatal("REALITY 节点的订阅 Mux = true，必须是 false —— " +
+			"mux 与 XTLS-Vision 互斥，同时开启会让 mihomo 与 sing-box 都「能导入、能显示、连不上」" +
+			"（2026-09-01 真机实测，roadmap B15）")
+	}
+}

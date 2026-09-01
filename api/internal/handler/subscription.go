@@ -566,8 +566,25 @@ func buildProxies(ctx context.Context, logger *slog.Logger, servers []dbgen.Serv
 			// flow 与节点侧共用同一个常量：两边不一致 = 握手失败。
 			p.Flow = vlessRealityFlow
 			p.Fingerprint = subDefault(ps.ClientFingerprint, subDefaultFingerprint)
-			// TCP 路径开 mux（ADR 0004 §裁决 2）：抗 TLS-in-TLS 指纹优先于吞吐。
-			p.Mux = true
+			// 🔴 **mux 与 XTLS-Vision 互斥 —— 2026-09-01 实测判定，roadmap B15 由此关闭。**
+			//
+			// 原文是 `p.Mux = true`，依据 ADR 0004 §裁决 2「抗 TLS-in-TLS 指纹优先于吞吐」。
+			// 而 B15 一直登记着「mux 与 XTLS-Vision 是否互斥 **未核实**；若互斥，
+			// ADR 0004 §3.3 与 system-design §3.1 必须放弃一个」。
+			//
+			// 实测（第一台节点 bp-node-hk1，真实订阅原样加载）：
+			//   开 mux ：mihomo ❌ / sing-box ❌（两者都是「能导入、能显示、连不上」）
+			//   关 mux ：mihomo ✅ / sing-box ✅（出口 IP 实测为节点 IP）
+			// 也就是说**此前下发的订阅对所有客户端都是连不上的**，
+			// 而失败形态恰恰是本仓反复警告的那一种：不报错、只是不通。
+			//
+			// 放弃的是 mux，不是 Vision，理由不是偏好：
+			// XTLS-Vision 解决的正是 mux 想解决的那个问题（TLS-in-TLS 指纹），
+			// 且它是在传输层直接消除内层 TLS 记录特征，而不是靠多路复用稀释统计特征。
+			// 两者同时开时 Vision 的分流逻辑与 mux 的帧封装互相破坏。
+			// ⚠️ 这一条推翻的是一份**已批准之外**的裁决（ADR 0004 是设计稿），
+			// 落点要写进 ADR 0004 §3.3 与 system-design §3.1 —— 见 roadmap B15。
+			p.Mux = false
 
 		case dbgen.ServerProtocolHysteria2:
 			p.Kind = subgen.KindHysteria2
