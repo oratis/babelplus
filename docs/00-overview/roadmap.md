@@ -362,13 +362,24 @@
       的 A/B 事后支持：Premium 36.4 ms vs Standard 36.2 ms，**无可测差异** ——
       但那是单目标单时段的握手延迟，**不是吞吐**）；
       ② **IPv6 未核实**（本次清点无相关字段），承 B20 的二次阻塞。
-- [ ] 🔴 装机 9 步（sysctl / v2node / xray / hysteria2 / ss-2022 / acme.sh + LE / systemd 硬化
-      含 `AmbientCapabilities=CAP_NET_BIND_SERVICE` / unattended-upgrades 关自动重启 / swap）
-      🔴 **2026-09-01：一步都没做。** 这是现在挡着 P1 的**唯一一件事**，
-      也是「只差一台机器」这句话在 2026-09-01 之后的准确形态：
-      **机器有了，机器上什么都没装。** 出口标准 2（v2node 拉配置 + 180 秒 `1×200 + 2×304`）、
-      4（真实订阅在两个客户端各加载一次）、5（72 小时 + 流量差 < 1%）、
-      6（三态生效计时）、7（密钥两步轮换）**全部悬在这一条上**。
+- [x] ~~🔴 装机 9 步（sysctl / v2node / xray / hysteria2 / ss-2022 / acme.sh + LE / systemd 硬化
+      含 `AmbientCapabilities=CAP_NET_BIND_SERVICE` / unattended-upgrades 关自动重启 / swap）~~
+      🟢 **2026-09-01 当天做完了 9 步里的 7 步，REALITY 通路端到端可用。**
+      证据 [node-bringup-20260901](../evidence/node-bringup-20260901/)。
+      ✅ sysctl（BBR 已生效）· baseline（含 1 GB swap）· v2node（**钉 v0.4.3**）·
+      transport · systemd · unattended-upgrades（Automatic-Reboot false）· ssh 加固。
+      🔴 **没做的两步都卡在同一件事 —— 证书**：`cert` 步骤签不出来
+      （`setup-node.sh` 写死 `--dns dns_cf`，那是已被 **ADR 0016 否决**的 ADR 0010 的遗留；
+      而本机 `aliyun` CLI 配的是另一个账号，`babel.plus` 不在其下，报 `IncorrectDomainUser`）。
+      **于是 Hysteria2 不可用**（它是唯一需要真证书的通路），SS-2022 也未启用。
+      **REALITY 与 SS-2022 不需要证书这一点，脚本自己 step 3 就写着** ——
+      但它的 systemd 单元把证书写成无条件 `LoadCredential`，
+      导致「只跑 REALITY 的节点根本装不起来」，本轮一并修掉。
+      🔴 **v2node 版本必须钉 v0.4.3，不能用 v0.4.5**：后者 vendored
+      `xray-core v1.260728.0`（2026-07-28），已过脚本头部「版本地雷 ①」说的
+      **v26.7.11 兼容断点**；v0.4.3 是最后一个 vendored `v1.260627.0` 的版本。
+      ⚠️ 这一条与那颗地雷的原始表述有出入，值得记：地雷写的是「mihomo 会连不上」，
+      **而实测下来 v0.4.5 上连官方 xray 26.3.27 客户端也连不上** —— 影响面比登记的更大。
 - [ ] 阶段 3 · 单人验证 **72 小时**
 
 **1.B · API 与数据侧**
@@ -493,6 +504,24 @@
 | 6 | 封禁 / 配额耗尽 / 到期 三个状态各手工触发一次，节点侧生效时间分别 ≤ 60 s / ≤ 60 s / **≈ 6 分钟** | 有据（5 分钟扫描 + 60 秒轮询） |
 | 7 | 一次节点密钥轮换按 D5 **两步**做完，节点全程不失联；API 层对「一步吊销」返 409 | 有据（api-contract §6） |
 | 8 | 每阶段前后各跑一次 [as-built §7](../02-architecture/as-built-gcp.md) 清点命令做 diff，`vpn-*` 与三个 Cloud Run 服务零变化 | **这是「不影响已部署服务」唯一可验证的形式** |
+
+**2026-09-01 逐条判定（上表原文不动，判定追加在这里）。证据 [node-bringup-20260901](../evidence/node-bringup-20260901/)：**
+
+| # | 判定 | 依据 |
+|---|---|---|
+| 1 | 🔴 **不满足，且判据本身作废** | J1–J3 建立在 ICMP 打运营商 DNS 上，已被实测推翻（**B55**）。新判据未定、阈值未重标定、数据源 B/C 与晚高峰采样未做 |
+| 2 | ✅ **满足** | `GET /api/v2/server/config` → `200 + ETag "c-1"`；带 `If-None-Match` → **304**。⚠️ 路径不是原文写的那个 —— v2node 实际请求 `/api/v2/server/config`，本轮补进契约 |
+| 3 | — | 前提未发生（第 2 条成立） |
+| 4 | ✅ **满足** | **未经任何手工修改的订阅**，在 mihomo（Clash Verge Rev 内核）与 sing-box 上各加载一次，**出口 IP 均为 `35.215.158.52`**。这一条是被 **B15** 挡了 16 天的那一条 |
+| 5 | 🔶 **三项里达成两项，72 小时未开始** | 内存峰值 **388 / 1976 MiB ≈ 20%**（阈值 < 70%）✅；流量差 **0.3%**（15,000,000 B 实下 → 面板增量 15,039,442 B，阈值 < 1%）✅；**连续 72 小时观察窗口尚未开始** 🔴 |
+| 6 | 🔴 **未做** | 封禁 / 配额耗尽 / 到期 三态各需手工触发一次并计时。软件侧链路已通（8 条 Scheduler 在跑），但一次都没触发过 |
+| 7 | 🔴 **未做** | 节点密钥两步轮换演练零次 |
+| 8 | ✅ **满足** | `verify-isolation.sh` 部署前 16/16、部署后 **18/18**，非 `bp-` 资源逐字节未变 |
+
+> 🟢 **从 0/8 到 3/8 + 1 个半满足。** 这是 P1 出口标准第一次不是零。
+> 🔴 **而剩下的 5 条里，只有 1 条（第 5 条的 72 小时）是「等时间」** ——
+> 第 1 条要重定判据、第 6/7 条要做演练、第 3 条依赖第 2 条（已满足所以不适用）。
+> **它们都不需要再写代码。**
 
 ### 4.4 依赖 / 阻塞
 
@@ -1116,7 +1145,7 @@ flowchart TD
 | B12 | **Cloud SQL 四个配置细节** —— **2026-08-21 解决 3/4**：存储 **10 GB PD_SSD**（ADR 成本基础成立）、自动备份**保留 14 份**、PITR 事务日志 **7 天**；**第四问「删实例时自动备份是否一并删」仍开放**（`describe` 里没有这个字段）。🔴 顺带查到三条本来没在问的：**`deletionProtection: false`**（一条命令就能删掉实例）、`storageAutoResize` 开且**无上限**（存储成本没有天花板）、公网 IP 存在且 `sslMode: ALLOW_UNENCRYPTED_AND_ENCRYPTED`（`authorizedNetworks` 为空所以现在连不进来，是待收紧项）。证据 [evidence/gcp-inventory-20260821 §3](../evidence/gcp-inventory-20260821/) | 恢复方案的必要性；**`deletionProtection` 比第四问更要紧** | 🔶 部分解决 | ADR 0005 §12 |
 | B13 | ~~**现有节点网络层级未查**~~ ✅ **2026-08-20 已查，2026-08-30 把答案搬进表内**（此前它只活在本节末尾那个「7 条成本以分钟计」的表外补丁块里，读这张表的人看不到）：`vpn-us`（us-west1-a）与 `vpn-jp`（asia-northeast1-a）**两台实例与两个静态 IP 全部是 `PREMIUM`**，证据 [network-tier-implementation-20260820 §2](../evidence/network-tier-implementation-20260820/)。附带查明两条：**Premium 是 GCP 的默认值**（不显式指定就是它），且当时 `create-node.sh` / `rotate-ip.sh` 里**显式硬编码 `--network-tier=PREMIUM` 共 7 处** —— 不是疏忽，是写死的。本条同时解开 ADR 0004 §3.7 的复审前提 | ADR 0004 §3.7 无法复审；reference-repos §1.5 的吞吐实测没有层级归属 | ✅ 已解决 | ADR 0007 §11、ADR 0004 §6 |
 | B14 | **旧节点是否有人在用** | ADR 0007 裁决第 4 条（回滚落点是否真实存在） | **需用户决策** | ADR 0007 §11 🔴 |
-| B15 | **mux 与 XTLS-Vision 是否互斥** | 可能推翻 ADR 0004 §3.3 或 system-design §3.1 之一 | **可直接做**（实验） | node-provisioning §10 |
+| B15 | ~~**mux 与 XTLS-Vision 是否互斥**~~ ✅ **2026-09-01 实测：互斥，本条关闭。** 同一条订阅、同一台节点、只切 mux 一个变量：**开 mux 时 mihomo 与 sing-box 双双连不上**（失败形态是「能导入、能显示节点、连不上」，**不报错**）；**只去掉 mux 块，两者立刻都通**（出口 IP 实测为节点 IP `35.215.158.52`）。🔴 **也就是说在这一条修掉之前，下发的订阅对所有客户端都是连不上的。** 处置：**放弃 mux，保留 XTLS-Vision** —— Vision 解决的正是 mux 想解决的那个问题（TLS-in-TLS 指纹），且它在传输层直接消除内层 TLS 记录特征，而不是靠多路复用稀释统计特征。实现落在 `subscription.go` 的 `p.Mux = false`，回归测试 `TestRealitySubscriptionDoesNotEnableMux` 走真实 `buildProxies`。证据 [node-bringup-20260901 §6](../evidence/node-bringup-20260901/) | ~~可能推翻 ADR 0004 §3.3 或 system-design §3.1 之一~~ **已推翻 ADR 0004 §3.3** | ✅ **已解决**。🔴 **欠一条落点**：ADR 0004 §3.3 与 system-design §3.1 尚未按 [docs/README §4](../README.md) 的规矩逐条交代 | node-provisioning §10 |
 | B16 | ~~`alivelist` 的设备计数口径~~ **✅ 部分解决** —— **按 IP**：节点上报 `{uid:["ip1","ip2"]}`，面板回 `{"alive":{uid:count}}`。`user_device_state` 以 IP 为主键是对的。🔴 另发现 **`alivelist` 失败时 v2node 静默降级为「零在线设备」**，即设备数限制会静默失效 —— 它只能是软限制，不能作为计费或防滥用的强保证 | 主键设计已验证；限制强度需在产品文案中说明。<br>🔶 **2026-08-30：「软限制如何表述」这后半条有裁决了，但没批准。** [ADR 0015 · 客户端策略](../05-adr/0015-client-strategy.md) 把「设备数软限制口径」列进裁决范围（见 [05-adr/README](../05-adr/README.md) 该行）。**状态「提案，未批准」，因此不划掉。** 而同一件事已经从产品文案渗进了钱的模型：[pricing §3.5.9 条件 9](../03-product/pricing-and-plans.md) 把「`/alivelist` 可用率跌破阈值 = 设备数阶梯失效」列为定价失效条件（阶梯一塌，「轻量 ¥72 + 60 GiB 加油包 ¥72 = ¥144 / 90 GiB」与「标准 ¥159 / 100 GiB」只差 ¥15）。**该告警至今未设计** | ✅ 已解决（口径）/ 🔶 表述有裁决草案（ADR 0015，提案未批） | page-inventory §8、data-model §16、api-contract §14、user-journey §16 |
 | B17 | **各客户端真实 UA 字符串未抓取** | 订阅分发表错一行，对应客户端拿到错格式 | **可直接做** | api-contract §14 |
 | B18 | ~~两个 base_config 字段语义未知~~ **✅ 2026-08-17 解决** —— `device_online_min_traffic` **单位是 KB**（代码里 `devicemin*1000` 转字节），作用是把本轮流量低于此值的用户**排除出在线设备统计**（防止空闲客户端吃掉设备名额）；`node_report_min_traffic` 是流量上报的下限过滤。建议初值 `device_online_min_traffic=1000`（1 MB），**仍需真实用量调参** | 设备数杠杆可以落地了 | ✅ 已解决（语义）/ 需调参 | api-contract §14 |
@@ -1184,6 +1213,9 @@ flowchart TD
 | **B57** | 🔴 **三条手工告警与 `setup-alerts.sh` 的接管冲突，且其中一条收不到任何信号**（2026-09-01 新增）。2026-09-01 建了 `bp-` 的头三条告警策略（`gcloud alpha monitoring policies list` 实查，确为 3 条）：`bp-scheduler-task-failed` / `bp-api-healthz-down` / `bp-cert-issuer-bad`。两个问题：① 🔴 **`bp-cert-issuer-bad` 目前收不到任何信号** —— 它依赖 `check-cert-issuer.sh` 每日写结构化日志，而**那个每日作业没有挂**；[ADR 0014 §14](../05-adr/0014-slo-and-oncall.md) 要求这类检测**带外**运行（「检测『我们的前置基础设施是否被替换』不应依赖那套基础设施」），而我们没有带外机器。在它挂上之前，「签发者被换回 GTS」只能靠人跑 `renew-le-cert.sh --check` 发现，`bp-api-healthz-down` 抓不到它（GTS 证书受信任，TLS 校验照样通过）。② ⚠️ **这三条是手工建的，`setup-alerts.sh` 的 17 条里也有同题** —— ADR 0014 批准后跑 `--apply` **必须先删掉这三条**，否则同一事件告警两次，而「告警响两次」正是训练所有人忽略告警的标准方式 | 从「告警 0 条」到「告警 3 条」是真进步，但**其中 1/3 是空的**；且这一条是**未批准的裁决正在产生运维债**的第一个具体样本 —— 不是返工风险，是已经存在的、需要在批准那一刻记得处理的状态 | 🔴 **两半分开做**：前半「挂每日作业」**可直接做**（Cloud Scheduler 一条，或按 ADR 0014 §14 找带外落点 —— 后者需采购决策，与 B31 境内探针是同一笔）；后半**需先批 ADR 0014**，且批准动作要连带「先删三条手工策略」这一步。登记处：[first-deploy §4.4](../04-ops/first-deploy-20260831.md)、`infra/scripts/setup-alerts.sh`、`infra/scripts/check-cert-issuer.sh` |
 | **B58** | 🔴 **`web.` / `api.babel.plus` 的 Let's Encrypt 证书 2026-11-29 到期，而续期没有任何调度**（2026-09-01 新增）。本次实查：两个域名签发者 `C=US, O=Let's Encrypt, CN=YE1`，`notAfter=Nov 29 15:58:48 2026 GMT`（`openssl s_client` 2026-09-01 实跑）。`infra/scripts/renew-le-cert.sh` 已写好（`--check` / `--dry-run` / `--apply` 三模式），**但没有任何东西会去调它** —— 与 B57 的每日证书核对作业是同一个形状的缺口。兜底是 `bp-api-healthz-down`（uptime check 校验 TLS），**而那是过期之后才响，不是之前** | 忘了续的现象是**全站 TLS 失败**：`web.` 与 `api.` 同时挂，用户面板与订阅下发一起断。且 ACME 这条链路本身有两个已知的坑（GCS 硬拒 `.well-known/acme-challenge/` 需 URL rewrite；容器内 gcloud 在 arm64 模拟下不可用需宿主机接力），**90 天后重跑时如果换了人或换了机器，会重新踩一遍** | 🔴 **可直接做，成本接近零**：挂一条 Cloud Scheduler 在到期前 30 天调 `renew-le-cert.sh --check`，或至少在日历上钉一条。⚠️ 与 B57 前半是同一个动作类别（「已经写好的脚本没有调度器」），建议一次做完。登记处：[first-deploy §4.3](../04-ops/first-deploy-20260831.md)、`infra/scripts/renew-le-cert.sh` |
 | **B59** | 🔴 **`user-journey.md` 的收款设计与已实现的 ADR 0012 直接冲突，且它是面向用户的文案来源**（2026-09-01 新增）。[user-journey §6.1](../03-product/user-journey.md) 第 2 条写「**不是一单一地址**。用小地址池 + 金额唯一性做匹配（冲突则金额 `+0.0001` 递增重试，最多 100 次）」，§7 卡点 3「金额带四位小数，看着像诈骗」的整条应对（「**尾数是订单识别码，少一位就无法自动到账**」）建立在它之上。而 [ADR 0012 §3.6](../05-adr/0012-payment-gateway.md) 已裁决为**一单一址、地址永不复用、归属只看 `to_address`、金额只用于判定 `paid` / `underpaid`**，数据库侧 `pay_addresses.assigned_order_id UNIQUE` 已在库，**代码也已按新裁决实现完并上线**。roadmap §5.2 的对应条目已划掉，**但 user-journey 一个字没改** | 🔴 **它不是一处内部矛盾，是一句会被抄进收银台页面的错误解释** —— 按 §7 卡点 3 写出来的文案会告诉用户「尾数是识别码」，而在一单一址之下这句话是假的；而这一页是 [page-inventory §3.1](../03-product/page-inventory.md) 里唯一标注「**无替代（付款中断=丢单）**」的路由。同族还有一处：§6.1 第 1 条「默认预选年付」与 [pricing §3.2](../03-product/pricing-and-plans.md) 的「**年付不随首发上架**」也已不一致 | 🔴 **可直接做**（一次文档修订），**但要按 [docs/README §4](../README.md) 的规矩逐条交代落点**，因为它推翻的是 user-journey 自己的两条明文设计。⚠️ 修的时候要连带回答一个 ADR 0012 没有回答的产品问题：**一单一址之下，收银台还需不需要展示四位小数的精确金额** —— 需要（金额仍用于判定 `underpaid`），但**理由变了**，文案不能照抄。登记处：`user-journey.md` §6.1 / §7、`0012-payment-gateway.md` §3.6 |
+| **B60** | 🔴 **Hysteria2 签不出证书，因此整条 HY2 通路不可用**（2026-09-01 新增）。两个原因叠在一起：① `infra/node/setup-node.sh` 的 cert 步骤**写死** `acme.sh --issue --dns dns_cf`，即 Cloudflare DNS-01 —— 那是 [ADR 0010](../05-adr/0010-domain-strategy.md) 的遗留，而 0010 已被 **[ADR 0016](../05-adr/0016-domain-babelplus.md) 否决**，`babel.plus` 的 NS 在**阿里云**（`dns13/dns14.hichina.com`）；② 本机 `aliyun` CLI 配的是**另一个账号**，对 `babel.plus` 返回 `IncorrectDomainUser` —— 也就是说**当前没有任何一条可用的 DNS-01 路径**。⚠️ HTTP-01 那条路也不通：node-provisioning 明确要求节点证书域名**刻意不建 A 记录**（域名只存在于证书里），而 HTTP-01 要求域名解析到能被 LE 访问的地址。 | **HY2 整条通路** —— 它是 ADR 0004 §3.1 的加速路径，也是 product-brief §7 差异点 #1「单流吞吐 4.6×」的唯一载体。**现在只有 REALITY 一条路**，任何一条出问题就是全线中断 | 🔴 **需用户提供凭据 + 一次脚本修改**：要么给 `babel.plus` 所属阿里云账号的 API 密钥并把 cert 步骤改成 `--dns dns_ali`，要么裁决改用别的签发路径。登记处：`infra/node/setup-node.sh` 的 `do_cert`、`0016-domain-babelplus.md` |
+| **B61** | 🔴 **REALITY target 的选型标准缺一条硬判据，而仓库里现存的样例值正好踩中它**（2026-09-01 新增）。[node-provisioning §4.5](../04-ops/node-provisioning.md) 与 `transport-policy.json` 列的标准是「TLS 1.3 + HTTP/2、无跳转、境外、非自家域名、在中国可正常访问、从本节点可达且低延迟」——**没有一条约束证书链大小**。而实测判据是：**target 的 TLS Certificate 消息必须装得进 REALITY 的缓冲窗口，分界线在 4.5 KB 附近**。`www.microsoft.com` 是 **8273 字节**，握手必然失败；而它正是 [local-development.md](../04-ops/local-development.md) 冒烟种子里写的那个值。⚠️ 关键在于**它做「回落」目标完全正常**（`openssl s_client` 能拿到微软的证书），只是做 REALITY target 不行 —— 两者是不同的要求，文档没有区分。失败形态见 [node-bringup-20260901 §5](../evidence/node-bringup-20260901/)：`AuthKey` 两侧逐字节相同（**认证是成功的**），卡在 `Certificate: 8273 / len(s2cSaved): 2834`。 | 任何人照文档或照冒烟种子选 target，都会得到一个**认证成功但握手失败**的节点，而日志里没有一句话指向证书大小 | 🔴 **可直接做**（两处文档修订）：给 §4.5 补「证书链 < 4.5 KB，用 `realitySettings.show:true` 实测一次」这条判据；把冒烟种子里的 `www.microsoft.com` 换掉。当前生产用的是 `www.bing.com`（5021 B、`200 + H2 + 无跳转`、176 ms、xray 无告警），⚠️ **它的中国可达性未实测** |
+| **B62** | 🔴 **v2node 的升级闸门比「版本地雷 ①」登记的更严重**（2026-09-01 新增）。脚本头部记的是「mihomo 已放弃与 Xray ≥ v26.7.11 的 REALITY 兼容」，读起来像是只影响 Clash 系客户端。**实测不是**：v2node **v0.4.5**（vendored `xray-core v1.260728.0`）之下，**mihomo、sing-box、以及官方 xray 26.3.27 客户端三者全部连不上**；换成 **v0.4.3**（vendored `v1.260627.0`，断点之前）三者全部正常。也就是说这条不兼容是**服务端 xray 版本对所有旧客户端的单向断裂**，不是某个客户端的适配问题。 | 一次「跟进上游最新版」的常规升级 = **全体用户在下次节点重启后集体失联**，且节点侧日志只有 `handshake did not complete successfully`，看不出是版本问题 | 🔴 **纪律而非代码**：`BP_V2NODE_VERSION` 当前钉 **v0.4.3**；升级前必须 ① 查 `go.mod` 里 `xtls/xray-core` 的版本，② 用真实 mihomo **与** sing-box 各回归一次。⚠️ 这条纪律现在只活在脚本注释与本条里，**没有任何自动化手段**。登记处：`infra/node/setup-node.sh` 头部「版本地雷 ①」 |
 
 > **统计**（按主归属计，跨类的取第一归属）：初版 40 条时是
 > **需用户决策 9 条、需实测 9 条、需申请 4 条、可直接做 15 条、待裁决 2 条、已可撤销 1 条**。
@@ -1283,6 +1315,29 @@ flowchart TD
 > 代码已经上线，B3/B8/B17 才补。**代价见 B42** —— 日志指标同样是「应当在部署之前建好」，
 > 结果晚了 4 天，那 4 天的数据永久没有。
 > **这条规律值得记住：带「不追溯 / 前置」字样的待办，拖延的成本不是线性的。**
+
+> **2026-09-01（第一台节点接通后）：为 62 条。**
+> 🟢 **B15 关闭**（mux × XTLS-Vision 实测互斥，见该行）—— 这是**继 2026-08-31 那五条之后
+> 又一条从 🔴 转 ✅ 的**，而且它和那五条是同一个形状：**要的是「去执行一次」，不是「再写一遍」。**
+> 🔴 **新增三条，全部来自「第一次把真节点接上来」这一个动作**：
+> **B60**（HY2 签不出证书：cert 步骤写死 CF DNS-01，而 ADR 0010 已被 0016 否决）·
+> **B61**（REALITY target 选型标准缺「证书链大小」判据，而冒烟种子里的样例值正好踩中）·
+> **B62**（v2node 升级闸门的影响面比登记的更大：v0.4.5 之下连官方 xray 客户端也连不上）。
+> **算式**：59 = 18✅ + 18🔶 + 23🔴 →
+> ✅ 18 + 1（B15）= **19**；🔶 **18** 不变；🔴 23 − 1（B15 转出）+ 3（B60–B62）= **25**。
+> **19 + 18 + 25 = 62。**
+>
+> 🔴 **这一轮的规律，与前两轮并列记下来**：
+> 第一轮是「**写了代码 ≠ 上线**」，第二轮是「**上线了 ≠ 接管了**」，
+> **这一轮是「装好了 ≠ 通了」** —— 四条缺陷（契约分叉、单元无条件挂证书、
+> ExecStart 用了不存在的标志、部署脚本复现不出生产配置）加上 REALITY target 的证书链约束，
+> **没有一条能靠读代码发现，每一条的失败形态都指向错误的方向**：
+> 路由不匹配报成 JSON 解析错误、REALITY 认证成功却报「握手未完成」、
+> 服务没在跑却记 `Deactivated successfully`。
+> ⚠️ 由此得到一条应当写进纪律的话：**「agent 的行为」只能靠跑起来知道，
+> 而本仓此前把 v2node 的三项行为全部靠读源码关掉了**（§10.0 那张表）——
+> 今天为那个省下来的容器实验付了利息。
+
 
 ---
 
