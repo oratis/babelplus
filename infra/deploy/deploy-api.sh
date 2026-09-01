@@ -56,11 +56,22 @@ readonly LABEL_BUILDER="plus.babel.build.by"                # 哪条构建路径
 
 # Secret 名 → 环境变量名。**必须与 setup-infra.sh 的 SECRET_* 和
 # api/internal/config/config.go 的 required 表三方一致。**
-readonly SECRET_MOUNTS="\
+SECRET_MOUNTS="\
 BP_DATABASE_URL=bp-database-url:latest,\
 BP_SUBSCRIPTION_TOKEN_PEPPER=bp-sub-token-pepper:latest,\
 BP_NODE_KEY_PEPPER=bp-node-token-pepper:latest,\
 BP_SESSION_SIGNING_KEY=bp-jwt-signing-key:latest"
+
+# 🔴 BP_ADMIN_TOTP_ENC_KEY 必须走 **secret 挂载**，不能走 --set-env-vars。
+#    它是加密管理员 TOTP secret 的主密钥；作为明文环境变量，任何有 Cloud Run 读权限
+#    的主体在 `gcloud run services describe` 里就能直接看到它。
+#    而线上（2026-08-31 手工配的那次）本来就是 secret 形态，用本脚本以字面量再配一次
+#    会被 gcloud 直接拒绝：
+#      Cannot update environment variable [BP_ADMIN_TOTP_ENC_KEY] to string literal
+#      because it has already been set with a different type.
+#    —— 也就是说在补上这一条之前，**本脚本根本复现不出当前的生产配置**（2026-09-01 实测）。
+#    条件挂载而非无条件：管理面未启用时（BP_ADMIN_IAP_AUDIENCE 为空）不该挂它。
+readonly SECRET_ADMIN_TOTP="BP_ADMIN_TOTP_ENC_KEY=bp-admin-totp-enc-key:latest"
 
 # ───────────────────────── 运行时开关 ─────────────────────────
 
@@ -247,7 +258,7 @@ preflight() {
   done <<EOF
 $(printf '%s' "$SECRET_MOUNTS" | tr ',' '\n')
 EOF
-  ok "4 个 secret 均存在"
+  ok "$(printf '%s' "$SECRET_MOUNTS" | tr ',' '\n' | grep -c .) 个 secret 均存在"
 }
 
 # ───────────────────────── 构建 ─────────────────────────
@@ -572,13 +583,24 @@ BP_ALLOWED_ORIGINS=${origins}"
   # 同一条纪律的另一半。⚠️ BP_ADMIN_IAP_AUDIENCE 的取值**只能**来自一个挂了 IAP 的
   # GCLB 后端服务的数字 id，不是 URL、不是项目 ID —— 那套负载均衡器目前一件都没建
   # （roadmap B51），所以这两项现在必然留空，管理面在线上整体拒绝。**这是设计，不是故障。**
-  if [ -n "${BP_ADMIN_IAP_AUDIENCE:-}" ] || [ -n "${BP_ADMIN_TOTP_ENC_KEY:-}" ]; then
-    if [ -z "${BP_ADMIN_IAP_AUDIENCE:-}" ] || [ -z "${BP_ADMIN_TOTP_ENC_KEY:-}" ]; then
-      die "BP_ADMIN_IAP_AUDIENCE 与 BP_ADMIN_TOTP_ENC_KEY 必须同时给或同时留空。
-     只给 audience → 管理面能进但所有危险操作被拒；只给密钥 → 管理面整体进不去。两种现象都不指向配置本身。"
-    fi
+  # 🔴 2026-09-01 改：audience 走 --set-env-vars，**TOTP 主密钥走 --set-secrets**。
+  #    此前两项都当环境变量传，后果有两个，都实测过：
+  #      ① 主密钥变成明文环境变量，`gcloud run services describe` 里直接可读；
+  #      ② 线上已是 secret 形态时 gcloud 直接拒绝部署（类型不可变更），
+  #         于是本脚本**复现不出当前生产配置**。
+  #    因此「同时给或同时留空」这条纪律的后半句换成：给了 audience 就自动挂 secret，
+  #    不再要求调用方手里持有那把密钥 —— 部署者本来就不需要看见它。
+  if [ -n "${BP_ADMIN_IAP_AUDIENCE:-}" ]; then
     env_vars="${env_vars};;BP_ADMIN_IAP_AUDIENCE=${BP_ADMIN_IAP_AUDIENCE}"
-    env_vars="${env_vars};;BP_ADMIN_TOTP_ENC_KEY=${BP_ADMIN_TOTP_ENC_KEY}"
+    SECRET_MOUNTS="${SECRET_MOUNTS},${SECRET_ADMIN_TOTP}"
+    if [ -n "${BP_ADMIN_TOTP_ENC_KEY:-}" ]; then
+      warn "BP_ADMIN_TOTP_ENC_KEY 已在环境里，但本脚本**忽略它**并改挂 Secret Manager
+     （secret: bp-admin-totp-enc-key）。明文传递这把密钥没有任何收益，只有暴露面。"
+    fi
+  elif [ -n "${BP_ADMIN_TOTP_ENC_KEY:-}" ]; then
+    die "只给了 BP_ADMIN_TOTP_ENC_KEY 而没给 BP_ADMIN_IAP_AUDIENCE。
+     只给密钥 → 管理面整体进不去，而现象不指向配置本身。
+     另注：本脚本不再接受以字面量传这把密钥，它只从 Secret Manager 挂载。"
   fi
 
   # ---- 🔴 静默降级闸门：线上已经配了、而这次没传，就是一次静默的功能拆除 ----
@@ -605,7 +627,7 @@ BP_ALLOWED_ORIGINS=${origins}"
     local dropped=""
     local k
     for k in BP_INTERNAL_OIDC_AUDIENCE BP_INTERNAL_TASK_CALLERS \
-             BP_ADMIN_IAP_AUDIENCE BP_ADMIN_TOTP_ENC_KEY; do
+             BP_ADMIN_IAP_AUDIENCE; do
       # 线上有这一项，而本次 env_vars 里没有它 → 这次部署会把它删掉。
       case "$live_env" in
         *"$k"*)
