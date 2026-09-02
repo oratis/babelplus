@@ -305,7 +305,11 @@ describe('D9 · 改连接信息', () => {
     fireEvent.change(screen.getByLabelText('分组 id'), { target: { value: '1, abc' } });
     fireEvent.click(screen.getByRole('button', { name: '保存连接信息' }));
 
-    expect(screen.getByTestId('danger-blocked-hint').textContent).toContain('分组只能填正整数');
+    // CI 上（GH Actions 33603696664）这一条曾在点击后立刻断言时读到「还没有任何改动」——
+    // 面板展开与表单派生的 blocked 文案不在同一次提交里落地，本地跑不出来。等它稳定下来再断言。
+    await waitFor(() =>
+      expect(screen.getByTestId('danger-blocked-hint').textContent).toContain('分组只能填正整数'),
+    );
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
     expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
   });
