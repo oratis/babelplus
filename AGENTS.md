@@ -7,36 +7,38 @@
 ## 1 · 这是什么项目
 
 内部使用的流量中转服务（中国 → Cloudflare 边缘 → Google Cloud → 全球）。
-当前处于 **P0 收尾 / P1 软件侧基本完成、基础设施侧为零**（2026-08-30 实数）：
+当前处于 **P1 数据面：第一台节点已端到端接通，出口标准 3.5/8**（2026-09-02 实数）：
 
 - `api/`（Go）：**128 个 operation 实现 120 个**，剩 **8 个 501**
   （5 条缺表 `domains` / `mail_templates`，3 条契约自己声明未实现；
   清单钉在 `api/internal/handler/unimplemented_test.go`，**改它之前先读那一条为什么被拦住**）。
-  **37 个 `_test.go` / 573 个顶层 `Test` 函数**，19 组迁移 / 47 张表 / 343 条 sqlc 查询。
-- `web/`（双 SPA）：**623 个前端用例 / 48 个文件全绿**（`pnpm test`）。
-  用户面板 **20 条业务路由全部接线**（`App.tsx` 共 22 条 `path=`，另两条是 `/` 重定向与
-  `*` 的静态 `NotFoundPage`）；后台 23 页**接线 21 页**
+  **40 个 `_test.go` / 600 个顶层 `Test` 函数**，19 组迁移 / 343 条 sqlc 查询。
+- `web/`（双 SPA）：**630 个前端用例 / 49 个文件全绿**（`pnpm test`；
+  ⚠️ 本机 Node ≥ 25 会因内置 Web Storage 抢占全局而假红 19 个用例，
+  加 `NODE_OPTIONS=--no-experimental-webstorage` 即可，CI 用 Node 24）。
+  用户面板 20 条业务路由全部接线；后台 23 页接线 21 页
   （不接的两页：`DomainsPage` 三个端点都是 501、`NotFoundPage` 是静态页）。
   `TODO(P1)` **22 处 / 16 个文件**。
-- `infra/`：建机与部署脚本 **18 支 / 10,705 行，全部带 dry-run，一台节点都没建过**。
+- `infra/`：建机与部署脚本全部带 dry-run，**第一台节点 `bp-node-hk1` 就是用它们建成并接通的**
+  （证据 [node-bringup-20260901](docs/evidence/node-bringup-20260901/)）。
 
 🔴 **写代码之前必须先知道的三件事，它们是本项目当前的真实状态**：
 
-1. **自有节点 0 台。** `gcloud compute instances list --project=oratis-491316` 只返回
-   既有的 `vpn-us` / `vpn-jp`。**P1 的八条出口标准全部要求一台在跑的机器，所以 P1 = 0/8。**
-2. **生产跑的就是 master（2026-08-31 起）。** `bp-api` 的 serving revision 是
-   `bp-api-87886e4`，`bp-db` 在迁移版本 19。用户面实测可用（注册 → 登录 → 下单 → 取消）。
-   此前这一条长期写着「落后 14 个提交、实现数 18/128」，**那句话已经不成立**。
-   ⚠️ 但**「已部署」不等于「可以卖」**：自有节点 0 台，买了套餐也没有节点可连（见第 1 条）。
-3. **管理面在生产上整体关闭，而且必须如此。** 生产 `bp-api` 没有配 `BP_ADMIN_IAP_AUDIENCE`，
-   按 fail-closed 设计 61 个 `/admin/*` 一律 403（**实测**：连伪造的
-   `x-goog-iap-jwt-assertion` 头也是 403 —— 它验签名，不信头的存在）。
-   更根本的是**管理面根本没有登录端点**（45 条 admin 路径里没有 login/session/me，
-   `AuthenticateAdmin` 从不读 `Authorization`，它验 IAP 断言）——
-   见 [roadmap B51](docs/00-overview/roadmap.md)。**不要试图用用户面的 `login` 端点去接管理面。**
-   ⚠️ **内部面已经不在这一条里了**（2026-08-31 起）：`BP_INTERNAL_OIDC_AUDIENCE` 与
-   `BP_INTERNAL_TASK_CALLERS` 已配上，9 条 `/internal/tasks/*` 由 8 条 Cloud Scheduler
-   带 OIDC 令牌调用，**实测 200**；无凭据调它仍是 403。
+1. **自有节点 1 台：`bp-node-hk1`**（asia-east2-a，Standard，`35.215.158.52`，v2node **v0.4.3 钉死**，
+   升到 v0.4.5 会让 mihomo / sing-box / 官方 xray 客户端全部连不上，roadmap B62）。
+   **REALITY 通路端到端可用**（未手改的订阅在 mihomo 与 sing-box 各加载一次，出口 IP 正确）；
+   **Hysteria2 与 SS-2022 未启用**。P1 出口标准 **3.5/8**，剩下四条（72 h 观察、三态生效计时、
+   密钥两步轮换、路由验收判据重定）**都不需要再写代码**，见 [roadmap §4.3](docs/00-overview/roadmap.md)。
+   ⚠️ 单节点、单协议、单区域：任何一条出问题就是全线中断。
+2. **生产跑的就是 master。** `bp-api` 的 serving revision 是 `bp-api-f76487f`（master 最近一次代码提交），
+   `bp-db` 在迁移版本 19。用户面实测可用（注册 → 登录 → 下单 → 取消）。
+   ⚠️ 但**「已部署」不等于「可以卖」**：真实收款 0 笔，「下单 → 付款 → 自动开通」一次都没真跑过
+   （运维账号的套餐是直接 SQL 开的），支付按**未批准**的 ADR 0012/0013 实现完了但不许开。
+3. **管理面走 IAP，不走用户面的 login。** `admin.babel.plus` 经 GCLB + IAP 实测可登录
+   （2026-08-31 起）。`AuthenticateAdmin` 验的是 `x-goog-iap-jwt-assertion` 的签名，
+   45 条 admin 路径里**没有** login/session/me —— **不要试图用用户面的 `login` 端点去接管理面。**
+   内部面：`BP_INTERNAL_OIDC_AUDIENCE` 与 `BP_INTERNAL_TASK_CALLERS` 已配，
+   9 条 `/internal/tasks/*` 由 8 条 Cloud Scheduler 带 OIDC 令牌调用，**实测 200**；无凭据仍是 403。
 
 **「仓库中只有文档」这句话到 2026-08-21 为止已经不成立**，
 阶段判定见 [`docs/00-overview/launch-readiness-review-20260830.md`](docs/00-overview/launch-readiness-review-20260830.md)

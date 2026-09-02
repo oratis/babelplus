@@ -155,7 +155,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0011](05-adr/0011-domain-blackout-detection.md) — 域名失联的发现与恢复 | **提案，未批准**（2026-08-23） |
 | | [0012](05-adr/0012-payment-gateway.md) — 收款：一单一址、自扫链、不归集 | **提案，未批准**（2026-08-23） |
 | | [0013](05-adr/0013-billing-and-refund-rules.md) — 计费与退款规则 | **提案，未批准**（2026-08-23） |
-| | [0014](05-adr/0014-slo-and-oncall.md) — SLO、on-call 与告警分级 | **提案，未批准**（2026-08-23） |
+| | [0014](05-adr/0014-slo-and-oncall.md) — SLO、on-call 与告警分级 | **已批准**（2026-09-02，用户裁决） |
 | | [0015](05-adr/0015-client-strategy.md) — 客户端策略 | **提案，未批准**（2026-08-23） |
 | **evidence** | **9 个证据目录**（出口单价 · IPv6 审查 · v2node 契约 · healthz 拦截 · 网络层级落地 · 账单 SKU 拆分 · v2node 401 行为 · gcloud 实查 · 客户端配置校验）。2026-08-29 `ls docs/evidence/*/` 实数，此前写「6 个」是漏计 | 见 [evidence/README.md](evidence/README.md) |
 
@@ -168,7 +168,8 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | # | 阻塞项 | 卡住了什么 | 归属 |
 |---|---|---|---|
 | 1 | ~~ADR 0001 未获批准~~ **✅ 2026-08-17 已批准** | 拓扑与成本模型已定：CF 只做控制面，数据面走 GCP 直连 | ✅ |
-| 2 | **零实测数据** | 协议选型、区域选型、托管选型仍全部悬空。**网络层级已裁决并落地**（[0008](05-adr/0008-network-tier-standard.md)，成本侧有 Billing API 权威价目），但 **Standard 的性能数据是零** —— 连 Premium 侧的基准都只是社区二手数据 | 需搭测试环境 |
+| 2 | ~~**零实测数据**~~ 🔶 **境内实测仍为零，境外侧已有第一批** | 2026-09-01 起有了一台真节点：Premium vs Standard 同机同区握手延迟 **36.4 vs 36.2 ms，无可测差异**（证实 [0008](05-adr/0008-network-tier-standard.md)）；REALITY 端到端吞吐 ≈ 2.7 MB/s（境外发起）。**三网可达性、晚高峰吞吐、入向路由全部零数据**，且路由验收判据本身已被推翻（roadmap B55） | 需境内探针（roadmap B31） |
 | 3 | ~~数据库选型未裁决~~ | **已解决** — [ADR 0005](05-adr/0005-database-selection.md) | ✅ |
 | 4 | 支付通道未落实 | 收款闭环 | 需申请与尽调。**2026-08-23 起形态已有裁决草案** —— [ADR 0012](05-adr/0012-payment-gateway.md)（一单一址、自扫链、不归集）与 [ADR 0013](05-adr/0013-billing-and-refund-rules.md)（计费与退款规则），两份都还是**提案，未批准** |
-| 5 | 邮件送达率未验证 | [ADR 0002](05-adr/0002-notification-channels.md) 的整个前提 | 需实测。ESP 仍未选型、发信未接通（`api/internal/handler/auth.go` 的 `TODO(P1)`，`email_log.status` 恒为 `queued`） |
+| 5 | 🔶 邮件送达率未验证 | [ADR 0002](05-adr/0002-notification-channels.md) 的整个前提 | **ESP 已接通**（Resend，2026-08-31，第一封验证码信实测送达）；但 0002 §7 要求的**按收件域名（QQ/163/126）分组的送达率实测仍是零**（roadmap B22） |
+| 6 | **数据面只有一台节点、一条通路** | P1 出口标准剩下的 4.5/8、任何一次故障都是全线中断 | 2026-09-01 `bp-node-hk1` REALITY 接通；HY2 / SS-2022 未启用；72 h 观察窗未开始。见 [roadmap §4.3](00-overview/roadmap.md) |

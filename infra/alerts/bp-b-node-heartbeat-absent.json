@@ -1,0 +1,25 @@
+{
+  "displayName": "bp-b-node-heartbeat-absent",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "no bp_node_alive for 300s (per node_id)",
+      "conditionAbsent": {
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/bp_node_alive\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_COUNT",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "groupByFields": ["metric.label.node_id"]
+          }
+        ],
+        "duration": "300s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ "" ],
+  "alertStrategy": { "autoClose": "1800s" },
+  "documentation": { "content": "B 级，工作时间处理（19:00 之后顺延次日 10:00）。某个 node_id 连续 5 分钟没有心跳。⚠️ 它可能是误报：v2node 在零流量分钟是否仍发 /push 未实测（ADR 0014 §2.1 攻击 2a），这正是它是 B 级而不是 A 级的原因。先看 CP 的 SLI 再动节点。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/runbook-node-health.md §2 §3", "mimeType": "text/markdown" }
+}

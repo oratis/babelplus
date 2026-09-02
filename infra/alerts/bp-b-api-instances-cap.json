@@ -1,0 +1,22 @@
+{
+  "displayName": "bp-b-api-instances-cap",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "active instances > 7 for 5m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"run.googleapis.com/container/instance_count\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bp-api\" AND resource.labels.location=\"us-central1\" AND metric.labels.state=\"active\"",
+        "aggregations": [
+          { "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MAX", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 7,
+        "duration": "300s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ "" ],
+  "alertStrategy": { "autoClose": "1800s" },
+  "documentation": { "content": "B 级。活跃实例数 > 7（max-instances=8）。🔴 **此时 request_count 可能是平的甚至在下降，不要以为没事** —— 它不统计被拒绝的请求（monitoring §2.1）。这条是那个盲区的唯一替代信号。concurrency=80，跑满 8 个实例需要 640 并发，几十人规模下只可能来自重试风暴或崩溃循环。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/monitoring.md §2.1 与 https://github.com/oratis/babelplus/blob/master/docs/05-adr/0005-database-selection.md §6.3", "mimeType": "text/markdown" }
+}

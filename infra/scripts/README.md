@@ -20,7 +20,8 @@
 | [`check-cert-issuer.sh`](check-cert-issuer.sh) | 核对证书签发者是否仍是 Let's Encrypt，不符就写 `bp_cert_issuer_bad` 的那条日志（B42 的信号源）。只读 + 写日志，**不建任何资源**。 |
 | [`setup-scheduler.sh`](setup-scheduler.sh) | 建定时面：8 条 Cloud Scheduler + 2 个 Cloud Tasks 队列 + B42 的每日证书核对调度。 |
 | [`setup-metrics.sh`](setup-metrics.sh) | 建 monitoring §3.2 的 11 条 log-based metric（渲染 LogMetric YAML 走 `--config-from-file`）。 |
-| [`setup-alerts.sh`](setup-alerts.sh) | 按 ADR 0014 的 A/B/C 三级建通知渠道与告警策略。🔴 **ADR 0014 是「提案，未批准」——批准前不应 `--apply`。** |
+| [`setup-alerts.sh`](setup-alerts.sh) | 按 ADR 0014（**已批准**，2026-09-02）的 A/B/C 三级建通知渠道与告警策略。`--emit-json=infra/alerts` 的产物已入库；2026-09-02 首轮建了 B1–B9 + B11–B13。⚠️ 它的确认串要真终端：非交互场景用 pty 喂（CI 不该跑它）。 |
+| [`../jobs/cert-issuer-check/`](../jobs/cert-issuer-check/) | `check-cert-issuer.sh` 的 Cloud Run Job 镜像（Dockerfile + `build.sh`）。`build.sh` 打印镜像引用，喂给 `setup-scheduler.sh --only=cert --cert-image=`。2026-09-02 起每日 04:40 CST 跑，B12/B13 的信号源。 |
 | [`setup-wif.sh`](setup-wif.sh) | 建 GitHub Actions → GCP 的 Workload Identity Federation，并打印 `deploy.yml` 要的两个仓库变量。 |
 
 **四支 `setup-*.sh` 截至 2026-08-30 一次都没有 `--apply` 过。**

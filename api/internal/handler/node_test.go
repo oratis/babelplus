@@ -260,12 +260,46 @@ func TestBuildNodeConfig_Hysteria2DisablesBrutal(t *testing.T) {
 			t.Fatalf("%s = %v, want 0", k, v)
 		}
 	}
-	assertStr(t, "protocol", cfg.Protocol, "hysteria")
+	// 🔴 hysteria2 不是 hysteria：v2node v0.4.3 收到 hysteria 会让整个进程退出（2026-09-02 真机实测）。
+	assertStr(t, "protocol", cfg.Protocol, "hysteria2")
 	assertStr(t, "obfs", cfg.Obfs, "salamander")
 	// server_name 未配时取 servers.host
 	assertStr(t, "server_name", cfg.ServerName, "hk2.example.invalid")
 	if cfg.Version == nil || *cfg.Version != 2 {
 		t.Fatalf("version = %v, want 2", cfg.Version)
+	}
+}
+
+// 证书路径经 tls_settings 原样下发：v2node 用 cert_mode/cert_file/key_file 构造 Hysteria2 的 TLS。
+// 路径必须是 LoadCredential 挂载后的 /run/credentials/… —— 这是库里存什么就发什么，不在这里改写。
+func TestBuildNodeConfig_Hysteria2TlsSettingsPassthrough(t *testing.T) {
+	cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
+		Code: "n", Protocol: dbgen.ServerProtocolHysteria2, Host: "203.0.113.10", Port: 443,
+		ProtocolSettings: []byte(`{"server_name":"hk1.example.invalid","cert_mode":"file",` +
+			`"cert_file":"/run/credentials/bp-node.service/fullchain.pem",` +
+			`"key_file":"/run/credentials/bp-node.service/privkey.pem"}`),
+	})
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if cfg.TlsSettings == nil {
+		t.Fatalf("tls_settings 缺失：v2node 拿不到证书路径，Hysteria2 起不来")
+	}
+	assertStr(t, "tls_settings.server_name", cfg.TlsSettings.ServerName, "hk1.example.invalid")
+	assertStr(t, "tls_settings.cert_mode", cfg.TlsSettings.CertMode, "file")
+	assertStr(t, "tls_settings.cert_file", cfg.TlsSettings.CertFile, "/run/credentials/bp-node.service/fullchain.pem")
+	assertStr(t, "tls_settings.key_file", cfg.TlsSettings.KeyFile, "/run/credentials/bp-node.service/privkey.pem")
+
+	// 没配证书字段时不下发 tls_settings（REALITY 之外的分支不该无端多一个空对象）。
+	cfg2, err := buildNodeConfig(dbgen.GetServerConfigRow{
+		Code: "n", Protocol: dbgen.ServerProtocolHysteria2, Host: "h", Port: 443,
+		ProtocolSettings: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if cfg2.TlsSettings != nil {
+		t.Fatalf("未配证书字段却下发了 tls_settings: %+v", cfg2.TlsSettings)
 	}
 }
 

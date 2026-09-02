@@ -132,6 +132,10 @@ METRICS=(
   bp_cert_issuer_bad
   bp_node_alive
   bp_ratelimit_degraded
+  # 2026-09-02 追加：monitoring §8 自己登记「三个 event 里只有 cert_issuer_bad 规划了指标」，
+  # 这两条补齐另外两个 event。它们喂 setup-alerts.sh 的 B13。
+  bp_cert_expiring_soon
+  bp_cert_check_failed
 )
 
 # metric_desc <指标名> —— 指标描述。它会显示在 GCP 控制台里，
@@ -160,6 +164,10 @@ metric_desc() {
       printf '%s' "节点心跳，由 api/internal/handler/nodealive.go 主动写。带 node_id 标签，§5 第 1 条的 metric-absence 告警依赖它" ;;
     bp_ratelimit_degraded)
       printf '%s' "精确档限流器降级（DB 不可用 → 失败开放）。限流失效不产生任何 429，这条日志是它唯一的痕迹" ;;
+    bp_cert_expiring_soon)
+      printf '%s' "证书剩余有效期 < 14 天，由 check-cert-issuer.sh 写日志。续签窗口，不是签发者异常（monitoring §8）" ;;
+    bp_cert_check_failed)
+      printf '%s' "对域名 TLS 握手失败 / 取不到证书，由 check-cert-issuer.sh 写日志。域名整个连不上时唯一的告警面信号" ;;
     *) printf '' ;;
   esac
 }
@@ -246,6 +254,10 @@ metric_filter() {
       printf '%s' "${BASE_FILTER} AND jsonPayload.message=\"bp_node_alive\"" ;;
     bp_ratelimit_degraded)
       printf '%s' "${BASE_FILTER} AND jsonPayload.message=\"bp_ratelimit_degraded\"" ;;
+    bp_cert_expiring_soon)
+      printf '%s' "logName=\"projects/${PROJECT_ID}/logs/${CERT_LOG_NAME}\" AND jsonPayload.event=\"cert_expiring_soon\"" ;;
+    bp_cert_check_failed)
+      printf '%s' "logName=\"projects/${PROJECT_ID}/logs/${CERT_LOG_NAME}\" AND jsonPayload.event=\"cert_check_failed\"" ;;
     *) printf '' ;;
   esac
 }
@@ -382,7 +394,7 @@ usage() {
   cat <<'EOF'
 用法: setup-metrics.sh [选项]
 
-幂等地建齐 docs/04-ops/monitoring.md §3.2 列的全部 log-based metric（11 条）。
+幂等地建齐 docs/04-ops/monitoring.md §3.2 列的全部 log-based metric（11 条 + 2026-09-02 追加的 2 条证书 event）。
 已存在且定义一致 → 不动；存在但定义不同 → update；不存在 → create。
 
 🔴 log-based metric **不追溯**：它只统计创建之后写入的日志。

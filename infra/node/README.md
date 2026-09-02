@@ -64,7 +64,8 @@ set -a; source ~/.secrets/bp-node-hk1.env; set +a
 | `BP_V2NODE_VERSION` | setup(v2node) | 🔴 必须钉死，脚本拒绝 `latest`，理由见 §6 |
 | `BP_CERT_DOMAIN` | setup(cert) | 证书域名。**不要给它建 A 记录** |
 | `BP_ACME_EMAIL` | setup(cert) | acme.sh 注册邮箱 |
-| `CF_Token` / `CF_Account_ID` | setup(cert) | DNS-01 用；该 token 持有 zone 的 DNS 编辑权限 |
+| `Ali_Key` / `Ali_Secret` | setup(cert) | DNS-01 用（阿里云，ADR 0016）；值在 Secret Manager `bp-aliyun-dns-ali-key` / `-secret`；该 AK 持有 zone 的 DNS 编辑权限 |
+| `BP_NODE_ID_2` / `BP_NODE_TOKEN_2` | setup(v2node)，可选 | 同机第二个面板节点（Hysteria2 那一行）。🔴 加之前先用它的 token 手工 GET `/api/v2/server/config` 看 `protocol`：v2node 对多节点是「一个错、全部不起」（2026-09-02 实测，退出码 0，REALITY 一起下线） |
 | `BP_SS_PORT` | create + setup | SS-2022 端口。🔴 **脚本硬性拒绝 48882** |
 | `BP_REALITY_TARGET` | setup(transport)，可选 | 设了就在节点上实测一次 target 站点 |
 
@@ -100,7 +101,7 @@ BP_SS_PORT=<你的端口> ./create-node.sh --candidates 5
 set -a; source ~/.secrets/bp-node-hk1.env; set +a
 {
   for v in BP_PANEL_URL BP_NODE_ID BP_NODE_TOKEN BP_CERT_DOMAIN \
-           BP_ACME_EMAIL BP_SS_PORT CF_Token CF_Account_ID BP_V2NODE_VERSION; do
+           BP_ACME_EMAIL BP_SS_PORT Ali_Key Ali_Secret BP_V2NODE_VERSION; do
     printf 'export %s=%q\n' "$v" "${!v:?缺少环境变量 $v}"
   done
   cat ./setup-node.sh
@@ -335,7 +336,7 @@ xray-core 是它 vendor 进去的依赖。所以真实形态是：
 >    好处是预演能看到真实状态；代价是 dry-run **需要有效的 gcloud 凭据**，
 >    且在权限不足时会静默降级成「查不到 → 当作不存在」，
 >    从而给出与真实执行不同的计划。
-> 4. **`setup-node.sh` 的证书步骤把凭据落了盘。** acme.sh 把 `CF_Token` 存进
+> 4. **`setup-node.sh` 的证书步骤把凭据落了盘。** acme.sh 把 `Ali_Key` / `Ali_Secret` 存进
 >    `~/.acme.sh/account.conf` 以便续期 —— 这是「凭据不落盘」的一个真实例外。
 >    `BP_ACME_NO_PERSIST=1` 可以抹掉它，代价是**自动续期从此失效**，
 >    续期时必须重新注入 token，而 Hysteria2 没有证书就完全不可用。

@@ -12,7 +12,7 @@
 #   set -a; source ~/.secrets/bp-node-hk1.env; set +a       # 该文件 chmod 600 且已 gitignore
 #   {
 #     for v in BP_PANEL_URL BP_NODE_ID BP_NODE_TOKEN BP_CERT_DOMAIN \
-#              BP_ACME_EMAIL BP_SS_PORT CF_Token CF_Account_ID BP_V2NODE_VERSION; do
+#              BP_ACME_EMAIL BP_SS_PORT Ali_Key Ali_Secret BP_V2NODE_VERSION; do
 #       printf 'export %s=%q\n' "$v" "${!v:?缺少环境变量 $v}"
 #     done
 #     cat ./setup-node.sh
@@ -108,7 +108,7 @@ die()  { printf '\n[FATAL] %s\n' "$*" >&2; exit 1; }
 REDACTED_MARK='***REDACTED***'
 redact() {
     _rd_s="$1"
-    for _rd_n in BP_NODE_TOKEN BP_SS_PSK BP_HY2_OBFS_PASSWORD CF_Token CF_Account_ID; do
+    for _rd_n in BP_NODE_TOKEN BP_NODE_TOKEN_2 BP_SS_PSK BP_HY2_OBFS_PASSWORD Ali_Key Ali_Secret; do
         _rd_v="${!_rd_n:-}"
         if [ -n "$_rd_v" ]; then
             _rd_s="${_rd_s//"$_rd_v"/"$REDACTED_MARK"}"
@@ -199,14 +199,24 @@ usage() {
   -h, --help        本帮助
 
 必需环境变量（fail-closed，缺一即退出；按所选步骤检查）
-  cert       BP_CERT_DOMAIN BP_ACME_EMAIL CF_Token CF_Account_ID
+  cert       BP_CERT_DOMAIN BP_ACME_EMAIL Ali_Key Ali_Secret
+             （阿里云 DNS 的 AccessKey；babel.plus 的 NS 在阿里云，ADR 0016。
+              值在 Secret Manager：bp-aliyun-dns-ali-key / bp-aliyun-dns-ali-secret）
   v2node     BP_PANEL_URL BP_NODE_ID BP_NODE_TOKEN BP_V2NODE_VERSION
   transport  BP_SS_PORT
   selfcheck  BP_SS_PORT
 
 可选环境变量
   BP_REALITY_TARGET   REALITY 的 target 站点域名；设了就在本机实测一次可达性与 TLS1.3
-  BP_ACME_NO_PERSIST  =1 则签发后从 acme.sh 的 account.conf 抹掉 CF token
+  BP_NODE_ID_2 / BP_NODE_TOKEN_2
+                      可选。第二个面板节点（通常是同一台机器上的 Hysteria2 节点，
+                      面板里 protocol=hysteria2 的那一行）。两个都给才生效。
+                      🔴 v2node 对多节点是「一个错、全部不起」：2026-09-02 实测，
+                      第二个节点的配置被拒（unsupport protocol）时进程以退出码 0 退出，
+                      REALITY 也一起下线，Restart=on-failure 不触发。
+                      加第二个节点前先用该节点的 token 手工 GET /api/v2/server/config
+                      看一眼 protocol 字段。
+  BP_ACME_NO_PERSIST  =1 则签发后从 acme.sh 的 account.conf 抹掉阿里云 AK/SK
                       （代价：自动续期会失效，见 README 代价）
   BP_ENABLE_SWAP      =0 等价于 --no-swap
 
@@ -293,7 +303,7 @@ assert_not_legacy_host() {
 # 本次要跑的所有步骤所需的变量，避免跑到第 5 步才发现缺变量、留下半成品配置。
 env_for_step() {
     case "$1" in
-        cert)      printf 'BP_CERT_DOMAIN BP_ACME_EMAIL CF_Token CF_Account_ID' ;;
+        cert)      printf 'BP_CERT_DOMAIN BP_ACME_EMAIL Ali_Key Ali_Secret' ;;
         v2node)    printf 'BP_PANEL_URL BP_NODE_ID BP_NODE_TOKEN BP_V2NODE_VERSION' ;;
         transport) printf 'BP_SS_PORT' ;;
         selfcheck) printf 'BP_SS_PORT' ;;
@@ -494,13 +504,16 @@ do_cert() {
     # DNS-01，且**不给这个域名建 A 记录**：订阅里节点地址填 IP、sni 填证书域名，
     # 客户端不做 DNS 解析，域名只存在于证书里。这样它既不需要解析、
     # 也不会因为被封而影响连接。
-    # CF_Token / CF_Account_ID 由环境变量传入，**不出现在命令行**（acme.sh 直接读 env）。
+    # Ali_Key / Ali_Secret 由环境变量传入，**不出现在命令行**（acme.sh 的 dnsapi/dns_ali.sh 直接读 env）。
+    # 🔴 是 dns_ali 不是 dns_cf：babel.plus 的 NS 在阿里云（ADR 0016；ADR 0010 的 Cloudflare 方案已否决）。
+    #    2026-09-01 之前这里写死 dns_cf，roadmap B60 因此登记「HY2 签不出证书」；
+    #    bp-node-hk1 上的证书实际是用 dns_ali 签出来的（2026-09-02 实查 account.conf 里存的是 SAVED_Ali_*）。
     if [ "$DRY_RUN" = 1 ]; then
-        log "  [dry-run] $_dc_acme --issue --dns dns_cf -d <BP_CERT_DOMAIN> --keylength ec-256"
+        log "  [dry-run] $_dc_acme --issue --dns dns_ali -d <BP_CERT_DOMAIN> --keylength ec-256"
     elif [ -d "${_dc_home}/${BP_CERT_DOMAIN}_ecc" ]; then
         ok "证书目录已存在，跳过签发（续期由 acme.sh 的 cron 负责）"
     else
-        "$_dc_acme" --issue --dns dns_cf -d "$BP_CERT_DOMAIN" --keylength ec-256
+        "$_dc_acme" --issue --dns dns_ali -d "$BP_CERT_DOMAIN" --keylength ec-256
     fi
 
     run "$_dc_acme" --install-cert -d "$BP_CERT_DOMAIN" --ecc \
@@ -508,12 +521,12 @@ do_cert() {
         --key-file       "${BP_CERT_DIR}/privkey.pem" \
         --reloadcmd      "systemctl restart ${BP_UNIT}"
 
-    # ⚠️ acme.sh 会把 CF_Token 存进 ~/.acme.sh/account.conf 以便续期 —— 这是
+    # ⚠️ acme.sh 会把 Ali_Key / Ali_Secret 存进 ~/.acme.sh/account.conf 以便续期 —— 这是
     #    「凭据不落盘」的一个真实例外，代价写在 README。BP_ACME_NO_PERSIST=1 可抹掉，
-    #    但那样**自动续期会失效**，续期时必须重新注入 token。
+    #    但那样**自动续期会失效**，续期时必须重新注入 AK/SK。
     if [ "${BP_ACME_NO_PERSIST:-0}" = "1" ] && [ -f "${_dc_home}/account.conf" ]; then
-        run sed -i '/^SAVED_CF_Token=/d;/^SAVED_CF_Account_ID=/d' "${_dc_home}/account.conf"
-        warn "已从 account.conf 抹掉 CF token —— **自动续期从此失效**，续期需手工注入。"
+        run sed -i '/^SAVED_Ali_Key=/d;/^SAVED_Ali_Secret=/d' "${_dc_home}/account.conf"
+        warn "已从 account.conf 抹掉阿里云 AK/SK —— **自动续期从此失效**，续期需手工注入。"
     fi
     run chmod 700 "$_dc_home" || true
 
@@ -585,14 +598,25 @@ do_v2node() {
     else
         command -v jq >/dev/null 2>&1 || die "缺 jq（step baseline 会装）。"
         _v4_tmp="$(mktemp)"
+        # 第二个节点（可选，见 --help 的 BP_NODE_ID_2）。两个变量都给才加；只给一个视为配置错误。
+        if [ -n "${BP_NODE_ID_2:-}" ] || [ -n "${BP_NODE_TOKEN_2:-}" ]; then
+            [ -n "${BP_NODE_ID_2:-}" ] && [ -n "${BP_NODE_TOKEN_2:-}" ] \
+                || die "BP_NODE_ID_2 与 BP_NODE_TOKEN_2 必须同时给（或同时不给）。"
+        fi
         jq -n '{
-          Nodes: [{
+          Nodes: ([{
             ApiHost:  env.BP_PANEL_URL,
             ApiKey:   env.BP_NODE_TOKEN,
             NodeID:   (env.BP_NODE_ID | tonumber),
             NodeType: "v2node",
             Timeout:  30
-          }]
+          }] + (if (env.BP_NODE_ID_2 // "") != "" then [{
+            ApiHost:  env.BP_PANEL_URL,
+            ApiKey:   env.BP_NODE_TOKEN_2,
+            NodeID:   (env.BP_NODE_ID_2 | tonumber),
+            NodeType: "v2node",
+            Timeout:  30
+          }] else [] end))
         }' >"$_v4_tmp"
         if [ -f "${BP_ETC}/v2node.json" ] && cmp -s "$_v4_tmp" "${BP_ETC}/v2node.json"; then
             ok "未变更：${BP_ETC}/v2node.json"

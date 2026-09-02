@@ -1,0 +1,22 @@
+{
+  "displayName": "bp-b-subscribe-404",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "subscribe 404 >= 20 in 5m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/bp_subscribe_404\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bp-api\"",
+        "aggregations": [
+          { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "COMPARISON_GE",
+        "thresholdValue": 20,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ "" ],
+  "alertStrategy": { "autoClose": "1800s" },
+  "documentation": { "content": "B 级。5 分钟内订阅 404 >= 20 次。订阅 token 是唯一对外可观测的攻击面（ADR 0006 §10.2 规定 404 不泄露存在性）。单个持有失效 token 的客户端最坏 5 次/5 分钟，20 需要至少 4 个独立失效客户端或一次 token 扫描。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/runbook-node-health.md §5", "mimeType": "text/markdown" }
+}

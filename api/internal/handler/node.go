@@ -644,6 +644,11 @@ type nodeProtocolSettings struct {
 	// Hysteria2
 	Obfs         *string `json:"obfs"`
 	ObfsPassword *string `json:"obfs_password"`
+	// 证书在**节点上**的来源与路径，原样下发到 tls_settings（v2node TlsSettings 的三个同名字段）。
+	// 只用 cert_mode=file：签发在装机脚本层做（acme.sh + LE），/config 只告诉节点文件在哪。
+	CertMode *string `json:"cert_mode"`
+	CertFile *string `json:"cert_file"`
+	KeyFile  *string `json:"key_file"`
 
 	// Shadowsocks-2022
 	Cipher    *string `json:"cipher"`
@@ -717,7 +722,10 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 		}
 
 	case dbgen.ServerProtocolHysteria2:
-		cfg.Protocol = ptrTo("hysteria")
+		// 🔴 是 hysteria2 不是 Xboard 的 hysteria：v2node v0.4.3 只认 hysteria2，
+		// 收到 hysteria 会报 unsupport protocol 并让**整个进程**退出（退出码 0，同机 REALITY 一起下线）。
+		// 2026-09-01 之前这里写 hysteria，2026-09-02 首次启用 HY2 节点时实测撞上。
+		cfg.Protocol = ptrTo("hysteria2")
 		cfg.Version = ptrTo(hysteriaVersion)
 		// 🔴 Brutal 关闭：ADR 0004 裁定用 BBR。见 hysteriaUpMbps 的注释。
 		cfg.UpMbps = ptrTo(hysteriaUpMbps)
@@ -730,6 +738,16 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 		if !isBlank(ps.ObfsPassword) {
 			cfg.Obfs = ptrTo(settingOr(ps.Obfs, defaultHysteriaObfs))
 			cfg.ObfsPassword = ps.ObfsPassword
+		}
+		// 证书路径走 tls_settings。三项里任一有值就下发整组；v2node 对 cert_mode=file 要求
+		// cert_file 与 key_file 都非空，缺一个它会拒绝启动 —— 那是正确的失败，这里不替它兜底。
+		if !isBlank(ps.CertMode) || !isBlank(ps.CertFile) || !isBlank(ps.KeyFile) {
+			cfg.TlsSettings = &gen.NodeTlsSettings{
+				ServerName: cfg.ServerName,
+				CertMode:   ps.CertMode,
+				CertFile:   ps.CertFile,
+				KeyFile:    ps.KeyFile,
+			}
 		}
 
 	case dbgen.ServerProtocolShadowsocks2022:

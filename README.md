@@ -3,7 +3,7 @@
 内部使用的流量中转服务 —— 让中国境内用户经由 Cloudflare 边缘 + Google Cloud 出口，
 稳定访问全球网络与服务。配套完整的账户、订阅、计费、后台与工单体系。
 
-> **状态：控制面已上线并实测可用（2026-08-31 首次部署），但产品还不能卖 —— 出口节点 0 台。**
+> **状态：控制面已上线（2026-08-31），第一台出口节点已端到端接通（2026-09-01），但产品还不能卖 —— 单节点、单协议、真实收款 0 笔。**
 > 契约（`openapi/`）、API（`api/`）、前端工作区（`web/`）、部署脚本（`infra/`）都已建起来。
 > **128 个 operation 里已实现 120 个，仍有 8 个返回 `501`**
 > （2026-08-30 实数：`operations.txt` 与各非生成文件的 `func (s *Server) X` 取交集得 123，
@@ -19,11 +19,14 @@
 > 注册 → 登录 → 下单 → 取消整条链路在真库上跑通过。
 > 此前这里长期写着「生产落后 master 14 个提交、实现数 18/128」—— 那句话现在不成立了。
 >
-> ⚠️ **但「已部署」仍然不等于「可以卖」，三件事照旧**：
-> **自有节点 0 台**（`gcloud compute instances list` 实查，只有既有的 `vpn-us` / `vpn-jp`）——
-> **所以现在买了套餐也没有节点可连**；**真实收款 0 笔**；
-> **`deploy.yml` 仍然从未运行过**（本次上线走的是 `infra/deploy/deploy-api.sh` + Cloud Build，
-> 仓库的 variables / secrets / environments 三者依然是空的，见 roadmap B47）。
+> ✅ **2026-09-01：第一台出口节点 `bp-node-hk1` 接通。** 未手改的订阅在 mihomo 与 sing-box 各加载一次，
+> 出口 IP 均为节点 IP；15 MB 下载入账误差 0.3%。P1 出口标准 **0/8 → 3.5/8**
+> （证据 [node-bringup-20260901](docs/evidence/node-bringup-20260901/)）。
+>
+> ⚠️ **但「接通」仍然不等于「可以卖」，三件事照旧**：
+> **只有一台节点、只有 REALITY 一条通路**（HY2 / SS-2022 未启用，任何一条出问题就是全线中断）；
+> **真实收款 0 笔**（「下单 → 付款 → 自动开通」一次都没真跑过，运维账号的套餐是 SQL 开的）；
+> **`deploy.yml` 仍然从未运行过**（2026-09-02 起 WIF 与两个仓库变量已配好，见 roadmap B47）。
 >
 > **GCP 上已经有 `bp-` 资源**：`bp-api`（Cloud Run，`us-central1`，2026-08-17 创建）、
 > `bp-db`（Cloud SQL PostgreSQL 17，`db-f1-micro`）、`bp-api-sa` 与 4 个 `bp-` secret，
@@ -32,13 +35,12 @@
 > **2026-08-31 首次上线后新增**：`bp-web` 与 `bp-admin`（两个 SPA 的静态托管，Cloud Run）、
 > `bp-migrate`（迁移 Job，实际上 2026-08-17 就建好了，此前文档一直记成「未建」）、
 > **8 条 `bp-` Cloud Scheduler 作业**（内部定时面，OIDC 调 `/internal/tasks/*`，实测 200）。
-> 🔴 **`bp-` 告警策略仍是 0 条** —— 定时任务从此会跑，而「某条任务不再执行」目前**完全静默**。
+> `bp-` 告警策略：2026-09-01 从 0 条到 3 条（手工），**2026-09-02 ADR 0014 批准后由 `setup-alerts.sh` 接管**
+> （实建清单见 [first-deploy §4.5](docs/04-ops/first-deploy-20260831.md)）。
 >
-> ⚠️ 两个 SPA 现在挂在 Cloud Run 默认域名上，**这不是 ADR 0003 的裁决结果**，
-> 只是「先让它可用」的过渡形态：`web` / `admin` / `api` 三个子域名至今没有解析记录
-> （`babel.plus` 本身已注册，DNS 在阿里云）。域名池定下来之前，
-> 用户面板与后台**共享 `*.run.app` 这个主域名**，而 ADR 0003 §3.2 明确要求它们不共享 ——
-> 这条约束现在是**被欠着的**，不是被满足的。
+> ✅ 2026-08-31 起 `web.` / `admin.` / `api.babel.plus` 三个子域名经一个 GCLB 接入
+> （[ADR 0016](docs/05-adr/0016-domain-babelplus.md)），`web.` / `api.` 钉 Let's Encrypt，
+> `admin.` 走 IAP 保留 Google 托管证书。此前「两个 SPA 共享 `*.run.app`」的过渡形态已结束。
 > 先读 [`docs/00-overview/product-brief.md`](docs/00-overview/product-brief.md)，
 > 再读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
@@ -53,7 +55,8 @@
 > `NETWORK_TIER="STANDARD"` 并在建完之后读回断言一次（PR #10，2026-08-21 合并），
 > 所以**今后每一台新节点都是 Standard**；而 2026-08-20 实查的两台既有节点
 > `vpn-us` / `vpn-jp` 与它们的两个静态 IP **仍全在 `PREMIUM` 层且裁决明定不迁**。
-> 于是**现在在花钱的那部分流量，一分钱都还没省下来** —— 自有 Standard 节点是 0 台。
+> 于是**现在在花钱的那部分流量，一分钱都还没省下来** —— 自有 Standard 节点 1 台（`bp-node-hk1`），
+> 但它上面只有运维自己一个账号，真实流量仍全部走那两台 Premium 老节点。
 > （此前本行写「该裁决至今未实施」，只说了后半边；ADR 0008 头部写「已实施（仅新节点）」，
 > 只说了前半边。两种读法各对一半，这里合成一句。）
 > 单位经济与这个待评估的成本杠杆见
