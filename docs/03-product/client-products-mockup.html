@@ -1,0 +1,837 @@
+<meta charset="utf-8">
+<title>Two Clients, One Pass</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+:root{
+  --paper:#E9EBEE; --surface:#FBFBFC; --surface-2:#F1F3F5;
+  --ink:#131A24; --ink-2:#43505F; --ink-3:#6C7A89;
+  --line:#D3D8DE; --line-2:#E3E7EB;
+  --accent:#1B4D8F; --accent-soft:#E4EBF5;
+  --signal:#1B7355; --signal-soft:#DCEFE7;
+  --amber:#9A6A10; --amber-soft:#F6ECD6;
+  --stamp:#A8352C; --stamp-soft:#F6E1DE;
+  --chrome:#DDE1E6; --chrome-2:#CDD3DA;
+  --shadow:0 1px 2px rgba(19,26,36,.06),0 8px 24px rgba(19,26,36,.09);
+  --shadow-sm:0 1px 2px rgba(19,26,36,.07);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0E1319; --surface:#171D25; --surface-2:#1E252E;
+    --ink:#E5E9ED; --ink-2:#A9B4C0; --ink-3:#78848F;
+    --line:#2B333D; --line-2:#232B34;
+    --accent:#74A6E6; --accent-soft:#1A2735;
+    --signal:#56C39C; --signal-soft:#132A24;
+    --amber:#DCA83E; --amber-soft:#2B2415;
+    --stamp:#E0796E; --stamp-soft:#2E1A18;
+    --chrome:#222933; --chrome-2:#2C343E;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.45);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0E1319; --surface:#171D25; --surface-2:#1E252E;
+  --ink:#E5E9ED; --ink-2:#A9B4C0; --ink-3:#78848F;
+  --line:#2B333D; --line-2:#232B34;
+  --accent:#74A6E6; --accent-soft:#1A2735;
+  --signal:#56C39C; --signal-soft:#132A24;
+  --amber:#DCA83E; --amber-soft:#2B2415;
+  --stamp:#E0796E; --stamp-soft:#2E1A18;
+  --chrome:#222933; --chrome-2:#2C343E;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.45);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:16px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px;margin:0 auto;padding:56px 28px 96px}
+h1,h2,h3,h4,.ui{font-family:Archivo,"Helvetica Neue",Arial,sans-serif}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* ---------- masthead ---------- */
+.mast{display:flex;flex-direction:column;gap:20px;margin-bottom:16px}
+.mast__tag{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-3);
+  display:flex;gap:14px;flex-wrap:wrap;align-items:center;
+}
+.mast__tag span{display:inline-flex;align-items:center;gap:7px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+h1{
+  font-size:clamp(34px,5.4vw,58px);line-height:1.02;font-weight:800;
+  letter-spacing:-.026em;margin:0;text-wrap:balance;max-width:16ch;
+}
+.mast__sub{font-size:19px;line-height:1.55;color:var(--ink-2);max-width:62ch;margin:0}
+.mast__sub strong{color:var(--ink);font-weight:600}
+
+/* ---------- tear rule ---------- */
+.tear{position:relative;height:1px;background:none;border:0;margin:52px 0;
+  border-top:1.5px dashed var(--line);overflow:visible}
+.tear::before,.tear::after{
+  content:"";position:absolute;top:-8px;width:15px;height:15px;border-radius:50%;
+  background:var(--paper);border:1.5px dashed var(--line);
+}
+.tear::before{left:-20px}
+.tear::after{right:-20px}
+
+/* ---------- section headers ---------- */
+.sec{margin-top:0}
+.sec__head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:10px}
+.sec__num{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--surface);background:var(--accent);
+  padding:5px 9px;border-radius:3px;white-space:nowrap;
+}
+.sec__title{font-size:clamp(24px,3vw,33px);font-weight:700;letter-spacing:-.02em;margin:0}
+.sec__note{color:var(--ink-2);max-width:66ch;margin:0 0 30px}
+.sec__note code{font-family:"IBM Plex Mono",monospace;font-size:.87em;
+  background:var(--surface-2);padding:1px 5px;border-radius:3px;border:1px solid var(--line-2)}
+
+/* ---------- popup grid ---------- */
+.states{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:32px 26px}
+.state{display:flex;flex-direction:column;gap:12px}
+.state__cap{display:flex;flex-direction:column;gap:3px}
+.state__name{font-family:Archivo,sans-serif;font-weight:700;font-size:14px;letter-spacing:-.01em;
+  display:flex;align-items:center;gap:8px}
+.state__when{font-family:"IBM Plex Mono",monospace;font-size:11.5px;line-height:1.5;color:var(--ink-3)}
+.pin{width:18px;height:18px;border-radius:4px;display:inline-grid;place-items:center;flex:none;
+  font-size:10px;font-weight:700;color:var(--surface);background:var(--ink-3)}
+.pin--ok{background:var(--signal)}.pin--warn{background:var(--amber)}
+.pin--bad{background:var(--stamp)}.pin--go{background:var(--accent)}
+
+/* ---------- the popup itself ---------- */
+.pop{
+  width:100%;max-width:340px;background:var(--surface);border:1px solid var(--line);
+  border-radius:11px;box-shadow:var(--shadow);overflow:hidden;
+  font-family:Archivo,"Helvetica Neue",Arial,sans-serif;font-size:13px;line-height:1.45;
+}
+.pop__bar{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:11px 14px;border-bottom:1px solid var(--line-2);background:var(--surface-2);
+}
+.pop__brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;letter-spacing:-.01em}
+.glyph{width:17px;height:17px;border-radius:50%;border:1.7px solid var(--accent);position:relative;flex:none}
+.glyph::after{content:"";position:absolute;inset:-1.7px;border-radius:50%;
+  border:1.7px solid var(--accent);clip-path:polygon(0 38%,100% 38%,100% 62%,0 62%)}
+.pop__status{display:flex;align-items:center;gap:6px;font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.led{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:none}
+.led--on{background:var(--signal);box-shadow:0 0 0 3px var(--signal-soft)}
+.led--warn{background:var(--amber);box-shadow:0 0 0 3px var(--amber-soft)}
+.led--bad{background:var(--stamp);box-shadow:0 0 0 3px var(--stamp-soft)}
+.led--wait{background:var(--accent);animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.led--wait{animation:none}}
+
+.pop__body{padding:14px;display:flex;flex-direction:column;gap:13px}
+
+.banner{display:flex;gap:9px;padding:9px 11px;border-radius:7px;font-size:12.5px;line-height:1.45}
+.banner b{font-weight:700}
+.banner--warn{background:var(--amber-soft);color:var(--amber)}
+.banner--bad{background:var(--stamp-soft);color:var(--stamp)}
+.banner--info{background:var(--accent-soft);color:var(--accent)}
+
+.meter{display:flex;flex-direction:column;gap:6px}
+.meter__row{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.meter__val{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:500;
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.meter__val em{font-style:normal;color:var(--ink-3)}
+.meter__days{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+.track{height:6px;border-radius:3px;background:var(--surface-2);
+  border:1px solid var(--line-2);overflow:hidden}
+.fill{height:100%;background:var(--accent)}
+.fill--warn{background:var(--amber)}.fill--bad{background:var(--stamp)}
+
+.pick{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}
+.pick__l{display:flex;align-items:center;gap:9px;min-width:0}
+.pick__flag{width:20px;height:14px;border-radius:2px;background:var(--accent-soft);
+  border:1px solid var(--line);display:grid;place-items:center;flex:none;
+  font-family:"IBM Plex Mono",monospace;font-size:8px;font-weight:500;color:var(--accent)}
+.pick__name{font-weight:600;font-size:13px}
+.pick__ms{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+.chev{color:var(--ink-3);font-size:11px}
+
+.btn{
+  display:block;width:100%;text-align:center;padding:11px 14px;border-radius:8px;
+  font-family:Archivo,sans-serif;font-weight:700;font-size:14px;letter-spacing:-.005em;
+  border:1px solid transparent;cursor:default;
+}
+.btn--go{background:var(--accent);color:var(--surface)}
+.btn--stop{background:var(--surface);color:var(--stamp);border-color:var(--stamp)}
+.btn--warn{background:var(--amber);color:var(--surface)}
+.btn--ghost{background:var(--surface);color:var(--ink-2);border-color:var(--line)}
+.btn--off{background:var(--surface-2);color:var(--ink-3);border-color:var(--line-2)}
+.btn--wait{background:var(--surface);color:var(--accent);border-color:var(--accent)}
+
+.field{display:flex;flex-direction:column;gap:5px}
+.field__lab{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3)}
+.field__in{padding:9px 11px;border:1px solid var(--line);border-radius:7px;
+  background:var(--surface-2);font-size:13px;color:var(--ink-3);font-family:Archivo,sans-serif}
+.field__in--filled{color:var(--ink);background:var(--surface)}
+
+.kv{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px}
+.kv__k{color:var(--ink-3)}
+.kv__v{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-weight:500}
+
+.pop__foot{display:flex;gap:14px;padding:10px 14px;border-top:1px solid var(--line-2);
+  background:var(--surface-2);font-size:11.5px}
+.pop__foot a{color:var(--ink-3);text-decoration:none;border-bottom:1px solid transparent}
+.pop__foot a.lead{color:var(--accent);font-weight:600}
+
+/* ---------- browser mockup ---------- */
+.scroller{overflow-x:auto;padding-bottom:6px;margin-bottom:8px}
+.brw{
+  min-width:880px;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  box-shadow:var(--shadow);background:var(--surface);
+  font-family:Archivo,"Helvetica Neue",Arial,sans-serif;position:relative;
+}
+.brw__tabs{display:flex;align-items:flex-end;gap:2px;padding:9px 12px 0;background:var(--chrome)}
+.lights{display:flex;gap:6px;padding:0 12px 9px 2px;align-self:center}
+.lights i{width:11px;height:11px;border-radius:50%;background:var(--chrome-2);display:block}
+.tab{
+  display:flex;align-items:center;gap:8px;padding:8px 13px;border-radius:8px 8px 0 0;
+  font-size:12.5px;max-width:230px;background:var(--chrome-2);color:var(--ink-2);
+}
+.tab--on{background:var(--surface);color:var(--ink);font-weight:600}
+.tab__txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rt{font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:500;flex:none;
+  width:17px;height:17px;border-radius:4px;display:grid;place-items:center}
+.rt--proxy{background:var(--accent-soft);color:var(--accent)}
+.rt--direct{background:var(--surface-2);color:var(--ink-3);border:1px solid var(--line-2)}
+.rt--fail{background:var(--amber-soft);color:var(--amber)}
+
+.brw__nav{display:flex;align-items:center;gap:11px;padding:10px 14px;background:var(--surface);
+  border-bottom:1px solid var(--line-2)}
+.nav__ico{color:var(--ink-3);font-size:14px;width:20px;text-align:center}
+.omni{flex:1;display:flex;align-items:center;gap:9px;padding:8px 13px;border-radius:8px;
+  background:var(--surface-2);border:1px solid var(--line-2);font-size:13px;min-width:0}
+.omni__url{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.omni__url b{color:var(--ink);font-weight:500}
+
+.pill{display:flex;align-items:center;gap:9px;padding:7px 12px;border-radius:999px;
+  border:1px solid var(--line);background:var(--surface);white-space:nowrap;position:relative}
+.pill__geo{font-weight:700;font-size:12.5px;letter-spacing:-.01em}
+.pill__sep{width:1px;height:13px;background:var(--line)}
+.pill__q{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-2);
+  font-variant-numeric:tabular-nums}
+
+.blockbar{display:flex;align-items:center;gap:13px;padding:11px 16px;
+  background:var(--amber-soft);border-bottom:1px solid var(--line-2);font-size:13px;color:var(--amber)}
+.blockbar b{font-weight:700}
+.blockbar__sp{flex:1}
+.bb-btn{padding:6px 12px;border-radius:6px;font-family:Archivo,sans-serif;font-weight:700;
+  font-size:12px;background:var(--amber);color:var(--surface);white-space:nowrap}
+.bb-x{color:var(--amber);opacity:.6;font-size:14px}
+
+.brw__view{padding:34px 40px 44px;background:var(--surface);min-height:230px;
+  display:flex;flex-direction:column;gap:18px}
+.skel-h{height:26px;width:44%;border-radius:5px;background:var(--surface-2)}
+.skel-l{height:11px;border-radius:4px;background:var(--surface-2)}
+.skel-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:8px}
+.skel-card{height:78px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line-2)}
+
+/* panel dropped from the pill */
+.panel{
+  position:absolute;right:16px;top:96px;width:266px;background:var(--surface);
+  border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);
+  padding:14px;display:flex;flex-direction:column;gap:12px;font-size:13px;z-index:3;
+}
+.panel__t{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--ink-3)}
+
+/* annotation pins on browser */
+.anno{position:absolute;z-index:4;width:23px;height:23px;border-radius:50%;
+  background:var(--stamp);color:var(--surface);display:grid;place-items:center;
+  font-family:Archivo,sans-serif;font-weight:700;font-size:12px;
+  box-shadow:0 0 0 3px var(--paper)}
+
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-top:26px}
+.legend__i{display:flex;gap:12px}
+.legend__n{width:23px;height:23px;border-radius:50%;background:var(--stamp);color:var(--surface);
+  display:grid;place-items:center;font-family:Archivo,sans-serif;font-weight:700;font-size:12px;flex:none}
+.legend__b{display:flex;flex-direction:column;gap:3px}
+.legend__h{font-family:Archivo,sans-serif;font-weight:700;font-size:14px}
+.legend__p{font-size:14px;line-height:1.5;color:var(--ink-2)}
+
+/* ---------- settings mockup ---------- */
+.sheet{max-width:620px;border:1px solid var(--line);border-radius:11px;background:var(--surface);
+  box-shadow:var(--shadow-sm);overflow:hidden;font-family:Archivo,sans-serif}
+.sheet__h{padding:14px 18px;border-bottom:1px solid var(--line-2);background:var(--surface-2);
+  font-weight:700;font-size:14px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:14px 18px;border-bottom:1px solid var(--line-2)}
+.row:last-child{border-bottom:0}
+.row__l{display:flex;flex-direction:column;gap:2px;min-width:0}
+.row__t{font-weight:600;font-size:13.5px}
+.row__d{font-size:12.5px;color:var(--ink-3);line-height:1.45;font-family:"Source Serif 4",serif}
+.seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex:none}
+.seg span{padding:6px 11px;font-size:12px;font-weight:600;color:var(--ink-3);background:var(--surface)}
+.seg span.on{background:var(--accent);color:var(--surface)}
+.sw{width:38px;height:22px;border-radius:999px;background:var(--accent);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:18px;height:18px;
+  border-radius:50%;background:#fff}
+.sw--off{background:var(--line)}
+.sw--off::after{right:auto;left:2px}
+.tagline{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);flex:none}
+
+/* ---------- first run ---------- */
+.runs{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:22px}
+.run{border:1px solid var(--line);border-radius:11px;background:var(--surface);
+  box-shadow:var(--shadow-sm);padding:26px 22px;display:flex;flex-direction:column;
+  gap:15px;align-items:center;text-align:center;font-family:Archivo,sans-serif;min-height:250px}
+.run__step{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ink-3)}
+.run__h{font-size:17px;font-weight:700;letter-spacing:-.015em;text-wrap:balance}
+.run__p{font-size:13px;color:var(--ink-2);line-height:1.5;font-family:"Source Serif 4",serif}
+.code-in{width:100%;padding:11px;border:1.5px dashed var(--line);border-radius:8px;
+  font-family:"IBM Plex Mono",monospace;font-size:14px;letter-spacing:.16em;color:var(--ink)}
+.ring{width:64px;height:64px;border-radius:50%;border:3px solid var(--signal-soft);
+  border-top-color:var(--signal);display:grid;place-items:center;
+  font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:500;color:var(--signal)}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;width:100%}
+.tile{aspect-ratio:1;border-radius:9px;background:var(--surface-2);border:1px solid var(--line-2);
+  display:grid;place-items:center;font-family:"IBM Plex Mono",monospace;
+  font-size:10px;font-weight:500;color:var(--ink-3)}
+
+/* ---------- shared table ---------- */
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14.5px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-2);vertical-align:top}
+th{font-family:Archivo,sans-serif;font-size:11px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:600;border-bottom:1px solid var(--line)}
+td:first-child{font-family:Archivo,sans-serif;font-weight:600;white-space:nowrap}
+td.mono{font-family:"IBM Plex Mono",monospace;font-size:13px}
+
+.caveat{border-left:3px solid var(--stamp);background:var(--stamp-soft);
+  padding:16px 20px;border-radius:0 8px 8px 0;margin-top:34px}
+.caveat h4{margin:0 0 6px;font-size:14px;font-weight:700;color:var(--stamp)}
+.caveat p{margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-2)}
+.caveat p+p{margin-top:9px}
+
+footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);
+  display:flex;flex-wrap:wrap;gap:8px 22px}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+@media (max-width:640px){
+  .wrap{padding:36px 18px 64px}
+  .tear::before,.tear::after{display:none}
+  .brw__view{padding:24px}
+}
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <div class="mast__tag">
+      <span><i class="dot"></i>babel.plus</span>
+      <span>Product form · v1</span>
+      <span>2026-09-02</span>
+      <span>Proposal — not approved</span>
+    </div>
+    <h1>Two clients, one pass</h1>
+    <p class="mast__sub">The extension and the browser share an account, a quota and a rule set — but they ride
+    <strong>two different transports</strong>, because a Chrome extension cannot speak REALITY and a bundled core can.
+    Everything below is drawn from that one constraint. Build order is extension first; the browser reuses about
+    seventy percent of it.</p>
+  </header>
+
+  <hr class="tear">
+
+  <!-- =============== EXTENSION POPUP =============== -->
+  <section class="sec">
+    <div class="sec__head">
+      <span class="sec__num">Build 1 · Extension</span>
+      <h2 class="sec__title">The popup, in all eight states</h2>
+    </div>
+    <p class="sec__note">Most proxy extensions design three states and let the other five fall through to a spinner
+    that never resolves. The five on the right are where a traveller actually loses trust, so they get the same care
+    as the happy path. Width is the real <code>340px</code>.</p>
+
+    <div class="states">
+
+      <!-- 1 signed out -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led"></i>Signed out</div>
+          </div>
+          <div class="pop__body">
+            <div class="field">
+              <span class="field__lab">Email</span>
+              <div class="field__in">you@example.com</div>
+            </div>
+            <div class="field">
+              <span class="field__lab">Password</span>
+              <div class="field__in">••••••••••</div>
+            </div>
+            <span class="btn btn--go">Sign in</span>
+          </div>
+          <div class="pop__foot"><a class="lead" href="#0">Get a pass →</a><a href="#0">Help</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin">1</i>Signed out</div>
+          <div class="state__when">first install · token revoked</div>
+        </div>
+      </article>
+
+      <!-- 2 idle -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led"></i>Off</div>
+          </div>
+          <div class="pop__body">
+            <div class="meter">
+              <div class="meter__row">
+                <span class="meter__val">12.4 <em>/ 20 GB</em></span>
+                <span class="meter__days">18 days left</span>
+              </div>
+              <div class="track"><div class="fill" style="width:62%"></div></div>
+            </div>
+            <div class="pick">
+              <div class="pick__l">
+                <span class="pick__flag">HK</span>
+                <span class="pick__name">Hong Kong</span>
+                <span class="pick__ms">28 ms</span>
+              </div>
+              <span class="chev">▾</span>
+            </div>
+            <span class="btn btn--go">Connect</span>
+          </div>
+          <div class="pop__foot"><a href="#0">Top up</a><a href="#0">Help</a><a href="#0">Sign out</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin pin--go">2</i>Signed in, off</div>
+          <div class="state__when">default resting state</div>
+        </div>
+      </article>
+
+      <!-- 3 connecting -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led led--wait"></i>Connecting</div>
+          </div>
+          <div class="pop__body">
+            <div class="banner banner--info">Testing 3 endpoints — picking the fastest one.</div>
+            <div class="kv"><span class="kv__k">hk-a.&hellip;</span><span class="kv__v">28 ms ✓</span></div>
+            <div class="kv"><span class="kv__k">hk-b.&hellip;</span><span class="kv__v">41 ms ✓</span></div>
+            <div class="kv"><span class="kv__k">jp-a.&hellip;</span><span class="kv__v">— waiting</span></div>
+            <span class="btn btn--wait">Cancel</span>
+          </div>
+          <div class="pop__foot"><a href="#0">Top up</a><a href="#0">Help</a><a href="#0">Sign out</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin pin--go">3</i>Connecting</div>
+          <div class="state__when">probing the endpoint list in order</div>
+        </div>
+      </article>
+
+      <!-- 4 connected -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led led--on"></i>Connected</div>
+          </div>
+          <div class="pop__body">
+            <div class="meter">
+              <div class="meter__row">
+                <span class="meter__val">12.6 <em>/ 20 GB</em></span>
+                <span class="meter__days">18 days left</span>
+              </div>
+              <div class="track"><div class="fill" style="width:63%"></div></div>
+            </div>
+            <div class="pick">
+              <div class="pick__l">
+                <span class="pick__flag">HK</span>
+                <span class="pick__name">Hong Kong</span>
+                <span class="pick__ms">28 ms</span>
+              </div>
+              <span class="chev">▾</span>
+            </div>
+            <div class="kv"><span class="kv__k">Your exit IP</span><span class="kv__v">203.0.113.7</span></div>
+            <div class="kv"><span class="kv__k">This session</span><span class="kv__v">240 MB</span></div>
+            <span class="btn btn--stop">Disconnect</span>
+          </div>
+          <div class="pop__foot"><a href="#0">Top up</a><a href="#0">Help</a><a href="#0">Sign out</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin pin--ok">4</i>Connected</div>
+          <div class="state__when">exit IP shown so the user can verify it himself</div>
+        </div>
+      </article>
+
+      <!-- 5 low -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led led--warn"></i>Running low</div>
+          </div>
+          <div class="pop__body">
+            <div class="banner banner--warn"><b>1.8 GB left.</b> About two days at your current rate.</div>
+            <div class="meter">
+              <div class="meter__row">
+                <span class="meter__val">18.2 <em>/ 20 GB</em></span>
+                <span class="meter__days">11 days left</span>
+              </div>
+              <div class="track"><div class="fill fill--warn" style="width:91%"></div></div>
+            </div>
+            <span class="btn btn--warn">Top up</span>
+            <span class="btn btn--ghost">Stay connected</span>
+          </div>
+          <div class="pop__foot"><a href="#0">Help</a><a href="#0">Sign out</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin pin--warn">5</i>Quota below 10%</div>
+          <div class="state__when">the primary button changes — this is the only upsell</div>
+        </div>
+      </article>
+
+      <!-- 6 exhausted -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led led--bad"></i>Used up</div>
+          </div>
+          <div class="pop__body">
+            <div class="banner banner--bad"><b>Your pass is used up.</b> Traffic is no longer routed.</div>
+            <div class="meter">
+              <div class="meter__row">
+                <span class="meter__val">20.0 <em>/ 20 GB</em></span>
+                <span class="meter__days">9 days left</span>
+              </div>
+              <div class="track"><div class="fill fill--bad" style="width:100%"></div></div>
+            </div>
+            <span class="btn btn--go">Buy more data</span>
+            <span class="btn btn--off">Connect</span>
+          </div>
+          <div class="pop__foot"><a href="#0">Help</a><a href="#0">Sign out</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin pin--bad">6</i>Quota exhausted</div>
+          <div class="state__when">cut off, not throttled — throttling costs more than it saves</div>
+        </div>
+      </article>
+
+      <!-- 7 expired -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led led--bad"></i>Expired</div>
+          </div>
+          <div class="pop__body">
+            <div class="banner banner--bad"><b>Your 30-day pass ended on 2 September.</b> 4.6 GB went unused.</div>
+            <div class="kv"><span class="kv__k">Renew now and we carry over</span><span class="kv__v">0 GB</span></div>
+            <div class="banner banner--info">Carry-over only works if you renew <b>before</b> a pass ends.</div>
+            <span class="btn btn--go">Renew</span>
+          </div>
+          <div class="pop__foot"><a href="#0">Help</a><a href="#0">Sign out</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin pin--bad">7</i>Pass expired</div>
+          <div class="state__when">states the rule at the moment it bites, not in the terms page</div>
+        </div>
+      </article>
+
+      <!-- 8 dead -->
+      <article class="state">
+        <div class="pop">
+          <div class="pop__bar">
+            <div class="pop__brand"><i class="glyph"></i>babel.plus</div>
+            <div class="pop__status"><i class="led led--bad"></i>No route</div>
+          </div>
+          <div class="pop__body">
+            <div class="banner banner--bad"><b>Can't reach any server.</b> All 3 endpoints failed. You are
+            <b>not</b> being routed — nothing silently fell back to a direct connection.</div>
+            <div class="kv"><span class="kv__k">Last success</span><span class="kv__v">14 min ago</span></div>
+            <span class="btn btn--go">Retry</span>
+            <span class="btn btn--ghost">Open backup address page</span>
+            <span class="btn btn--ghost">Copy diagnostics</span>
+          </div>
+          <div class="pop__foot"><a href="#0">Help</a><a href="#0">Sign out</a></div>
+        </div>
+        <div class="state__cap">
+          <div class="state__name"><i class="pin pin--bad">8</i>All endpoints down</div>
+          <div class="state__when">the state every competitor hides — failure must be loud</div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <hr class="tear">
+
+  <!-- =============== OPTIONS =============== -->
+  <section class="sec">
+    <div class="sec__head">
+      <span class="sec__num">Build 1 · Extension</span>
+      <h2 class="sec__title">Options: four switches and a diagnostics button</h2>
+    </div>
+    <p class="sec__note">Default routing is <em>proxy unless told otherwise</em>. Our user is a foreigner in China:
+    more of the web is broken for him than works, so a direct-by-default rule set spends its errors in the worst
+    possible place — the first page he opens.</p>
+
+    <div class="sheet">
+      <div class="sheet__h">babel.plus — Options</div>
+      <div class="row">
+        <div class="row__l">
+          <span class="row__t">Routing</span>
+          <span class="row__d">Smart sends blocked sites through us and keeps Chinese sites direct, so local
+          services stay fast.</span>
+        </div>
+        <div class="seg"><span class="on">Smart</span><span>Everything</span><span>Off</span></div>
+      </div>
+      <div class="row">
+        <div class="row__l">
+          <span class="row__t">Always route these sites</span>
+          <span class="row__d">One host per line. Added automatically when you accept a “blocked here” prompt.</span>
+        </div>
+        <span class="tagline">7 hosts</span>
+      </div>
+      <div class="row">
+        <div class="row__l">
+          <span class="row__t">Never route these sites</span>
+          <span class="row__d">Banking and government sites often refuse foreign addresses.</span>
+        </div>
+        <span class="tagline">3 hosts</span>
+      </div>
+      <div class="row">
+        <div class="row__l">
+          <span class="row__t">Connect when the browser starts</span>
+          <span class="row__d">Reconnects to your last region without opening the popup.</span>
+        </div>
+        <span class="sw"></span>
+      </div>
+      <div class="row">
+        <div class="row__l">
+          <span class="row__t">Share anonymous connection reports</span>
+          <span class="row__d">Endpoint success rates only. Never addresses, never page contents.</span>
+        </div>
+        <span class="sw sw--off"></span>
+      </div>
+      <div class="row">
+        <div class="row__l">
+          <span class="row__t">Copy diagnostics</span>
+          <span class="row__d">Endpoint probe results, version, last config refresh. Paste it into a ticket.</span>
+        </div>
+        <span class="seg"><span class="on">Copy</span></span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="tear">
+
+  <!-- =============== BROWSER =============== -->
+  <section class="sec">
+    <div class="sec__head">
+      <span class="sec__num">Build 2 · Browser</span>
+      <h2 class="sec__title">Three things Chrome plus an extension cannot do</h2>
+    </div>
+    <p class="sec__note">If the browser were only “the same thing, pre-packaged”, it would not be worth eight weeks
+    and a code-signing bill. It earns its place on the three marked below — and the first one is decisive: a person
+    who is <em>already</em> in China cannot open the Chrome Web Store to install the extension.</p>
+
+    <div class="scroller">
+      <div class="brw">
+        <span class="anno" style="left:198px;top:14px">2</span>
+        <span class="anno" style="right:250px;top:60px">3</span>
+        <span class="anno" style="left:22px;top:150px">1</span>
+
+        <div class="brw__tabs">
+          <div class="lights"><i></i><i></i><i></i></div>
+          <div class="tab tab--on"><span class="rt rt--proxy">↗</span><span class="tab__txt">Google Docs</span></div>
+          <div class="tab"><span class="rt rt--direct">·</span><span class="tab__txt">高德地图</span></div>
+          <div class="tab"><span class="rt rt--fail">⚠</span><span class="tab__txt">Figma — 3 assets failed</span></div>
+        </div>
+
+        <div class="brw__nav">
+          <span class="nav__ico">←</span><span class="nav__ico">→</span><span class="nav__ico">⟳</span>
+          <div class="omni">
+            <span class="rt rt--proxy">↗</span>
+            <span class="omni__url">https://<b>docs.google.com</b>/document/d/1f9a&hellip;</span>
+          </div>
+          <div class="pill">
+            <span class="pill__geo">HK</span>
+            <span class="pill__sep"></span>
+            <span class="pill__q">12.4 / 20 GB</span>
+          </div>
+        </div>
+
+        <div class="blockbar">
+          <b>instagram.com is blocked on this network.</b>
+          <span>Route it through babel.plus?</span>
+          <span class="blockbar__sp"></span>
+          <span class="bb-btn">Route it</span>
+          <span class="bb-x">✕</span>
+        </div>
+
+        <div class="panel">
+          <span class="panel__t">Your pass</span>
+          <div class="meter">
+            <div class="meter__row">
+              <span class="meter__val">12.4 <em>/ 20 GB</em></span>
+              <span class="meter__days">18 days</span>
+            </div>
+            <div class="track"><div class="fill" style="width:62%"></div></div>
+          </div>
+          <div class="pick">
+            <div class="pick__l">
+              <span class="pick__flag">HK</span><span class="pick__name">Hong Kong</span>
+              <span class="pick__ms">28 ms</span>
+            </div>
+            <span class="chev">▾</span>
+          </div>
+          <div class="kv"><span class="kv__k">This tab</span><span class="kv__v">3.1 MB</span></div>
+          <div class="kv"><span class="kv__k">Today</span><span class="kv__v">412 MB</span></div>
+          <span class="btn btn--ghost">Top up</span>
+        </div>
+
+        <div class="brw__view">
+          <div class="skel-h"></div>
+          <div class="skel-l" style="width:92%"></div>
+          <div class="skel-l" style="width:86%"></div>
+          <div class="skel-l" style="width:71%"></div>
+          <div class="skel-grid">
+            <div class="skel-card"></div><div class="skel-card"></div>
+            <div class="skel-card"></div><div class="skel-card"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend__i">
+        <span class="legend__n">1</span>
+        <div class="legend__b">
+          <span class="legend__h">It arrives before the store does</span>
+          <span class="legend__p">One small download from an address that still resolves. No store account, no
+          permission prompts, no chicken-and-egg. This is the whole reason the browser exists, which is also why its
+          download page must be tiny, script-free and in the domain pool.</span>
+        </div>
+      </div>
+      <div class="legend__i">
+        <span class="legend__n">2</span>
+        <div class="legend__b">
+          <span class="legend__h">Per-tab route badges</span>
+          <span class="legend__p">Every tab says whether it went through us, went direct, or partly failed. An
+          extension cannot know this without asking for permission to read every page — a permission we refuse to
+          ask for.</span>
+        </div>
+      </div>
+      <div class="legend__i">
+        <span class="legend__n">3</span>
+        <div class="legend__b">
+          <span class="legend__h">“Blocked here” becomes one click</span>
+          <span class="legend__p">A direct page that fails and matches the blocked list turns confusion into a
+          decision. This is the single most valuable interaction in the product; it converts the most expensive
+          support ticket into a button.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="tear">
+
+  <!-- =============== FIRST RUN =============== -->
+  <section class="sec">
+    <div class="sec__head">
+      <span class="sec__num">Build 2 · Browser</span>
+      <h2 class="sec__title">First run is three screens and no configuration file</h2>
+    </div>
+    <p class="sec__note">The bar is a traveller in a hotel room on the evening he lands. He has one code, one laptop,
+    and no working internet to look up instructions with.</p>
+
+    <div class="runs">
+      <div class="run">
+        <span class="run__step">Step 1</span>
+        <div class="code-in">BP-4KQ2-9TXR</div>
+        <div class="run__h">Enter your pass code</div>
+        <p class="run__p">Or sign in with the email you bought it with. Nothing else is asked — no name, no card,
+        no account to create first.</p>
+      </div>
+      <div class="run">
+        <span class="run__step">Step 2</span>
+        <div class="ring">28 ms</div>
+        <div class="run__h">Ready · Hong Kong</div>
+        <p class="run__p">We test every endpoint and keep the fastest. If they all fail, we say so on this screen
+        rather than dropping you into a browser that quietly does not work.</p>
+      </div>
+      <div class="run">
+        <span class="run__step">Step 3</span>
+        <div class="tiles">
+          <div class="tile">G</div><div class="tile">YT</div><div class="tile">WA</div><div class="tile">AI</div>
+        </div>
+        <div class="run__h">Your exit IP is 203.0.113.7</div>
+        <p class="run__p">Four things people check first. Tap one and it opens. Proof beats a success message.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="tear">
+
+  <!-- =============== SHARED =============== -->
+  <section class="sec">
+    <div class="sec__head">
+      <span class="sec__num">Both</span>
+      <h2 class="sec__title">What the two share, and where they part</h2>
+    </div>
+    <p class="sec__note">Shared parts are built once for the extension and reused. The split is the transport, and it
+    runs deeper than it looks: two transports mean two blocking surfaces, two availability targets and two on-call
+    rotations.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>Piece</th><th>Extension</th><th>Browser</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Account &amp; credentials</td><td colspan="2">Shared — both derive from the same subscription token</td></tr>
+          <tr><td>Quota, expiry, wording</td><td colspan="2">Shared — one set of four thresholds</td></tr>
+          <tr><td>Routing rules</td><td colspan="2">Shared — one <span class="mono">rules_rev</span> from the server</td></tr>
+          <tr><td>Diagnostics report</td><td colspan="2">Shared — same JSON, pastes into a ticket</td></tr>
+          <tr><td>Transport</td><td class="mono">HTTPS proxy — new inbound</td><td class="mono">VLESS-REALITY — existing nodes</td></tr>
+          <tr><td>Endpoint failover</td><td class="mono">PAC candidate list, free from Chrome</td><td class="mono">sing-box urltest</td></tr>
+          <tr><td>Covers</td><td>This browser's traffic only</td><td>This browser's traffic only</td></tr>
+          <tr><td>Distribution</td><td>Chrome Web Store, Edge Add-ons</td><td>Direct download, signed and notarised</td></tr>
+          <tr><td>Brings new customers</td><td>Yes — a store is a shelf people search</td><td>No — it serves people who already chose us</td></tr>
+          <tr><td>Build time</td><td class="mono">4–6 weeks</td><td class="mono">8–10 weeks</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="caveat">
+      <h4>What these screens do not show</h4>
+      <p>Neither client covers anything outside its own window. Cursor, Slack's desktop app and anything a terminal
+      does are unaffected. Developers will notice on day one, so it belongs on the product page, not in a footnote.</p>
+      <p>Whether per-user bytes on the extension's HTTPS inbound can be metered at all is still unverified. Until
+      that question is answered the quota meter in states 2 and 4 above cannot be trusted, and every screen here is
+      drawn against a number we cannot yet produce. That check is the first three days of work, before any of this
+      is built.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>babel.plus · client product form v1</span>
+    <span>2026-09-02</span>
+    <span>Status: proposal, not approved</span>
+    <span>Companion: docs/03-product/client-products-spec.md</span>
+  </footer>
+
+</div>
