@@ -64,14 +64,23 @@
 
 ```json
 "permissions": ["proxy", "storage", "alarms", "webRequest", "webRequestAuthProvider"],
-"host_permissions": []
+"host_permissions": ["<all_urls>"]
 ```
 
+> 🔴 **2026-09-02 订正**：第一版写的是 `"host_permissions": []` 并声称「不申请 `<all_urls>`」，
+> 那与同一节的 `onAuthRequired` **互相矛盾**。Chrome 官方文档原文：
+> "The webRequest API only exposes requests that the extension has permission to see, given its host permissions"
+> （[chrome.webRequest](https://developer.chrome.com/docs/extensions/reference/api/webRequest)，2026-09-02 读取，高）。
+> 代理认证质询挂在**被代理的目标 URL** 上，而目标是任意站点，所以没有 `<all_urls>` 扩展就收不到任何一次
+> `Proxy-Authenticate` 质询 —— Chrome 会弹它自己的原生认证框，且 PAC 候选串每降级到下一台就再弹一次。
+> **`<all_urls>` 因此是这条产品路线的必要条件，不是可选项。** 能守住的边界改写为下面第五条；
+> 它对商店审核的影响登记在 §10。
+
 - `proxy` —— 设置代理，产品的全部功能
-- `webRequest` + `webRequestAuthProvider` —— **仅**用于 `onAuthRequired` 回填代理凭据（MV3 必需，Chrome 108+）
+- `webRequest` + `webRequestAuthProvider` + `<all_urls>` —— **仅**用于 `onAuthRequired` 且 `isProxy === true` 时回填代理凭据（MV3 必需，Chrome 108+）；对 `isProxy === false`（站点自己的 401）一律不响应
 - `storage` —— 存会话与规则
 - `alarms` —— 定时刷新配额与端点列表
-- 🔴 **不申请 `<all_urls>`、不注入 content script、不读页面内容。** Urban VPN 采集 AI 对话、FreeVPN.One 偷截图两个案例都是从这里开始的；商店审核也从这里看。
+- 🔴 **不注入 content script、不读页面内容、不读请求体与响应体、不记录 URL。** `<all_urls>` 在这里买到的只有「看见代理质询」这一件事，而 MV3 的非阻塞 `webRequest` 本来就读不到正文。Urban VPN 采集 AI 对话、FreeVPN.One 偷截图两个案例都是从 content script 开始的；商店审核与隐私政策必须逐条对上这一段。
 
 ### 3.3 连接机制：用 PAC 白拿域名池故障转移
 
@@ -366,7 +375,7 @@ App Review Guidelines **5.4 VPN Apps**（页面更新日 2026-06-08）原文：
 > 2. **扩展引入第二条传输，运维面翻倍。** HTTPS 入站的封锁面比 REALITY 大且无 padding；被封时扩展用户整体失联而浏览器用户不受影响。[ADR 0014](../05-adr/0014-slo-and-oncall.md) 的可用率 SLO 必须按传输拆成两条，告警、值班与状态页都要跟着拆。
 > 3. **默认走代理（§3.4）是主动选择的成本上升。** 它把「第一次点开还是白屏」换成流量账单变高，量化不了幅度（无用量数据）。配额条实时可见是对冲，不是抵消。
 > 4. **PAC 末位不放 `DIRECT` = 故意让失败更响。** 代价是所有端点抖动时用户直接断网，而不是降级到直连凑合用。这是刻意的：静默直连意味着用户以为自己被保护着而实际没有，那比断网严重。
-> 5. **不申请 `<all_urls>` = 扩展永远做不到 per-tab 归属。** 这正是浏览器 §4.1 第 ② 条的由来 —— 一个我们主动制造出来的差异化。若将来为了做 per-tab 而去申请该权限，商店审核难度与用户信任成本会同时上升。
+> 5. ~~**不申请 `<all_urls>` = 扩展永远做不到 per-tab 归属。**~~ **2026-09-02 改写**：`<all_urls>` 已经为 `onAuthRequired` 申请了（§3.2 订正），但扩展**仍然不做 per-tab 归属** —— 理由从「没权限」变成「没数据」：MV3 非阻塞 `webRequest` 拿不到实际传输字节数（只有部分响应的 `Content-Length`），做出来是一个会骗人的数字。浏览器 §4.1 第 ② 条的差异化因此仍然成立。代价是**权限清单比第一版更宽**，商店审核与用户信任的成本由隐私政策与权限说明文案承担。
 > 6. **两个客户端都只覆盖浏览器流量。** 桌面 App（Cursor、Slack 客户端、终端里的 `pip`）一律不走。目标用户里的开发者会在第一天发现这一点。这不是缺陷是范围，但必须写进商品页，否则就是虚假宣传。
 > 7. 🔴 **iOS 这条最好的渠道要求一个法律实体。** Apple 5.4 只接受组织账号，需要实体 + D-U-N-S（最长约 28 天）。
 >    这把「谁来署名这家公司」从一个远期问题变成关键路径上的第一件事，且它与
@@ -387,6 +396,7 @@ App Review Guidelines **5.4 VPN Apps**（页面更新日 2026-06-08）原文：
 - [ ] **浏览器的崩溃与诊断上报 sink 未选型**，且它必须能从中国境内送达（否则收不到最需要的那批报告）。
 - [ ] **per-tab 字节归属在 Electron 里的具体实现路径未验证**（`webRequest` + `webContents` 能否稳定拿到，需要 spike）。
 - [ ] **商店素材、隐私政策、权限说明的英文文案未写**，且隐私政策必须与「不注入 content script、不采集浏览数据」的实现逐条对上。
+- [ ] **`<all_urls>` 对 Chrome Web Store 审核的影响 —— 无数据。** 头部 VPN 扩展普遍申请它，但「申请了它的 VPN 类扩展审核时长与被拒率」查不到；只能提交一次才知道（E4）。
 - [ ] **`/client/proxy-config` 的契约未写**，`openapi.yaml` 需要一次修订与冻结流程。
 - [ ] 🔴 **法律实体与 D-U-N-S 未申请**（§7.2）—— 交付周期最长约 28 天，是全项目最长的一根外部杆子。
 - [ ] 🔴 **WKWebView 代理方案是否被 Apple 认定为「VPN app」从而落入 5.4 —— 未定**（§7.2）。建议按 VPN app 走。

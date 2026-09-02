@@ -12,4 +12,4 @@
 | [panels-and-market.md](panels-and-market.md) | 调研 | 已完成 | 不 fork，自研 + 照抄 Xboard 数据模型与 UniProxy 契约 |
 | [payments.md](payments.md) | 调研 | 已完成 | USDT 自托管为主、易支付为辅、Paddle 机会主义 |
 | [admin-support-docs.md](admin-support-docs.md) | 调研 | 已完成 | 后台/工单/通知/文档站选型 |
-| [acquisition-channels.md](acquisition-channels.md) | 调研 | 已完成（2026-09-02） | 市场按 GB 卖 ¥0.1–0.5、我们成本 ¥0.87；获客靠 TG + GitHub 推荐仓库 + aff 15–20%；闲鱼有判例且实名暴露；扩展只能设 HTTP(S) 代理、Edge Add-ons 大陆可达；Chromium fork 不可行 |
+| [acquisition-channels.md](acquisition-channels.md) | 调研 | 已完成（2026-09-02） | 市场按 GB 卖 ¥0.1–0.5、我们成本 ¥0.87；获客靠 TG + GitHub 推荐仓库 + aff 15–20%；闲鱼有判例且实名暴露；扩展只能设 HTTP(S) 代理、Edge Add-ons 大陆可达；Chromium fork 不可行。**§9 海外市场（同日追加）**：eSIM 已吃掉手机场景、iOS 是唯一在华可达的分发通道、支付走卡 / MoR、拒付触发线是「一月 5 笔」 |
