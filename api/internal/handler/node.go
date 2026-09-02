@@ -727,6 +727,10 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 		// 2026-09-01 之前这里写 hysteria，2026-09-02 首次启用 HY2 节点时实测撞上。
 		cfg.Protocol = ptrTo("hysteria2")
 		cfg.Version = ptrTo(hysteriaVersion)
+		// 🔴 tls=1 必须显式下发：v2node 只在 Security==Tls 时才用 tls_settings 里的证书构造监听，
+		// 缺了它 hysteria2 inbound 报 "transport/internet/hysteria: tls config is nil"，
+		// 整个进程退出（退出码 0）。Hysteria2 的 TLS 不是可选项，所以这里无条件写 1。2026-09-02 真机实测。
+		cfg.Tls = ptrTo(tlsModeTLS)
 		// 🔴 Brutal 关闭：ADR 0004 裁定用 BBR。见 hysteriaUpMbps 的注释。
 		cfg.UpMbps = ptrTo(hysteriaUpMbps)
 		cfg.DownMbps = ptrTo(hysteriaDownMbps)

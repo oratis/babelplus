@@ -9,14 +9,14 @@
         "aggregations": [
           { "alignmentPeriod": "600s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" }
         ],
-        "comparison": "COMPARISON_GE",
-        "thresholdValue": 5,
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 4,
         "duration": "0s",
         "trigger": { "count": 1 }
       }
     }
   ],
-  "notificationChannels": [ "" ],
+  "notificationChannels": [ "projects/oratis-491316/notificationChannels/13580442405370640559" ],
   "alertStrategy": { "autoClose": "1800s" },
   "documentation": { "content": "B 级。10 分钟内 5xx >= 5 次。稳态 5xx 应为 0。刻意用绝对计数而不是比值：按 ADR 0014 §3.1 的请求量算术，1% 比值只等于 1.5 次/10 分钟，一次瞬时抖动就触发。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/runbook-node-health.md §2；回滚：https://github.com/oratis/babelplus/blob/master/docs/04-ops/deploy.md §12.1", "mimeType": "text/markdown" }
 }

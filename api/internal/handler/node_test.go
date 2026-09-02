@@ -262,6 +262,10 @@ func TestBuildNodeConfig_Hysteria2DisablesBrutal(t *testing.T) {
 	}
 	// 🔴 hysteria2 不是 hysteria：v2node v0.4.3 收到 hysteria 会让整个进程退出（2026-09-02 真机实测）。
 	assertStr(t, "protocol", cfg.Protocol, "hysteria2")
+	// tls=1 缺失时 v2node 报 "hysteria: tls config is nil" 并整个退出（2026-09-02 真机实测）。
+	if cfg.Tls == nil || *cfg.Tls != tlsModeTLS {
+		t.Fatalf("tls = %v, want %d（Hysteria2 的 TLS 不是可选项）", cfg.Tls, tlsModeTLS)
+	}
 	assertStr(t, "obfs", cfg.Obfs, "salamander")
 	// server_name 未配时取 servers.host
 	assertStr(t, "server_name", cfg.ServerName, "hk2.example.invalid")

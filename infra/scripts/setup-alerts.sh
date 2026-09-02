@@ -357,6 +357,9 @@ channels_json() {
   printf '%s' "$out"
 }
 
+# 🔴 过滤器里 type 与值都必须**加引号**：`type=email` 会被 gcloud 判成「右侧是字段名 email」而报
+#    INVALID_ARGUMENT，脚本随后走「没找到 → 新建」分支，每跑一次多建一对重复渠道
+#    （2026-09-02 实测，连建了三对，已手工删掉）。
 # resolve_channels 解析（必要时创建）通知渠道。dry-run 下不发任何 gcloud，用占位符。
 resolve_channels() {
   local p="projects/${PROJECT_ID}/notificationChannels"
@@ -371,9 +374,9 @@ resolve_channels() {
   fi
 
   # email#1：B 级的唯一通道，也是今天唯一在通的通道（ADR §12.1，2026-08-23 实查）。
-  local filter="type=email"
+  local filter='type="email"'
   if [ -n "$EMAIL1_ADDR" ]; then
-    filter="type=email AND labels.email_address=${EMAIL1_ADDR}"
+    filter="type=\"email\" AND labels.email_address=\"${EMAIL1_ADDR}\""
   fi
   local found
   found="$(gcloud alpha monitoring channels list \
@@ -389,7 +392,7 @@ resolve_channels() {
       --type=email \
       --channel-labels="email_address=${EMAIL1_ADDR}"
     CH_EMAIL1="$(gcloud alpha monitoring channels list \
-      --project="$PROJECT_ID" --filter="type=email AND labels.email_address=${EMAIL1_ADDR}" \
+      --project="$PROJECT_ID" --filter="type=\"email\" AND labels.email_address=\"${EMAIL1_ADDR}\"" \
       --format='value(name)' 2>/dev/null | head -n 1 || true)"
     ok "email#1 已创建 = ${CH_EMAIL1:-<解析失败>}"
   else
@@ -402,7 +405,7 @@ resolve_channels() {
   # email#2：只接 A 级的语义隔离箱（ADR §12.2）。地址是一个决策，不是一个默认值。
   if [ -n "$EMAIL2_ADDR" ]; then
     found="$(gcloud alpha monitoring channels list \
-      --project="$PROJECT_ID" --filter="type=email AND labels.email_address=${EMAIL2_ADDR}" \
+      --project="$PROJECT_ID" --filter="type=\"email\" AND labels.email_address=\"${EMAIL2_ADDR}\"" \
       --format='value(name)' 2>/dev/null | head -n 1 || true)"
     if [ -n "$found" ]; then
       CH_EMAIL2="$found"
@@ -414,7 +417,7 @@ resolve_channels() {
         --type=email \
         --channel-labels="email_address=${EMAIL2_ADDR}"
       CH_EMAIL2="$(gcloud alpha monitoring channels list \
-        --project="$PROJECT_ID" --filter="type=email AND labels.email_address=${EMAIL2_ADDR}" \
+        --project="$PROJECT_ID" --filter="type=\"email\" AND labels.email_address=\"${EMAIL2_ADDR}\"" \
         --format='value(name)' 2>/dev/null | head -n 1 || true)"
       ok "email#2 已创建 = ${CH_EMAIL2:-<解析失败>}"
     fi
@@ -437,7 +440,7 @@ resolve_channels() {
   # Pub/Sub 通道：topic 2026-08-21 实查已存在，渠道没建。
   found="$(gcloud alpha monitoring channels list \
     --project="$PROJECT_ID" \
-    --filter="type=pubsub AND labels.topic=projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}" \
+    --filter="type=\"pubsub\" AND labels.topic=\"projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}\"" \
     --format='value(name)' 2>/dev/null | head -n 1 || true)"
   if [ -n "$found" ]; then
     CH_PUBSUB="$found"
@@ -462,7 +465,7 @@ resolve_channels() {
       --channel-labels="topic=projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}"
     CH_PUBSUB="$(gcloud alpha monitoring channels list \
       --project="$PROJECT_ID" \
-      --filter="type=pubsub AND labels.topic=projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}" \
+      --filter="type=\"pubsub\" AND labels.topic=\"projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}\"" \
       --format='value(name)' 2>/dev/null | head -n 1 || true)"
     ok "Pub/Sub 通道已创建 = ${CH_PUBSUB:-<解析失败>}"
   fi
@@ -616,11 +619,11 @@ EOF
       ;;
     B3)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_api_5xx" \
-        "api 5xx >= 5 in 10m" "600s" "COMPARISON_GE" "5" "1800s" "$chans" "$doc"
+        "api 5xx >= 5 in 10m" "600s" "COMPARISON_GT" "4" "1800s" "$chans" "$doc"
       ;;
     B4)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_uniproxy_auth_fail" \
-        "uniproxy auth fail >= 5 in 5m" "300s" "COMPARISON_GE" "5" "1800s" "$chans" "$doc"
+        "uniproxy auth fail >= 5 in 5m" "300s" "COMPARISON_GT" "4" "1800s" "$chans" "$doc"
       ;;
     B5)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_db_pool_wait" \
@@ -628,7 +631,7 @@ EOF
       ;;
     B8)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_subscribe_404" \
-        "subscribe 404 >= 20 in 5m" "300s" "COMPARISON_GE" "20" "1800s" "$chans" "$doc"
+        "subscribe 404 >= 20 in 5m" "300s" "COMPARISON_GT" "19" "1800s" "$chans" "$doc"
       ;;
     B6)
       cat <<EOF
@@ -643,8 +646,8 @@ EOF
         "aggregations": [
           { "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MAX", "crossSeriesReducer": "REDUCE_MAX" }
         ],
-        "comparison": "COMPARISON_GE",
-        "thresholdValue": 18,
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 17,
         "duration": "600s",
         "trigger": { "count": 1 }
       }
@@ -696,8 +699,8 @@ EOF
         "aggregations": [
           { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_MEAN", "crossSeriesReducer": "REDUCE_MAX" }
         ],
-        "comparison": "COMPARISON_GE",
-        "thresholdValue": 0.8,
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.799,
         "duration": "1800s",
         "trigger": { "count": 1 }
       }
@@ -802,6 +805,10 @@ EOF
   esac
 }
 
+# 🔴 GCP 的 conditionThreshold **只支持 COMPARISON_GT / COMPARISON_LT**（2026-09-02 实测：
+#    COMPARISON_GE 被 INVALID_ARGUMENT 拒绝，"only COMPARISON_LT and COMPARISON_GT are supported at present"）。
+#    所以 ADR 里写的「>= N」一律落成「> N-1」（计数是整数，两者等价）；磁盘使用率 >= 80% 落成 > 0.799。
+#    条件的 displayName 仍按 ADR 的写法保留「>=」，读告警的人看到的是裁决口径。
 # emit_global_count_policy —— 与 emit_count_policy 同形，但资源类型是 global：
 # check-cert-issuer.sh 用 gcloud logging write 写的日志不属于任何 Cloud Run 修订版，
 # 它的日志指标序列挂在 resource.type="global" 上。套 emit_count_policy 的过滤器会永远匹配不到。

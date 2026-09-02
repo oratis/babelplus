@@ -21,7 +21,7 @@
       }
     }
   ],
-  "notificationChannels": [ "" ],
+  "notificationChannels": [ "projects/oratis-491316/notificationChannels/13580442405370640559" ],
   "alertStrategy": { "autoClose": "1800s" },
   "documentation": { "content": "B 级。/-/healthz 在 >=2 个探测区域连续失败。要求多区域是为了排除单区域抖动。响应体判据是定值而不是 200（被劫持的 DNS、中间设备、平台默认页都可能回 200）。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/runbook-node-health.md §4；冷启动与回滚：https://github.com/oratis/babelplus/blob/master/docs/04-ops/deploy.md §12.1", "mimeType": "text/markdown" }
 }
