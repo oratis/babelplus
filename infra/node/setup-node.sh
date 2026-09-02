@@ -600,8 +600,9 @@ do_v2node() {
         _v4_tmp="$(mktemp)"
         # 第二个节点（可选，见 --help 的 BP_NODE_ID_2）。两个变量都给才加；只给一个视为配置错误。
         if [ -n "${BP_NODE_ID_2:-}" ] || [ -n "${BP_NODE_TOKEN_2:-}" ]; then
-            [ -n "${BP_NODE_ID_2:-}" ] && [ -n "${BP_NODE_TOKEN_2:-}" ] \
-                || die "BP_NODE_ID_2 与 BP_NODE_TOKEN_2 必须同时给（或同时不给）。"
+            if [ -z "${BP_NODE_ID_2:-}" ] || [ -z "${BP_NODE_TOKEN_2:-}" ]; then
+                die "BP_NODE_ID_2 与 BP_NODE_TOKEN_2 必须同时给（或同时不给）。"
+            fi
         fi
         jq -n '{
           Nodes: ([{

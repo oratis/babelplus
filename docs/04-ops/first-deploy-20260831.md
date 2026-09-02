@@ -325,6 +325,53 @@ done
 
 ---
 
+## 4.5 · ADR 0014 批准落地 + 第二条通路（2026-09-02 追记）
+
+> 证据目录 [evidence/adr0014-alerts-hy2-20260902](../evidence/adr0014-alerts-hy2-20260902/)，命令与原始输出都在那里。本节只给结论。
+
+### 告警：从「3 条手工」到「12 条脚本接管」
+
+用户 2026-09-02 批准 ADR 0014。当天 `setup-alerts.sh --apply` 建成 **12 条**（B1–B9 + 追加的 B11–B13），
+2026-09-01 手工建的三条删除、由脚本接管；JSON 入库 `infra/alerts/`。**未建**：A1 / A3（带外，VPS 未采购）、
+A2（email#2 与推送未建）、B10（指标不存在）。**通道仍只有 email#1**。**零演练。**
+脚本在真实 GCP 上撞到四处（`$VAR（` 切词、过滤器不加引号会误建重复渠道、API 不支持 `COMPARISON_GE`、
+uptime check 的 `check_id` 带随机后缀），全部修在脚本里。
+
+### 日志指标：8 → 13
+
+`bp_node_alive`（带 `node_id` 标签，B1 的信号源；node_id=1 的序列已存在 = armed）、`bp_mail_bounce`、
+`bp_ratelimit_degraded`、`bp_cert_expiring_soon`、`bp_cert_check_failed`。
+
+### 证书核对：每日作业挂上了（B57 前半、B58）
+
+Cloud Run Job `bp-cert-issuer-check`（镜像 `bp-images/bp-cert-issuer-check:b6bd9ad`）+ Scheduler
+`bp-cert-issuer-check-daily`（每日 04:40 CST）。首跑：`web.` / `api.` 都是 Let's Encrypt，2/2 通过。
+到期前 14 天由 B13 告警。⚠️ 它是**带内**的，与 ADR 0014 §10.2 有意偏离；续签本身仍是人跑 `renew-le-cert.sh --apply`。
+
+### `deploy.yml` 的前置：WIF 与两个仓库变量（B47 的前半）
+
+`bp-github-pool` / `bp-github-oidc`（condition 限定 `oratis/babelplus`），`GCP_WIF_PROVIDER` / `GCP_DEPLOY_SA` 已设，
+`bp-deploy-sa` 补了 `bp-api` 的服务级 `run.developer`。**工作流仍然一次都没跑过。**
+
+### 阿里云 DNS：AK/SK 入 Secret Manager，脚本改 `dns_ali`（B60 的根因其实早已解掉）
+
+`bp-aliyun-dns-ali-key` / `bp-aliyun-dns-ali-secret`。实查发现 `bp-node-hk1` 上 `hk1.babel.plus` 的 LE 证书
+**2026-09-01 就已经用 `dns_ali` 签出来了**（到期 2026-11-30，acme.sh cron 已挂），只是 `setup-node.sh` 与文档还写着 `dns_cf`。
+
+### Hysteria2：证书在盘上，离「能连」还隔着三条契约缺陷
+
+三次加节点、三次撞坑、三次 `bp-api` 部署（`28991eb` → `7579163` → `a747ebf`）：
+`protocol` 要写 `hysteria2` 不是 `hysteria`；`tls: 1` 必须显式下发；obfs 密码键名是 `obfs_password` 不是 Xboard 的 `obfs-password`。
+每一条的失败形态都是 v2node **整个进程退出码 0**（同机 REALITY 陪葬，`Restart=on-failure` 不触发），第三条连日志都没有。
+两次 REALITY 中断共约 6 分钟。**终态：HY2 从本机容器与原生客户端实测可用，出口 IP 正确，5 MB 3–4.8 MB/s。**
+
+### 三态计时与 72 h 窗口
+
+封禁 **38 s** · 配额耗尽 **17 s**（真实下载撞线，经 `/push`）· 到期 **3 min 51 s**（含等 expire-check 刻度 3 min 19 s）——
+三条都在阈值内；恢复各 52–55 s。前提是先撞上 **B63**：节点上只剩一个用户时 v2node 把空列表当「没变化」，谁都踢不掉，
+建了哨兵用户 `drill-sentinel@babel.plus` 才测得出来。**72 h 窗口起点 2026-09-02T07:05:22Z**。
+P1 出口标准：**3.5/8 → 6/8**（剩：第 1 条路由判据重定、第 5 条 72 h 未到、第 7 条密钥轮换需在后台登录后做）。
+
 ## 代价
 
 - **两个 SPA 共享 `*.run.app` 这一个可注册主域名。** ADR 0003 §3.2 明确要求用户面板与后台

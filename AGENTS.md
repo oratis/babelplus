@@ -26,9 +26,10 @@
 
 1. **自有节点 1 台：`bp-node-hk1`**（asia-east2-a，Standard，`35.215.158.52`，v2node **v0.4.3 钉死**，
    升到 v0.4.5 会让 mihomo / sing-box / 官方 xray 客户端全部连不上，roadmap B62）。
-   **REALITY 通路端到端可用**（未手改的订阅在 mihomo 与 sing-box 各加载一次，出口 IP 正确）；
-   **Hysteria2 与 SS-2022 未启用**。P1 出口标准 **3.5/8**，剩下四条（72 h 观察、三态生效计时、
-   密钥两步轮换、路由验收判据重定）**都不需要再写代码**，见 [roadmap §4.3](docs/00-overview/roadmap.md)。
+   **REALITY 与 Hysteria2 两条通路端到端可用**（2026-09-02 起；SS-2022 未启用）。
+   P1 出口标准 **6/8**，剩下三条（72 h 观察窗 2026-09-05T07:05Z 到点、密钥两步轮换需在后台登录后做、
+   路由验收判据重定）**都不需要再写代码**，见 [roadmap §4.3](docs/00-overview/roadmap.md)。
+   🔴 v2node 对多节点是「一个错、全部不起」且退出码 0（roadmap B64）；节点上只剩一个用户时谁都踢不掉（B63，哨兵用户在位）。
    ⚠️ 单节点、单协议、单区域：任何一条出问题就是全线中断。
 2. **生产跑的就是 master。** `bp-api` 的 serving revision 是 `bp-api-f76487f`（master 最近一次代码提交），
    `bp-db` 在迁移版本 19。用户面实测可用（注册 → 登录 → 下单 → 取消）。

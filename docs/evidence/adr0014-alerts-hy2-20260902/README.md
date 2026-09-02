@@ -120,11 +120,87 @@ Job    bp-cert-issuer-check（Cloud Run Job，SA bp-tasks-sa，BP_WEB_DOMAINS=we
 
 ## 5 · Hysteria2：从「证书在盘上」到「客户端能连」之间的三条缺陷
 
-【待补：§5 全文】
+前提：`servers` 表里 `bp-node-hk1-hy2`（id=2，`hysteria2`）2026-09-01 就已建好，`protocol_settings` 带
+`cert_mode=file` 与 `/run/credentials/bp-node.service/{fullchain,privkey}.pem`；节点上证书是 LE 的；
+`v2node.json` 只有节点 1。于是把节点 2 加进 `v2node.json` 重启 —— 三次，撞三条：
+
+| # | 节点侧报错 | 根因（我们的 `/api/v2/server/config`） | 修 |
+|---|---|---|---|
+| 1 | `Get node info failed err=unsupport protocol: hysteria` | 下发 `protocol: "hysteria"` + `version: 2`（Xboard 老格式）；v2node v0.4.3 `GetNodeInfo` 只认 `hysteria2` | `protocol: "hysteria2"`，并下发 `tls_settings{cert_mode,cert_file,key_file,server_name}` |
+| 2 | `failed to listen on 0.0.0.0:443 > transport/internet/hysteria: tls config is nil` | 没下发 `tls: 1`；v2node 只在 `Security==Tls` 时才用 `tls_settings` 构造监听 | `tls: 1` 无条件写死（HY2 的 TLS 不是可选项） |
+| 3 | **无任何报错**；客户端 `context deadline exceeded`，回环也连不上 | 下发 `obfs-password`（Xboard 连字符），v2node 读 `obfs_password`（下划线）→ 拿到空串 → 「obfs 与密码必须成对」→ **静默不开混淆**，带 salamander 的客户端流量全被丢 | 契约键名改 `obfs_password`（订阅给客户端的仍是 Clash 的 `obfs-password`，两码事） |
+
+第 3 条的诊断手法值得记住：**回环上把客户端的 obfs 去掉就通了**（5 MB 0.16 s）—— 服务端没有 obfs 是唯一解释。
+
+三次都是同一个失败形态（§7）：v2node 一个节点配置错，**整个进程退出码 0**，同机 REALITY 陪葬，
+`Restart=on-failure` 不触发。第三条更糟：它连退出都没有，节点侧零日志。
+
+**每一条都对应一次 `bp-api` 部署**（`bp-api-28991eb` → `7579163` → `a747ebf`），都走 `deploy-api.sh`
+候选 → 验证候选 URL 的 `/api/v2/server/config` → 切流量；第三条上线后用 `UPDATE node_rev SET config_rev=config_rev+1`
+让节点热重载（61 s 后日志 `重启成功`），没有再重启进程。
+
+### 5.1 实测结果
+
+```
+节点回环（mihomo linux-amd64 v1.19.30 → 127.0.0.1:443，sni hk1.babel.plus，salamander）
+  出口 IP 35.215.158.52 · 5 MB 0.25 s（19.7 MB/s，本机回环无意义，只证明服务端配置对）
+本机容器（docker mihomo v1.19.30 + curl 同网络命名空间 → 35.215.158.52:443/udp）
+  出口 IP 35.215.158.52 · 5 MB ×3：3.18 / 3.84 / 4.79 MB/s
+本机原生（mihomo darwin-arm64 v1.19.30）
+  出口 IP 35.215.158.52 · 5 MB ×3：2.45 / 3.68 / 3.53 MB/s
+同机同时段 REALITY（容器）：5 MB 3.13 MB/s
+```
+
+⚠️ 发起点出口在 `34.104.192.233`（境外），**不证明中国大陆的 UDP 路径**。
+
+### 5.2 容器测试方法踩的三个坑（都写进 [local-development.md](../../04-ops/local-development.md) 之前先记这里）
+
+1. **配置目录必须在 `$HOME` 下**：colima 对 `/private/tmp/…` 的 bind mount **静默为空**，mihomo 于是加载一份默认配置、
+   `-t` 还会报「test is successful」、所有请求走 DIRECT。与 renew-le-cert.sh 头部记的是同一个坑，第三次踩。
+2. **不要 `-p` 映射端口**，用 `docker run --network container:<mihomo 容器> curlimages/curl -x http://127.0.0.1:7890`：
+   mihomo 默认只绑回环，映射进来的流量到不了它。
+3. **不要自定义名为 `GLOBAL` 的 proxy-group**：它与内置组同名，`mode: global` 下全部走 DIRECT。
+   用 `mode: rule` + `rules: [MATCH,<proxy>]`。
+
+配置留在本机 `~/.bp-mihomo-test/`（含 uuid 与 obfs 密码，0600）。
 
 ## 6 · 三态生效计时（P1 出口标准 6）
 
-【待补：§6 全文】
+### 6.0 先撞上的一条：只剩一个用户时，谁都踢不掉
+
+第一次封禁 `demo@babel.plus`（当时节点上唯一的用户）：`bp-api` 在 3 s 后给了 200（`user_rev` 已 bump），
+节点却**什么都没做**。v2node `node/task.go`：
+
+```go
+if len(newU) == 0 {
+    log.WithField("tag", c.tag).Debug("User list no change")
+    return nil
+}
+```
+
+**空列表被当成「没变化」。** 这是 roadmap B7 记过的那条保护（防止面板故障时清空全员），
+它的另一面是：**节点上只剩最后一个用户时，封禁 / 到期 / 配额耗尽对他永远不生效。** 登记为 **B63**。
+处置：建了哨兵用户 `drill-sentinel@babel.plus`（id=2，与运维账号同组同套餐，`password_hash='!'` 不可登录，
+通知全关，uuid 从未导出），让列表永不为空。**第二台节点、第二个真实用户上线前，它必须留着。**
+
+### 6.1 结果（哨兵在位之后；时间全部 UTC，节点侧以 `journalctl -o short-iso-precise` 为准）
+
+| 状态 | 触发（数据库写入时刻） | 节点侧生效（`1 user deleted`） | 耗时 | 阈值 | 恢复 → 重新下发 |
+|---|---|---|---|---|---|
+| 封禁 | `banned=true` 07:14:51.757 | 07:15:30.1（vless）/ 07:15:30.8（hy2） | **38–39 s** | ≤ 60 s ✅ | 07:15:36.3 → 07:16:30.9 / 31.6（**55 s**） |
+| 配额耗尽 | 配额压到已用 + 3 MB，07:22:12.7；经 HY2 真实下载 6 MB，07:22:18.3 完成 | `/push` 07:22:26 → API「本批流量导致用户配额耗尽，已 bump」07:22:25.8 → 07:22:35.4 / 36.2 | **17–18 s**（自下载完成起） | ≤ 60 s ✅ | 07:22:44.8 → 07:23:36.2 / 36.9（**52 s**） |
+| 到期 | `expired_at` = 07:16:43.2 | expire-check 07:20:02（5 分钟周期）→ 07:20:33.9 / 34.6 | **3 min 51 s** | ≈ 6 min（最坏）✅ | 07:20:43.3 → 07:21:34.6 / 35.4（**52 s**） |
+
+三条都过。配额那条是**真实路径**（客户端下载 → 节点 `/push` 上报 → API 判定越线 → bump → 节点下一次 `/user` 拿到 200），
+不是改库模拟。到期那条的 3 min 51 s 里 3 min 19 s 在等 Scheduler 的下一个 5 分钟刻度。
+
+账号状态已全部还原（`banned=false`，`expired_at=2026-10-01`，配额 100 GiB）。演练产生的真实流量约 6 MB。
+
+### 6.2 72 小时窗口（P1 出口标准 5）起点
+
+**2026-09-02T07:05:22Z**（HY2 节点热重载成功、两条通路同时在跑的时刻；REALITY 自 06:56:11Z 的最后一次进程重启起连续）。
+节点侧 `bp-mem-sample.timer` 每分钟写 `/var/log/bp-mem-sample.csv`（epoch, MemTotal_kB, MemAvailable_kB），
+终点 **2026-09-05T07:05Z** 之后算峰值。`bp-b-node-heartbeat-absent` 已 armed，中断会有信号。
 
 ## 7 · 两次 REALITY 中断（都是本文作者造成的）
 
@@ -152,11 +228,14 @@ Job    bp-cert-issuer-check（Cloud Run Job，SA bp-tasks-sa，BP_WEB_DOMAINS=we
 
 ## 这次没有解决的
 
-- [ ] 72 小时观察窗口（出口标准 5）：起点见 §5，终点未到
+- [ ] 72 小时观察窗口（出口标准 5）：起点 2026-09-02T07:05:22Z（§6.2），终点未到
 - [ ] 节点密钥两步轮换演练（出口标准 7）：需在 `admin.babel.plus` 以 `wangharp@gmail.com` 登录后做；
       本机 Chrome 登录的是另一个 Google 账号，IAP 未授权，本文作者未代点 OAuth 账号选择
 - [ ] 12 条告警的演练与 `alert-drill-ledger.md`
 - [ ] A2 / A1 / A3：email#2、推送通道、VPS —— 都需用户
 - [ ] ADR 0014 §15.1 D0 第 2 条（GCP 账号 2FA 改本地 TOTP + 离线备用码）—— 需用户本人
 - [ ] REALITY 私钥轮换（B65）
+- [ ] 哨兵用户是绕过不是修复（B63）：v2node 的空列表短路要么上游改，要么 `/user` 永远至少回一个占位条目 —— 未裁决
+- [ ] SS-2022 仍未启用（第三条通路，本轮没碰）
+- [ ] `local-development.md` 未收录 §5.2 的容器测试方法
 - [ ] `deploy.yml` 第一次真跑
