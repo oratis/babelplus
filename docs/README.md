@@ -137,7 +137,8 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
-| | [go-to-market-plan.md](03-product/go-to-market-plan.md) — 获客方案（¥3/GB 成本核算、闲鱼 / 扩展 / 浏览器 / 其它渠道裁决、产品功能匹配 F1–F11、分阶段门槛） | **提案，未批准**（2026-09-02）—— 第 0 条（转向公开运营）需用户亲自裁决 |
+| | [go-to-market-plan.md](03-product/go-to-market-plan.md) — 获客方案（海外销售前提下的定价、渠道与功能匹配） | **提案，未批准**（2026-09-02 **第二版**）—— 前提改为海外销售 / 非中国公民 / 不做身份验证；闲鱼作废、SKU 改美元、支付翻转为卡通道 |
+| | [client-products-spec.md](03-product/client-products-spec.md) — 扩展与浏览器的完整产品形态与执行方案（配 [mockup](03-product/client-products-mockup.html)） | **提案，未批准**（2026-09-02） |
 | **04-ops** | [runbook-node-health.md](04-ops/runbook-node-health.md) — 节点健康与封锁取证 | 设计稿 v1 |
 | | [node-provisioning.md](04-ops/node-provisioning.md) — 建机与装机 | 设计稿 v1 |
 | | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 执行中（`bp-api` / `bp-db` 已上线，§5 示例命令与线上不一致） |

@@ -9,4 +9,5 @@
 | [tutorials-spec.md](tutorials-spec.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 | [user-journey.md](user-journey.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 | [page-inventory.md](page-inventory.md) | 设计方案 | 设计稿 v1（2026-08-16） |
-| [go-to-market-plan.md](go-to-market-plan.md) | 设计方案 | **提案，未批准**（2026-09-02）—— ¥3/GB 只在 ≥15G 的 30 天包上守得住 1.20× 地板（15G ¥45 / 20G ¥60 / 3G ¥9 体验）；闲鱼 = 收款通道，法律暴露面最大，需先写 ADR 推翻 product-brief §4；扩展第二期走 Edge Add-ons；浏览器不做 |
+| [go-to-market-plan.md](go-to-market-plan.md) | 设计方案 | **提案，未批准**（2026-09-02 第二版）—— 商业前提改为**海外销售 / 非中国公民 / 不做身份验证**：闲鱼整条作废；SKU 改美元按行程切分（$2.50 / $4.50 / $8.90 / $18.90），¥3/GB 在两个主力档上原样成立；支付主通道翻转为卡 / MoR（触发 ADR 0012 失效条件 5）；新增 F12 英文化（102 个文件） |
+| [client-products-spec.md](client-products-spec.md) | 设计方案 | **提案，未批准**（2026-09-02）—— 扩展与浏览器的完整产品形态与执行方案：扩展用 PAC 候选串白拿域名池故障转移、popup 八个状态；浏览器只做「零配置」与「按站点可见」两件 Chrome + 扩展做不到的事。配套 mockup：[client-products-mockup.html](client-products-mockup.html) |
