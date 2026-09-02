@@ -1276,6 +1276,48 @@ paths:
         '500':
           $ref: '#/components/responses/ErrInternal'
 
+  /api/v1/user/proxy-config:
+    get:
+      tags: [user]
+      operationId: getUserProxyConfig
+      summary: 浏览器扩展的代理配置：HTTPS 入站端点、分流规则、控制面镜像（E1，未实现）
+      description: |
+        给 `web/extension/`（MV3 浏览器扩展，Chrome / Edge）用的唯一服务端端点，形状按
+        [client-products-spec §3.3 / §3.7](../docs/03-product/client-products-spec.md) 冻结：
+        扩展**不硬编码任何域名**，端点列表、控制面镜像、分流规则全部从这里拿。
+
+        为什么在 `user` 面而不是 spec 原写的 `/api/v1/client/proxy-config`：它需要用户会话鉴权、
+        走统一信封、会随契约改版 —— 三条都是 `user` 面的性质；`client` 面是「按 UA 分发订阅、
+        不套信封、不改版」的生态硬接口，放那里会让订阅面的冻结承诺沾上一个会改的端点。
+
+        🔴 **服务端返回 `501` 直到 E0 / E1 完成**（钉在 `api/internal/handler/unimplemented_test.go`）：
+        节点侧尚无 HTTPS 代理入站，且 HTTPS 入站的每用户字节能否进 UniProxy 上报路径**未核实** ——
+        不能计量就不能扣配额，这是整条扩展路线的第一个可能致命点（spec §6.1 E0）。
+        扩展对 `501` 的处置是进「全部端点不可达」态并说明原因，不是崩溃。
+
+        `pac` 可省略：扩展本地有 Smart / Everything 模式与两个自定义列表，会用 `endpoints` + `rules`
+        自己拼 PAC。两边共同遵守一条：候选串**末位不放 `DIRECT`** —— 全部端点失败时连接失败并告警，
+        不静默直连（spec §3.3 规则 1）。
+      security:
+        - userSession: []
+      responses:
+        '200':
+          description: 代理配置
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ProxyConfig'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '401':
+          $ref: '#/components/responses/ErrUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrInternal'
+
   /api/v1/user/diagnose:
     get:
       tags: [user]
@@ -5795,6 +5837,123 @@ components:
           description: |
             倍率，定点整数，基数 **1e9**（`1e9` = 1.0 倍）。
             **第一阶段不引入倍率，但字段先留**（抄 Remnawave `consumption_multiplier BIGINT`）。
+
+    ProxyConfig:
+      type: object
+      description: |
+        浏览器扩展的代理配置（[client-products-spec §3.3 / §3.7](../docs/03-product/client-products-spec.md)）。
+        与计费无关：扩展本地的会话用量只用于显示，计费口径唯一来源是节点上报（data-model §9）。
+      required: [endpoints, rules, rules_rev, expires_in, control_plane]
+      properties:
+        pac:
+          type: string
+          description: |
+            服务端预拼好的完整 PAC 脚本（`FindProxyForURL`）。候选串按用户地区打乱，**末位不含 `DIRECT`**。
+            扩展本地有自定义列表时会自己重拼，所以此字段可省略。
+        endpoints:
+          type: array
+          description: HTTPS 代理入站端点，已按建议顺序排列。空数组 = 当前没有可用入站，扩展进「全部端点不可达」态。
+          items:
+            $ref: '#/components/schemas/ProxyEndpoint'
+        rules:
+          $ref: '#/components/schemas/ProxyRules'
+        rules_rev:
+          type: integer
+          format: int64
+          description: 分流规则版本。扩展只在版本变化时重拼 PAC，诊断报告里带它。
+        expires_in:
+          type: integer
+          format: int32
+          description: 本份配置的有效秒数；到点前扩展会重新拉取（`chrome.alarms`）。凭据随配置一起轮换。
+        control_plane:
+          $ref: '#/components/schemas/ProxyControlPlane'
+
+    ProxyEndpoint:
+      type: object
+      required: [id, host, port, scheme, region, auth]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 入站所在节点的 `servers.id`。诊断报告里只出现 id 与地区，不出现主机名。
+        host:
+          type: string
+          description: 域名池里的一个域名（ADR 0010），或 IP 字面量。扩展不做 DNS 解析，交给浏览器。
+        port:
+          type: integer
+          format: int32
+        scheme:
+          type: string
+          enum: [https]
+          description: 只有 `https`（代理连接本身走 TLS）。Chrome 对 SOCKS5 不支持认证，所以不会出现别的值。
+        region:
+          type: string
+          description: 出口地区代码，例 `HK` / `JP`；popup 的地区下拉按它分组。
+        label:
+          type: string
+          description: 给人看的名字，例 `Hong Kong`。
+        auth:
+          $ref: '#/components/schemas/ProxyAuth'
+        probe_url:
+          type: string
+          format: uri
+          description: |
+            经该端点可达的探测 URL：扩展用它测延迟并显示出口 IP，响应体形状 `{ "ip": "<出口 IP>" }`。
+            必须是一个会被 PAC 判为「走代理」的主机，否则测到的是直连。
+
+    ProxyAuth:
+      type: object
+      description: |
+        `Proxy-Authenticate: Basic` 的凭据。由订阅 token 派生（spec §3.7：`HMAC(token, node_id)` 取前 16 字节，
+        **提案，未做安全评审**），不是用户密码；重置订阅即全部失效。
+        扩展存 `chrome.storage.session`（浏览器关闭即丢），不进诊断报告。
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    ProxyRules:
+      type: object
+      description: |
+        分流规则表。方向对「来华外国人」是**默认走代理**（spec §3.4）：只有这里列出的才直连。
+        扩展本地的 `Always route` / `Never route` 两个列表优先级高于本表；
+        本地 / 私有地址与 `localhost` 由扩展固定直连，不在此表。
+      required: [direct_suffixes]
+      properties:
+        direct_suffixes:
+          type: array
+          description: 直连的域名后缀（不带前导点，例 `cn` / `taobao.com`）。
+          items:
+            type: string
+        proxy_suffixes:
+          type: array
+          description: 强制走代理的域名后缀，优先级高于 `direct_suffixes`（给 `direct_suffixes` 里的例外用）。
+          items:
+            type: string
+
+    ProxyControlPlane:
+      type: object
+      description: |
+        控制面的域名池（ADR 0010）。扩展用它更新自己的 API 备用域名列表；
+        PAC 里这些主机一律**直连** —— 控制面故障不得升级为数据面故障，反之亦然（system-design §5.3）。
+      required: [api_base_urls]
+      properties:
+        api_base_urls:
+          type: array
+          description: 按优先级排列的 API 域名（含协议）。第一项是主域名。
+          items:
+            type: string
+            format: uri
+        web_base_url:
+          type: string
+          format: uri
+          description: 用户面板；popup 的 `Top up` / `Renew` / `Buy more data` 都跳这里。
+        backup_page_url:
+          type: string
+          format: uri
+          description: 「全部端点不可达」态里给用户的备用域名页（page-inventory §2.2）。
 
     DiagnoseCheck:
       type: object

@@ -25,7 +25,7 @@ import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WEB_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const TARGETS = ['user/dist', 'admin/dist'];
+const TARGETS = ['user/dist', 'admin/dist', 'extension/dist'];
 const SCANNED_EXT = new Set(['.html', '.js', '.css', '.mjs']);
 
 /** ① 点名的高风险主机名。命中即失败，附理由 —— 报错时给理由比只说「不允许」更可能被正确处理。 */
@@ -68,6 +68,14 @@ const ALLOWED_HOSTS = [
   ['localhost', 'Vite 开发期提示文本；生产构建里不会被请求'],
   ['example.com', 'RFC 2606 保留域名，用于配置文件注释中的示例'],
   ['example.invalid', 'RFC 2606 保留后缀，永不解析，用于 UI 占位'],
+  // 扩展 onboarding 第三步的四个方块：**用户点击才打开**的 target=_blank 外链（spec §3.5 的验证页），
+  // 扩展自己不请求它们；它们是「你现在能打开什么」的证据，不是资源。
+  // 🔴 撤销条件：若将来扩展自己去 fetch 这些站点做连通性探测，这四条必须先删掉再讨论 ——
+  //    探测目标必须是我们自己的 probe_url（openapi ProxyEndpoint.probe_url），不能是第三方站点。
+  ['www.google.com', '扩展 onboarding 的用户点击外链，不请求'],
+  ['www.youtube.com', '同上'],
+  ['web.whatsapp.com', '同上'],
+  ['chatgpt.com', '同上'],
   [
     'tronscan.org',
     // 出现在两处，都不是取资源：

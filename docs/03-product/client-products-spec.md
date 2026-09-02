@@ -1,6 +1,6 @@
 # 客户端产品形态：扩展用 PAC 把「域名池故障转移」白拿，浏览器只做「零配置 + 按站点可见」两件 Chrome 做不到的事；两者共用一套凭据，但走两条互不重叠的传输
 
-> 日期：2026-09-02 · 性质：**设计方案** · 状态：**提案，未批准**（2026-09-02，**同日按第二轮调研重写 §7**）
+> 日期：2026-09-02 · 性质：**设计方案** · 状态：**提案，未批准**（2026-09-02，**同日按第二轮调研重写 §7**；**同日追加 §6.4 实施状态**：扩展代码已落地于 `web/extension/`，服务端端点 501，两道门 E0 / E1 在仓库外）
 > 🔴 **§7 的第一版把 iOS 排在最后**，理由是「中国区 App Store 上架不可能」。那个理由本身没错，但答的不是正确的问题 ——
 > 第二轮调研查到**持非中国区 Apple ID 的用户在中国境内可以正常下载和更新 VPN app**，
 > 因此 **iOS 是唯一还能触达已落地中国用户的分发通道**，已提到议程第一位。原排序的落点逐条记在 §7.1。
@@ -283,6 +283,23 @@ E0 ──► E1 ──► E2 ──► E3 ──► E4          （扩展可售�
 **硬前置（三条都不是本文能解决的）**：P1 出口标准 8/8（现 3.5/8）、ESP 接通、官网收款闭环。
 没有第三条，两个客户端都只能展示配额、不能卖东西。
 
+### 6.4 · 实施状态（2026-09-02 追加）
+
+用户当日指示「把扩展与浏览器推进到可以上架的程度」。**能在仓库里做的都做了；两道门（E0、E1）在仓库外。** 逐里程碑：
+
+| 里程碑 | 状态 | 落点 |
+|---|---|---|
+| **E0** 门槛验证 | 🔴 **未做** —— 需在 `bp-node-hk1` 上起 HTTPS 入站并实测「100 MB 能否进 `stat_user_server`」。建议等 72 h 观察窗（P1 出口标准 5，2026-09-05T07:05Z 到点）之后再动那台机器 | roadmap **B66**、[web/extension/README §6](../../web/extension/README.md) |
+| **E1** 服务端 | 🔶 **契约已冻结、实现是 501**：`GET /api/v1/user/proxy-config`（`getUserProxyConfig`；schema `ProxyConfig` / `ProxyEndpoint` / `ProxyAuth` / `ProxyRules` / `ProxyControlPlane`），501 的理由钉在 `api/internal/handler/unimplemented_test.go`。凭据派生、`probe_url` 服务、`probe_resistance` 回落站点都未做 | `openapi/openapi.yaml` |
+| **E2** 扩展内核 | ✅ MV3 骨架、PAC 生成与注入（`pacScript.mandatory: true`）、`onAuthRequired` 回填、逐台探测与按延迟排序、全部失败**清掉代理设置**再进不可达态 | `web/extension/src/background/` |
+| **E3** 界面 | ✅ 八个状态、options、onboarding、诊断导出，中英双语词典；**61 个用例全绿**；商店截图**没有**（需真机装上后截） | `web/extension/src/{popup,options,onboarding}/` |
+| **E4** 上架 | 🔶 商店文案、逐权限说明、隐私政策、两家提交清单已写（英文）；**未提交** —— E1 之前提交会按「功能不可用」被拒，且拒审记录跟着账号 | `web/extension/store/` |
+| **E5** 存活性实测 | 🔴 未做（需真机与两周） | — |
+| **B1–B4** 浏览器 | 🔴 **未动**：§6.2 规定它必须在扩展之后；[go-to-market §4.2](go-to-market-plan.md) 的「浏览器不做」裁决仍在；签名证书、sing-box 自编译、Electron 每 8 周跟版都是仓库外的持续成本，没有真机与证书时写出来的壳无法被验证 | — |
+| **§7** iOS | 🔴 未动：前置是法律实体 + D-U-N-S（需用户），代码排在它之后 | — |
+
+三处与本文原稿不同的实现决定（都已写回相应小节）：`host_permissions` 用 `<all_urls>`（§3.2 订正）；端点在 `user` 面不在 `client` 面（它需要会话、信封、会改版，都是 user 面的性质）；options 的「Off」= 断开而不是一种路由模式（「全部直连」的 PAC 违反 §3.3 规则 1）。
+
 ---
 
 ## 7 · 🔴 移动端：iOS 从「登记不排期」提到议程第一位
@@ -395,9 +412,9 @@ App Review Guidelines **5.4 VPN Apps**（页面更新日 2026-06-08）原文：
 - [ ] **Electron 版本与 Chromium 安全更新的滞后上界未定** —— 用户拿它当浏览器用，滞后多久算不可接受，需要一条可判定的规则。
 - [ ] **浏览器的崩溃与诊断上报 sink 未选型**，且它必须能从中国境内送达（否则收不到最需要的那批报告）。
 - [ ] **per-tab 字节归属在 Electron 里的具体实现路径未验证**（`webRequest` + `webContents` 能否稳定拿到，需要 spike）。
-- [ ] **商店素材、隐私政策、权限说明的英文文案未写**，且隐私政策必须与「不注入 content script、不采集浏览数据」的实现逐条对上。
+- [x] ~~**商店素材、隐私政策、权限说明的英文文案未写**，且隐私政策必须与「不注入 content script、不采集浏览数据」的实现逐条对上。~~ ✅ 2026-09-02：英文文案在 [web/extension/store/](../../web/extension/store/)（listing.en.md / privacy-policy.md / README.md 提交清单）；**未托管、未经法务**；截图需真机。
 - [ ] **`<all_urls>` 对 Chrome Web Store 审核的影响 —— 无数据。** 头部 VPN 扩展普遍申请它，但「申请了它的 VPN 类扩展审核时长与被拒率」查不到；只能提交一次才知道（E4）。
-- [ ] **`/client/proxy-config` 的契约未写**，`openapi.yaml` 需要一次修订与冻结流程。
+- [x] ~~**`/client/proxy-config` 的契约未写**，`openapi.yaml` 需要一次修订与冻结流程。~~ ✅ 2026-09-02：已写为 `GET /api/v1/user/proxy-config`（`getUserProxyConfig`），形状冻结、服务端 501 直到 E1（§6.4）。
 - [ ] 🔴 **法律实体与 D-U-N-S 未申请**（§7.2）—— 交付周期最长约 28 天，是全项目最长的一根外部杆子。
 - [ ] 🔴 **WKWebView 代理方案是否被 Apple 认定为「VPN app」从而落入 5.4 —— 未定**（§7.2）。建议按 VPN app 走。
 - [ ] **移动端具体排期未定**（§7.5 只确定了 D-U-N-S 要先启动）。
