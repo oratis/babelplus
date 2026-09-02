@@ -1,6 +1,9 @@
 # 客户端产品形态：扩展用 PAC 把「域名池故障转移」白拿，浏览器只做「零配置 + 按站点可见」两件 Chrome 做不到的事；两者共用一套凭据，但走两条互不重叠的传输
 
-> 日期：2026-09-02 · 性质：**设计方案** · 状态：**提案，未批准**（2026-09-02）
+> 日期：2026-09-02 · 性质：**设计方案** · 状态：**提案，未批准**（2026-09-02，**同日按第二轮调研重写 §7**）
+> 🔴 **§7 的第一版把 iOS 排在最后**，理由是「中国区 App Store 上架不可能」。那个理由本身没错，但答的不是正确的问题 ——
+> 第二轮调研查到**持非中国区 Apple ID 的用户在中国境内可以正常下载和更新 VPN app**，
+> 因此 **iOS 是唯一还能触达已落地中国用户的分发通道**，已提到议程第一位。原排序的落点逐条记在 §7.1。
 > 事实基线：master `671355cfb8d`；技术边界引自 [acquisition-channels.md](../01-research/acquisition-channels.md) §5–§6
 > （`chrome.proxy` scheme 枚举、Chrome 对 SOCKS5 不支持认证、MV3 `webRequestAuthProvider`、
 > Electron `session.setProxy`、SmartScreen 2026-05 新规、Xray 二进制 Defender 误报）；
@@ -273,13 +276,74 @@ E0 ──► E1 ──► E2 ──► E3 ──► E4          （扩展可售�
 
 ---
 
-## 7 · 移动端（登记，不排期）
+## 7 · 🔴 移动端：iOS 从「登记不排期」提到议程第一位
 
-Android：`androidx.webkit.ProxyController.setProxyOverride()` 可让 App 内 WebView 走本机 sing-box，**不需要 VpnService 授权弹窗**；分发只能官网 APK。
-iOS：iOS 17+ 的 `WKWebsiteDataStore.proxyConfigurations` 可给 WKWebView 设代理，不需要 NetworkExtension；但**中国区 App Store 上架不可能**，且要自行封堵 Mysk 报告的三类泄漏。
-两者都复用同一套后端，工期各 4–8 / 6–10 周。**本文只登记，不排期。**
+**2026-09-02 第二轮调研推翻了本节第一版的排序。** 第一版把 iOS 排在最后，理由是「中国区 App Store 上架不可能」。
+**那个理由本身没错，但它答的不是正确的问题** —— 我们不需要中国区货架，我们需要的是**用户自己的非中国区货架**，而它是通的。
 
----
+### 7.1 决定性事实
+
+Apple 在 2017 年下架中国区 VPN 应用时的官方口径（VyprVPN 转述，[acquisition-channels §9.9](../01-research/acquisition-channels.md)）：
+
+> **"Users in China accessing a different territory's App Store (i.e. they have indicated their billing address to be outside of China) are not impacted; they can download the iOS app and continue to receive updates as before."**
+
+**持非中国区 Apple ID 的人，在中国境内可以正常下载和更新我们的 app** —— 而那正是我们的目标用户（海外买、来华用）。
+
+由此得到两条：
+
+1. 🎯 **iOS App Store 是唯一还能触达已落地中国用户的分发通道。** 扩展要先打开 Chrome Web Store（大陆不可达），
+   浏览器要先访问一个没被封的下载域名，**只有 App Store 是本来就装在他手机上、且还能用的。**
+2. **对比 Android**：Google Play 在大陆自 2012 年起完全被封 —— **安卓必须入境前装好，或走官网 APK 侧载**。
+
+### 7.2 🔴 硬门槛：Apple 要求组织账号
+
+App Review Guidelines **5.4 VPN Apps**（页面更新日 2026-06-08）原文：
+
+> "Apps offering VPN services must utilize the **NEVPNManager** API and **may only be offered by developers enrolled as an organization**."
+> "You must make a clear declaration of what user data will be collected and how it will be used **on an app screen prior to any user action** to purchase or otherwise use the service."
+> "Apps offering VPN services **may not sell, use, or disclose to third parties any data for any purpose**, and must commit to this in their privacy policy."
+
+违规后果：下架 + **禁止通过替代分发安装** + 可能被逐出开发者计划。
+
+| 前置 | 说明 |
+|---|---|
+| **法律实体** | 单成员 LLC 可以；**DBA / 个体工商户会被拒** |
+| 🔴 **D-U-N-S 编号** | **最长的一根杆子**：Apple 说 5 个工作日，D&B 实际可能到约 28 天。**必须现在就申请**。Apple 与 Google 共用同一个 |
+| 公开官网 + 同域名工作邮箱 | — |
+| 费用 | $99/年 |
+| 权限本身 | **不是瓶颈**：Network Extensions entitlement 在 Xcode 里是自助开关，无申请表、无审批 |
+
+⚠️ **一个必须先想清楚的技术分叉**：5.4 要求「offering VPN services」的 app 使用 `NEVPNManager`。
+本文 §7.4 的 WKWebView 代理方案**刻意避开了 NetworkExtension** —— 那么它到底算不算「VPN app」？
+**两种读法都有风险**：按 VPN app 报就必须用 NEVPNManager（要组织账号，但路径清楚）；
+按「带代理的浏览器」报可能被审核认定规避 5.4。**建议按 VPN app 走，不要赌。** 登记在 §10。
+
+### 7.3 抽成与外链
+
+| 项 | 数字 |
+|---|---|
+| Apple Small Business Program | **15%**（前一自然年 proceeds < $1M，我们必然符合） |
+| 美区外链购买 | 当前 **0%**，但 2026-08-13 Apple 已提议 15% / 10% / **5%（SBP）** —— **按 5% 建模，不要按 0%** |
+| EU | **2026-10-01 起每次安装 €0.50 的 Core Technology Fee 取消**，改为对店外数字交易收 5% |
+| Google Play（2026-06-30 起，美/EEA/英） | Play Billing **15%** / 替代计费 **6%** / 外链 **10%** —— **订阅上明显比 Apple 便宜** |
+| Apple 3.1.3(f) 免费伴侣应用 | 可完全不走 IAP，**但代价彻底**：app 内只能有一个登录框，不能提购买、不能放定价、不能链接商店（Mullvad 走的就是这条） |
+
+### 7.4 技术路线
+
+- **iOS**：`NEVPNManager` + Packet Tunnel Provider，内嵌 sing-box（libbox via gomobile），复用 REALITY。
+  若改走 WKWebView `proxyConfigurations`（iOS 17+，不需 NetworkExtension），必须自行封堵 Mysk 2026-08 报告的
+  DNS prefetch / WebTransport / WebAuthn 三类真实 IP 泄漏 —— **且要先解决 §7.2 的 5.4 认定问题**。
+- **Android**：`VpnService` + libbox；Google Play 需提交声明表（两段各 ≤90 秒视频，"subject to Google's approval"），
+  显著披露**必须是独立弹窗**、不能与其它数据披露合并。
+  🔴 **唯一红线**：「Apps that facilitate proxy services to third parties」只能在那是核心用途时允许 ——
+  **绝不能让用户设备成为他人流量的出口节点。**
+- 工期 [估算]：iOS **6–10 周**、Android **4–8 周**，两者复用同一套后端。
+
+### 7.5 对排期的影响
+
+**本文 §6 的排期不变**（扩展仍然先做，它最快、且是海外买家的货架），
+**但增加一件必须今天启动的零依赖事项**：**申请法律实体与 D-U-N-S**。
+它的交付周期（最长约 28 天）比任何一段开发都长，且它同时卡住 Apple 与 Google 两侧。
 
 ## 8 · 度量
 
@@ -304,7 +368,12 @@ iOS：iOS 17+ 的 `WKWebsiteDataStore.proxyConfigurations` 可给 WKWebView 设�
 > 4. **PAC 末位不放 `DIRECT` = 故意让失败更响。** 代价是所有端点抖动时用户直接断网，而不是降级到直连凑合用。这是刻意的：静默直连意味着用户以为自己被保护着而实际没有，那比断网严重。
 > 5. **不申请 `<all_urls>` = 扩展永远做不到 per-tab 归属。** 这正是浏览器 §4.1 第 ② 条的由来 —— 一个我们主动制造出来的差异化。若将来为了做 per-tab 而去申请该权限，商店审核难度与用户信任成本会同时上升。
 > 6. **两个客户端都只覆盖浏览器流量。** 桌面 App（Cursor、Slack 客户端、终端里的 `pip`）一律不走。目标用户里的开发者会在第一天发现这一点。这不是缺陷是范围，但必须写进商品页，否则就是虚假宣传。
-> 7. **Windows 签名依赖一个中国主体可能过不了的身份验证**（§4.5，待核实）。若过不了，Windows 版要么无签名发布（SmartScreen 拦截，转化率影响未知），要么找一个可签的主体，而后者又回到 [go-to-market-plan](go-to-market-plan.md) §1 第 0 条的身份问题。
+> 7. 🔴 **iOS 这条最好的渠道要求一个法律实体。** Apple 5.4 只接受组织账号，需要实体 + D-U-N-S（最长约 28 天）。
+>    这把「谁来署名这家公司」从一个远期问题变成关键路径上的第一件事，且它与
+>    [go-to-market-plan §1](go-to-market-plan.md) 第 0 条的身份问题是同一个问题。
+> 8. **两个客户端都只覆盖浏览器流量，而 iOS/Android 走 NEVPNManager/VpnService 时覆盖全设备** ——
+>    这意味着三种覆盖范围、三套文案、三种「为什么这个 App 打不开」的排障路径。**支持面比第一版设想的宽。**
+> 9. **Windows 签名依赖一个中国主体可能过不了的身份验证**（§4.5，待核实）。若过不了，Windows 版要么无签名发布（SmartScreen 拦截，转化率影响未知），要么找一个可签的主体，而后者又回到 [go-to-market-plan](go-to-market-plan.md) §1 第 0 条的身份问题。
 
 ---
 
@@ -319,4 +388,6 @@ iOS：iOS 17+ 的 `WKWebsiteDataStore.proxyConfigurations` 可给 WKWebView 设�
 - [ ] **per-tab 字节归属在 Electron 里的具体实现路径未验证**（`webRequest` + `webContents` 能否稳定拿到，需要 spike）。
 - [ ] **商店素材、隐私政策、权限说明的英文文案未写**，且隐私政策必须与「不注入 content script、不采集浏览数据」的实现逐条对上。
 - [ ] **`/client/proxy-config` 的契约未写**，`openapi.yaml` 需要一次修订与冻结流程。
-- [ ] **移动端未排期**（§7）。
+- [ ] 🔴 **法律实体与 D-U-N-S 未申请**（§7.2）—— 交付周期最长约 28 天，是全项目最长的一根外部杆子。
+- [ ] 🔴 **WKWebView 代理方案是否被 Apple 认定为「VPN app」从而落入 5.4 —— 未定**（§7.2）。建议按 VPN app 走。
+- [ ] **移动端具体排期未定**（§7.5 只确定了 D-U-N-S 要先启动）。

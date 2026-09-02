@@ -308,3 +308,289 @@ Xray-core 官方 release 被 Defender 标 `Trojan:Script/Wacatac.B!ml`，issue �
 4. 不证明「20 人以上」之外的**违法所得门槛**条文原文（待核实）。
 5. 不证明测评站 aff 的**真实转化** —— 它们自己也不披露。
 6. 不证明 Telegram 渠道对**本项目目标用户**（闲鱼上的非技术用户）有效 —— [user-journey §3.3](../03-product/user-journey.md) 实测 Telegram 大陆异常率 99.1%，只对已有梯子的人有效。
+
+---
+
+## 9 · 海外市场（2026-09-02 追加调研）：eSIM 已经赢下手机场景，可赢的是笔电与酒店 WiFi
+
+> 追加背景：2026-09-02 商业前提改为「仅在海外针对非中国公民售卖」（[go-to-market-plan.md](../03-product/go-to-market-plan.md)），
+> 需要一份面向来华外国人市场的调研。本节约 55 次搜索 + 55 次页面抓取。
+> ⚠️ **抓取出口 IP 在日本**，部分电商页返回日元报价，已逐条注明。
+
+### 9.1 英文「China VPN」价格（2026-09）
+
+| 服务 | 月付 | 年付折月 | 设备 | 退款 | 证据 |
+|---|---|---|---|---|---|
+| **Astrill**（公认的在华首选） | **$30.00** | $15.00 | 5 | **无退款**，7 天试用 | 高 · [astrill.com](https://www.astrill.com/) |
+| **12VPX (12VPN)** | **$29.99** | $14.17 | 6 | — | 高 · [12vpx.com/pricing](https://12vpx.com/pricing) |
+| ExpressVPN Basic | $12.99 | $4.99 | 10 | 30 天 | 高 · [security.org](https://www.security.org/vpn/expressvpn/) |
+| NordVPN Basic | $14.99 | $5.49 | 10 | 30 天 | 高 · [security.org](https://www.security.org/vpn/nordvpn/) |
+| Mullvad | **€5 统一价**，加密货币 −10% | 无年付折扣 | 5 | — | 高 · [mullvad.net/pricing](https://mullvad.net/en/pricing) |
+| **LetsVPN**（快连） | $6.99；**周付 $2.99** | $5.00 | — | 1 小时试用 | 待核实（美区 App Store 转述） |
+| UpVPN（按量） | **$0.05/次 + $0.04/GB + $0.02/小时**，余额不过期 | — | — | — | 高 · [upvpn.app](https://upvpn.app/one-time-payment-vpn/) |
+| Windscribe Build-a-Plan | $1/地区/月 + $1 无限流量，最低 $3 | — | — | — | 高 |
+
+**两条结论**：
+
+1. **在华首选档是 $30/月**（Astrill、12VPX）。这个价位远高于我们四档里最贵的 $18.90。
+2. 🔴 **行程制 / 按量计费在这个市场几乎无人做。** Astrill 明确不提供短期方案且不退款；
+   ExpressVPN / NordVPN / Surfshark 事实上是拿「30 天退款保证」当一次性行程方案用。
+   唯二例外是已退出大陆的 LetsVPN 周付与小众的 UpVPN。
+
+### 9.2 🔴 2026-04 LetsVPN 退出中国大陆 —— 它腾出的正是「低价 + 短期」这个位置
+
+- **2026-04-28** LetsVPN 宣布终止中国大陆业务，此前约 20 天技术恢复尝试失败，关闭大陆支付通道，退款自 04-08 起算（[corpus.lantern.io](https://corpus.lantern.io/findings/2026-anon-letsvpn-vpn__letsvpn-china-exit-2026/)，高）。
+- ABC News 独立佐证：LetsVPN「深受在华外籍人士欢迎」，因 "continuous internet blockage" 暂停大陆服务（[ABC 2026-06-04](https://www.abc.net.au/news/2026-06-04/as-beijing-cracks-down-on-vpns-internet-users-in-china-adapt/106754254)，高）。
+- 技术原因：**协议签名识别** —— 「一旦 GFW 提取到客户端握手特征，就能同时封掉所有共享该特征的连接」。
+  **硬编码、数百万用户共享同一握手指纹的商业 VPN 是高价值易封目标。**
+- GFW 能力升级的硬证据：2025-08-20 约 74 分钟内 GFW 无条件向 TCP 443 注入伪造 RST+ACK，
+  注入包带前所未见的设备指纹（TTL 96/97/98），22/80/8443 不受影响（[gfw.report](https://gfw.report/blog/gfw_unconditional_rst_20250820/en/)，高）。
+
+> **对本项目的含义有两条，方向相反，都要说**：
+> ① 9.1 表里**没有任何一家商业 VPN 使用 VLESS + REALITY + XTLS-Vision**，而这是社区认为 2026 年仍稳的栈 —— 技术差异化是真的；
+> ② 但 LetsVPN 的死因是**规模本身**（共享指纹），这意味着我们今天的优势有一部分来自「还没人注意到我们」，
+> 它**随规模衰减**，不是护城河。
+
+### 9.3 🔴 eSIM 才是真正的对手，而且它在手机场景上已经赢了
+
+Airalo 官方帮助页原文（高 · [airalo.com](https://www.airalo.com/help/using-managing-esims/ZSEEHBT5HW6F/stay-connected-in-china-your-guide-to-unfiltered-internet-access-is-a-vpn-required/ZDZBNIKI4TFP)）：
+
+> **"No. When using Airalo's China eSIM, Regional Asia eSIM, and Global eSIM, a VPN is NOT required."**
+> 唯一限制条件：**"as long as you are using your eSIM data (and not the hotel Wi-Fi)"**
+
+机制：手机连中国基站，数据经 GRX 隧道回落到运营商在**香港 / 新加坡**的归属网关出网，不经过中国境内互联网（待核实）。
+
+| 供应商 | 套餐 | 价格 | $/GB |
+|---|---|---|---|
+| eSIM.dog | 1GB / 7 天 | **$0.57** | 3GB 档低至 **$0.19** |
+| Trip.com（CMCC） | 起价 $0.41/天 | 30GB/30 天 ≈ $15.75 | ~$0.53 |
+| Nomad | 50GB / 45 天 | ≈ $37.7 | $0.75 |
+| Airalo | 10GB / 30 天 | $26.50 | $2.65 |
+| Holafly（无限量） | 7 天 | $27.50 | — |
+
+**7 天行程总价对照**：eSIM 低价档 **$3–12** · Airalo 3GB $12 · Holafly 无限 $27.50 ·
+Astrill 月付 $30 · **AT&T Day Pass $70–84（且走中国境内网络，被墙）** · 随身 WiFi 含押金 $80–150。
+
+🔴 **$0.19–2.65/GB 是我们无法竞争的价格。** 我们的 $0.378–0.833/GiB 只在 eSIM 的中高价档附近，
+而 eSIM 卖的是**连接本身**，我们卖的是**在已有连接上的通道** —— 后者是附加品，不是替代品。
+
+### 9.4 eSIM 的六个结构性缺口 —— 我们的市场就在这里
+
+1. **必须入境前安装。** Apple 官方：**"eSIMs from non-China mainland carriers can't be installed while located in China mainland."**（高 · [support.apple.com/en-us/123879](https://support.apple.com/en-us/123879)）
+2. **机型限制**：中国大陆在售 iPhone 只有 iPhone 17e 与 iPhone Air 支持 eSIM；多数国产安卓不支持（部分待核实）。
+3. **热点共享被限**：Holafly 每天仅可共享 1GB（高）；部分线路有 TTL 限制导致笔电共享失败（待核实）。
+4. 🔴 **笔电完全无法覆盖。** 多源一致：「If you need a laptop for work, cloud files, email, video calls… do not rely only on a phone eSIM」（高 · [chinadigitalnomads.com](https://chinadigitalnomads.com/the-best-vpns-and-esims-for-china/)）。
+5. **eSIM 不加密** —— 绕墙 ≠ 隐私。
+6. **延迟 150ms+**（待核实）。
+
+> **战略含义（本节最重要的一句）**：
+> **eSIM 已经吃掉「游客手机上网」，价格低到无法竞争。可赢的市场是「笔电 + 酒店/咖啡馆 WiFi + 办公场景 + 长住」** ——
+> 而这批人恰好 ARPU 更高、留存更长。
+
+### 9.5 ⚠️ 运营商漫游是否绕墙 —— 证据冲突，未解决
+
+一方说美国运营商在华漫游走境内网络、GFW 生效；另一方说经归属运营商路由、社交媒体正常。
+**没有找到任何非厂商、非联盟的权威来源。** 技术上取决于该运营商是 home-routing 还是 local breakout，逐家不同。
+🔴 **这是整份调研里唯一既关键又无法靠桌面解决的技术问题，必须自己实测。**
+
+### 9.6 市场规模：三套官方口径必须分清
+
+| 口径 | 发布方 | 2025 |
+|---|---|---|
+| 外国人出入境**人次** | 国家移民局 | **8,203.5 万** |
+| **入境外国人** | 国家移民局 | ~4,120 万（推算） |
+| 入境游客-外国人 | 文旅部 | 3,517 万 |
+| 入境游客总数（**含港澳台**） | 统计局 | 15,450 万 |
+
+「1.545 亿入境」里约 **77% 是港澳台同胞**。可服务市场是 **3,500–4,100 万**那一行。
+
+- **2026 H1 入境外国人 2,291.4 万人次，+20.4%**（高 · [人民网](https://en.people.cn/n3/2026/0728/c90000-20482298.html)、[NIA](https://www.nia.gov.cn/n897453/c1789835/content.html)）
+- **免签入境占比：2024 年 2,011.5 万 → 2025 年 3,008 万（73.1%）→ 2026 H1 1,781.5 万（77.7%）**（高）
+  → **每 10 个入境外国人有近 8 个是免签短期访客** —— 按定义就是不会实名办中国 SIM、不会开本地账号的人。这是最干净的需求代理指标。
+- **停留期 15 → 30 天**（2024-11-30 生效，高）；单方面免签 **50 国**，含 2026-02-17 新增的英国与加拿大（高）；**240 小时过境免签 57 国 / 65 口岸**（高）
+- 🔴 **客源国 TOP10 占 62%，其中只有一个西方市场（美国第 7）** —— 韩、俄、马、越、泰、新、美、日、蒙、澳。
+  **按美/欧旅客画像做定价与文案，只覆盖少数量。**
+- **在华外籍存量**：唯一权威全国口径是七普（2020-11-01）**845,697 人**（高 · [统计局公报](https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1901088.html)）。
+  2024–2026 年全国数据**找不到官方来源**；流传的「109.7 万」只能追溯到移民中介营销站，**不要引用**。
+  北京长期常住外籍 2.2 万（十年前 3.7 万，−40%，高 · SCMP）；上海约 9.2 万（高 · SCMP）；
+  **留学生 2024–25 学年 38 万、+15%**（高 · China Daily）。
+
+### 9.7 🔴 证据质量警告：这个赛道的公开「实测」大多不是实测
+
+- **greatfirewallguide.com 的成功率百分比不是实测。** 其方法论页自承
+  **"This is documentation and protocol analysis, not packet capture from inside China"**、
+  **"We do not operate test infrastructure inside China"**，并写明
+  **"This site is funded by affiliate commissions… That is the conflict, stated plainly"**
+  （高 · [methodology](https://greatfirewallguide.com/methodology)）。**不要引用它的数字。**
+- **vpnMentor 的母公司是 Kape**，同时拥有 ExpressVPN / CyberGhost / PIA，其 About 页自认排名
+  "may also take into consideration the common ownership… and affiliate commissions"（高 · [about-us](https://www.vpnmentor.com/about-us/)）。
+- 相对可信的两家仍互相矛盾：Comparitech 从**深圳租用服务器**实测 59 款，推荐含 ExpressVPN，
+  且结论是 **"almost all VPNs get blocked in China at some point"**（高）；
+  Unusual Nomad 2026 年两次实地则称 ExpressVPN **"too inconsistent to recommend"**（高）。
+
+> **这个赛道不存在可信的公开实测基准 —— 这本身就是产品机会**（我们有真节点，可以自己出数据）。
+
+### 9.8 渠道：SEO 不可行，ASO 与论坛可行
+
+| 渠道 | 判定 | 依据 |
+|---|---|---|
+| **Google SEO「best vpn for china」** | ❌ **不可行** | 前排被 Kape 系与高权重联盟站锁死；叠加 AI Overview，2026-03 核心更新后 **71% 联盟站排名下滑**，"best X for Y" 类查询流量中位数 **−41%**（待核实） |
+| **免费「是否被墙」检测工具** | ❌ 已饱和 | Comparitech / vpnMentor / GreatFire / WebsitePulse / chinafirewalltest 全在做 |
+| **App Store ASO** | ✅ **可行，且是唯一在华可触达通道**（见 9.9） | 约 70% 安装来自商店搜索；长尾词适合小团队（待核实） |
+| **TripAdvisor / 外籍论坛** | ✅ **最被低估** | 真实旅客主动建议 **"best to use a small provider rather than a well-known one like ExpressVPN or Astrill"**（待核实，抓取被 403）—— 直接为小厂商背书 |
+| **Reddit r/chinalife** | ⚠️ 有限但真实 | **15.6 万成员，年增 5.5 万（+54.5%）**（高 · gummysearch）。⚠️ 具体版规无法核实，Reddit 对本环境全面封锁 |
+| **联盟 / 比价站** | ❌ 结构性排斥 | 首单佣金 30–100%，或固定 $40–100/单；NordVPN 月付新签 100% |
+| Product Hunt | ⚠️ 一次性 | 2026 年 #1 需 500–1,800 upvotes，跌出前十基本无流量（待核实） |
+| Google Ads 投放 VPN | 政策上**未见禁止** | 抓取 Google Ads 政策总页未见 VPN / 匿名服务 / 规避工具条目（高）。「vpn for china」的 CPC **找不到来源** |
+
+🔴 **获客窗口**：旅客购买连接方案的时点是**出发前 1–2 周，且必须在入境前完成**（入境后官网被墙、Play 不可用）。
+而 **Trip.com 已经把 eSIM 卖在机票 / 酒店预订流程里**，官方文案原文：
+"Trip.com China eSIM comes with built-in VPN for foreigners…"（高）。**这是最难攻的结构性壁垒。**
+
+### 9.9 🎯 应用商店：iOS 是唯一还能触达在华用户的分发通道
+
+- ✅ **决定性发现**：**持非中国区 Apple ID 的用户在中国境内可以正常下载和更新 VPN app。**
+  Apple 2017 年下架时的官方口径（VyprVPN 转述）：**"Users in China accessing a different territory's App Store… are not impacted; they can download the iOS app and continue to receive updates as before."**
+  （高 · [vyprvpn.com](https://www.vyprvpn.com/blog/post/apple-removes-vyprvpn-major-vpn-apps-china-app-store)）
+  → **这正好是我们的目标人群。** 对比：**Google Play 在大陆自 2012 年起完全被封**，安卓必须入境前装好或走 APK 侧载。
+- 🔴 **Apple 5.4 是硬门槛**（页面更新日 2026-06-08，高 · [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)）：
+  > "Apps offering VPN services must utilize the NEVPNManager API and **may only be offered by developers enrolled as an organization**."
+
+  需**法律实体**（单成员 LLC 可以，DBA / 个体户会被拒）+ **D-U-N-S 编号** + 公开官网 + 同域名工作邮箱。$99/年。
+  **D-U-N-S 是最长的一根杆子**（Apple 说 5 个工作日，D&B 实际可能到 ~28 天）。
+  权限本身不是瓶颈：Network Extensions entitlement 在 Xcode 里是自助开关，无审批（高）。
+- **Google Play**：VpnService 声明表需提交两段各 ≤90 秒视频，且 "subject to Google's approval"（高）。
+  显著披露必须是**独立弹窗**，不能与其它数据披露合并。
+  🔴 唯一红线：**"Apps that facilitate proxy services to third parties"** 只能在那是核心用途时允许 ——
+  **绝不能让用户设备成为他人流量的出口节点**。
+- **抽成**：Apple Small Business Program **15%**（年 proceeds < $1M，我们必然符合）；
+  美区外链购买当前 **0%**，但 2026-08-13 Apple 已提议 15% / 10% / **5%（SBP）**，**按 5% 建模不要按 0%**（高 · MacRumors）。
+  EU：**2026-10-01 起每次安装 €0.50 的 Core Technology Fee 取消**，改为对店外数字交易收 5%（高 · Apple DMA 页）。
+  Google Play 自 **2026-06-30**（美 / EEA / 英）：Play Billing **15%** / 替代计费 **6%** / 外链 **10%** —— **订阅上明显比 Apple 便宜**（高）。
+
+### 9.10 支付：没有人禁止 VPN 这门技术，他们禁止的是「解锁」这门生意
+
+> 本节由第二轮专项调研补全（约 100 次抓取，条款页均为直接拉取原文后 grep，非搜索摘要）。
+
+#### 9.10.1 条款原文（全部实际抓取）
+
+| 平台 | VPN 是否列名 | 原文 / 判定 |
+|---|---|---|
+| **Stripe 直连** | 🔴 **完全未提** | 受限清单（页面自记「Last updated 2026-05-13」）全文 28k 字符里 **"VPN" / "anonymiz" / "proxy" / "circumvent" / "unblock" 零命中**。唯一电信相关项是「Telecommunications manipulation equipment, including jamming devices」——指硬件干扰器。**高危法域只列古巴/伊朗/朝鲜/叙利亚/克里米亚/顿涅茨克/卢甘斯克，中国不在其中** |
+| **Paddle** | ✅ 明确「受限」 | 「System Health Products… **VPN and Proxies (Restricted Category)**」，页面自记 Last Updated 2026-04-13。Restricted 的定义是**加强尽调**，不是拒绝 |
+| **Polar** | ✅ 受限，但**相邻条款是禁止** | 受限含「VPN, VPS & VDS services」；⚠️ 禁止清单里有三条能被套用：**「API and IP cloaking services」「Telecommunication and eSIM Services」「Services to circumvent the rules, paywalls or terms of other services」** |
+| **Creem** | ❌ 未提 VPN | 但禁止「Telecommunications and connectivity products such as eSIMs, SIM cards, mobile data plans… or internet service providers」。受限品类要求**「An established and proven track record is required」**并索取前一家支付商的拒付率 |
+| **PayPro Global** | ✅ **写得最露骨，但它禁的是目的** | Exhibit B 原文：禁止「enabling consumers to **circumvent**… geographic or IP-based restrictions, **including through usage of VPN, proxy or anonymous user facilities**, or to gain access to… content for which the user has not expressly paid」。**而 PayPro Global 同时是 AdGuard VPN 的 MoR** |
+| **Lemon Squeezy** | 未提 | 2024 年被 Stripe 收购；其团队 2026 年文章标题即「Why Stripe Managed Payments is the future」，明写「Our goal is to provide Lemon Squeezy users an easy way to migrate」。**仍开放注册，但不要在 2026 年基于它建设** |
+| **Stripe Managed Payments** | 未提 | ✅ **该产品默认就在平台层禁止中国大陆买家**（受限买家国家列表含 China）。**我们的「不卖给中国」不是让步，是这个产品的默认姿态** |
+| FastSpring / Gumroad / 2Checkout | — | **找不到条款来源**（页面 404 / 空）。但 Proxifier 跑在 2Checkout 上（实证） |
+
+🔴 **本节最重要的一句**：
+**没有任何一家禁止 VPN 这门技术，他们禁止的是「帮用户绕过访问控制去拿没付钱的内容」。**
+PayPro Global 把 VPN 写成**手段**而不是**品类**，同时又给 AdGuard VPN 做 MoR —— 这就是证据。
+
+#### 9.10.2 具名实证：VPN 与代理产品今天就跑在这些通道上
+
+| 产品 | 通道 | 证据 |
+|---|---|---|
+| **AdGuard VPN** | **Paddle + PayPro Global**，自 **2015 年** | 高 · AdGuard 销售条款原文 + [Paddle 官方案例页](https://www.paddle.com/customers/how-adguard-scaled-to-150-million-global-users) |
+| **Decodo（原 Smartproxy）** | **Paddle** | 高 · 其 pricing 页 FAQ 原文「All orders are processed by our online reseller **Paddle**… Merchant of Record」。**住宅代理比隐私 VPN 更难的品类** |
+| **Windscribe** | 🔴 **Stripe 直连** + CoinPayments | 高 · 升级页实测加载 `js.stripe.com/v3/`，页面标题「Buy VPN with Crypto, PayPal, or Credit Card」。**这是「Stripe 一律封 VPN」这个说法最直接的反证** |
+| Charles Proxy | Paddle | 高 |
+| Proxifier | 2Checkout | 高 |
+| IVPN | **自建 BTCPay + 自托管 Monero 节点** + 卡（**不收 Amex、不收预付卡/礼品卡**） | 高 · 其官方仓库原文 |
+| Mullvad | 卡 + 现金 + 四种加密货币（**加密货币 −10%**）；现金与加密**不在 14 天退款保证内** | 高 |
+| Astrill | 直连商户，收银联/微信/支付宝/比特币；**"All Astrill service sales are final and no refunds are possible."** | 高 |
+
+#### 9.10.3 🔴 拒付：在我们这个规模上，触发线是「一个月 5 笔」，不是 1.5%
+
+Visa **VAMP** 自 2025-06-01 生效，比率 = （TC40 欺诈 + 全部 TC15 争议）÷ 结算笔数，**仅 CNP**。
+公开 fact sheet 强调的是 Excessive 档，但那一档**同时要求月争议数 ≥ 1,500** —— 在我们的规模上是噪音。
+
+**真正适用我们的是 Stripe 文档里公开的 Non-Compliant 档**：
+
+| 档位 | 笔数门槛 | 比率门槛 |
+|---|---|---|
+| **Non-Compliant** | 🔴 **5 笔** | 🔴 **0.5%** |
+| Excessive（AP/加/欧/美） | 1,500 笔 | 2.2% → **2026-04-01 起 1.5%** |
+
+Stripe 原文：「Visa assesses fees for merchants exceeding the Excessive threshold, and **may also assess fees for merchants exceeding the Non-Compliant threshold**」。
+另有两条放大器：**Early Fraud Warning 即使没变成争议也计入 VAMP**；**同一笔交易若同时出现在 TC40 与 TC15，计两次**。
+
+**Mastercard ECM**：100–299 笔且 1.5–2.99% 起罚，第 2–3 月 $1,000/月递增到第 19 月起 $100,000/月；
+**分母用上月交易数**，增长期会虚高你的比率。
+
+**各家 MoR 的私有阈值都比卡组织更严**：
+
+| 平台 | 内部阈值 | 单笔拒付费 |
+|---|---|---|
+| **Paddle** | 「**Below 0.65% of transaction volume**」 | **$20**（CAD/AUD $40） |
+| Polar | 对标 ~0.7%，可能**暂停账号** | $15，**无论输赢** |
+| Creem | 「excessive」即可能**暂停账号** | $25 |
+| Stripe 直连 | 行业线 0.75%，且有模型**提前**预测并主动联系 | $15 + $15（申诉赢了退还） |
+
+🔴 **选 Paddle 必须先知道的两条**（其帮助页原文）：
+「The system is fully automated, and **additional evidence submitted by sellers is not required or accepted**」——
+**你不能为自己的争议举证**；以及「**Even if a dispute is won, it still counts towards your chargeback rate**」。
+
+**VPN 订阅的典型拒付率：找不到可信来源。** 搜到的「4–10%」全部来自高风险收单的获客软文，无方法论，**当广告看**。
+
+#### 9.10.4 费率（均为实拉价目页）
+
+| 平台 | 基础 | 国际卡 | 订阅附加 | $10 单笔实际 | $60 年单实际 |
+|---|---|---|---|---|---|
+| **Creem** | 3.9% + $0.40 | 声称含 | 含 | **7.9%** | **4.6%** |
+| **Stripe 直连** | 2.9% + $0.30 | +1.5% | +0.7% | 8.1% | 5.6% |
+| **Paddle** | 5% + $0.50 | 含 | 含 | 10.0% | 5.8% |
+| **Polar Starter** | 5% + $0.50 | +1.5% | 含 | 11.5% | 7.3% |
+| Stripe Managed Payments | 2.9%+$0.30 **+3.5% MoR** | +1.5% | +0.7% | 11.6% | 9.1% |
+
+⚠️ **订正**：Polar **不再是 4% + 40¢** —— 其文档原文「Organizations created on or after **May 27, 2026** start on Starter (5% + 50¢)」，4% 是老会员的祖父价，我们拿不到。
+
+**两条结论**：
+
+1. **Stripe 直连并不比 MoR 便宜多少**（5.6% vs Paddle 5.8%），而直连要自己承担每个法域的 VAT/GST 登记 —— 对 1–2 人团队是真实且无上界的持续成本。**MoR 的溢价在这里接近于零。**
+2. 🔴 **年付比选哪家支付商更重要。** 把一个客户从「$10 × 12 次」变成「$60 × 1 次」，实际费率大约减半（固定费不再触发 12 次），
+   **而且争议笔数降到 1/12** —— 在触发线是「5 笔」的前提下，这一条的分量远大于费率。
+
+#### 9.10.5 卖家所在国
+
+| 平台 | 中国大陆 | 香港 | 新加坡 / 台湾 |
+|---|---|---|---|
+| Paddle | ✅（不在其制裁清单内） | ✅ | ✅ |
+| Creem | ✅（有转账限额） | ✅ | ✅ |
+| Polar | ❌ | ✅ | ✅ |
+| Stripe Managed Payments | ❌ | ✅ | ✅ |
+
+#### 9.10.6 三条决定申请成败的事（比选哪家更重要）
+
+1. 🔴 **绝不宣传「解锁」。** 每一条点名 VPN 的禁止条款针对的都是绕过访问控制，不是加密本身。
+   **描述成 "consumer privacy VPN"；站点上不出现流媒体 logo、不写 "unblock Netflix"、不写任何地区解锁文案。**
+   这一个编辑决定，决定你落在「受限-可审批」还是「禁止」。
+2. **把「不卖给中国」做成技术强制而不只是条款**，并在申请里说明。
+   而且可以直接引用：**Stripe 自家 MoR 默认就屏蔽中国买家** —— 我们不是在申请例外，是与最严格的一家姿态一致。
+3. **按「5 笔」而不是「1.5%」做工程**：应用内一键取消、续费前提醒邮件、慷慨的按比例退款、
+   **争议之前先退款**、不收 Amex、不收预付卡 / 礼品卡（照抄 IVPN）、主推年付、账单描述符要让人认得出。
+
+### 9.11 法律：50 例样本里零例涉及外国籍
+
+- **50 个行政处罚案例实证分析**：警告 38、罚款 12、警告+罚款 9、行政拘留 8 —— **警告与罚款占 82%**；
+  适用《计算机信息网络国际联网管理暂行规定》第六条者 28/50，**罚款上限 1.5 万元**；
+  作者将「单纯使用」「浏览普通境外网站」描述为执法**「极为罕见」**；**样本中零例涉及外国籍**
+  （高 · [icourt.cc 转载刘洋/董佳男《拆解翻墙》](https://www.icourt.cc/prac-document/155525.html)）。
+- 🔴 **《网络安全法》修正案 2026-01-01 生效**：**完全未涉及 VPN / 翻墙工具 / 跨境访问**；
+  提高的是对网络运营者的罚则，并把域外管辖从「危害关键信息基础设施」**扩大到「危害我国网络安全的境外活动」**
+  （高 · [Latham & Watkins](https://www.lw.com/en/insights/chinas-cybersecurity-law-amendments-increase-penalties-broaden-extraterritorial-enforcement)）。
+  网上流传的「个人翻墙罚 5000 元」不被该律所分析支持；**但扩大的域外管辖条款本身，对向中国境内销售的服务商是真实、非琐碎的风险向量**。
+- ⚠️ 「从没有外国人因翻墙被处罚」的最常见出处是一个挂着 NordVPN/Surfshark 联盟链接的旅游站，作者以个人见闻陈述，**无外部来源**。
+  **可辩护的表述只能收窄为**：「在已公开的最大规模翻墙执法样本（50 例）中无一涉及外国籍，且作者将单纯个人使用的执法描述为极为罕见。」
+
+### 9.12 本节找不到来源的
+
+1. 「vpn for china」的 CPC 与月搜索量（需付费 SEO 工具）
+2. r/chinalife 的具体版规（Reddit 对本环境全面封锁）
+3. 外国人在华使用 VPN / eSIM / 漫游的**任何可信占比数据**（全部来自厂商营销）
+4. **运营商漫游是否绕过 GFW** 的权威技术来源（§9.5，需自行实测）
+5. VPN 订阅的典型拒付率；Mastercard ECP 现行阈值
+6. 2024–2026 年在华外国人的官方全国存量；工作许可全国数据
+7. 「去掉中国客户能否改善支付承保」的直接承保方声明（**未证实**）

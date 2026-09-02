@@ -127,7 +127,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [panels-and-market.md](01-research/panels-and-market.md) — 面板与市场 | 已完成 |
 | | [payments.md](01-research/payments.md) — 支付与计费 | 已完成 |
 | | [admin-support-docs.md](01-research/admin-support-docs.md) — 后台/工单/通知/文档站 | 已完成 |
-| | [acquisition-channels.md](01-research/acquisition-channels.md) — 获客渠道与竞品（机场价带、闲鱼判例、扩展 / 浏览器可行性、国际 VPN 获客数据） | 已完成（2026-09-02） |
+| | [acquisition-channels.md](01-research/acquisition-channels.md) — 获客渠道与竞品（机场价带、闲鱼判例、扩展 / 浏览器可行性、**§9 海外市场：eSIM 竞争、Apple 5.4、支付条款与拒付阈值**） | 已完成（2026-09-02，两轮调研） |
 | **02-architecture** | [as-built-gcp.md](02-architecture/as-built-gcp.md) — GCP 资产清点 | **As-Built**（§2–§6 为 2026-08-16；§10 为 2026-08-20） |
 | | [system-design.md](02-architecture/system-design.md) — 系统架构 | 设计稿 v1，未实施 |
 | | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | **执行中**（2026-08-30 订正）—— 17 组迁移、44 张表已在 `bp-db`；文档与 `migrations/` 是两份东西，无逐列一致校验 |
@@ -137,7 +137,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
-| | [go-to-market-plan.md](03-product/go-to-market-plan.md) — 获客方案（海外销售前提下的定价、渠道与功能匹配） | **提案，未批准**（2026-09-02 **第二版**）—— 前提改为海外销售 / 非中国公民 / 不做身份验证；闲鱼作废、SKU 改美元、支付翻转为卡通道 |
+| | [go-to-market-plan.md](03-product/go-to-market-plan.md) — 获客方案（海外销售前提下的定价、渠道与功能匹配） | **提案，未批准**（2026-09-02 **第二版**）—— 闲鱼作废、SKU 改美元、支付翻转为卡通道、渠道第一位改 App Store |
 | | [client-products-spec.md](03-product/client-products-spec.md) — 扩展与浏览器的完整产品形态与执行方案（配 [mockup](03-product/client-products-mockup.html)） | **提案，未批准**（2026-09-02） |
 | **04-ops** | [runbook-node-health.md](04-ops/runbook-node-health.md) — 节点健康与封锁取证 | 设计稿 v1 |
 | | [node-provisioning.md](04-ops/node-provisioning.md) — 建机与装机 | 设计稿 v1 |
