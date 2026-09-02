@@ -9,3 +9,4 @@
 | [tutorials-spec.md](tutorials-spec.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 | [user-journey.md](user-journey.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 | [page-inventory.md](page-inventory.md) | 设计方案 | 设计稿 v1（2026-08-16） |
+| [go-to-market-plan.md](go-to-market-plan.md) | 设计方案 | **提案，未批准**（2026-09-02）—— ¥3/GB 只在 ≥15G 的 30 天包上守得住 1.20× 地板（15G ¥45 / 20G ¥60 / 3G ¥9 体验）；闲鱼 = 收款通道，法律暴露面最大，需先写 ADR 推翻 product-brief §4；扩展第二期走 Edge Add-ons；浏览器不做 |

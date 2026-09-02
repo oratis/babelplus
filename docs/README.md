@@ -127,6 +127,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [panels-and-market.md](01-research/panels-and-market.md) — 面板与市场 | 已完成 |
 | | [payments.md](01-research/payments.md) — 支付与计费 | 已完成 |
 | | [admin-support-docs.md](01-research/admin-support-docs.md) — 后台/工单/通知/文档站 | 已完成 |
+| | [acquisition-channels.md](01-research/acquisition-channels.md) — 获客渠道与竞品（机场价带、闲鱼判例、扩展 / 浏览器可行性、国际 VPN 获客数据） | 已完成（2026-09-02） |
 | **02-architecture** | [as-built-gcp.md](02-architecture/as-built-gcp.md) — GCP 资产清点 | **As-Built**（§2–§6 为 2026-08-16；§10 为 2026-08-20） |
 | | [system-design.md](02-architecture/system-design.md) — 系统架构 | 设计稿 v1，未实施 |
 | | [data-model.md](02-architecture/data-model.md) — 完整数据模型 DDL | **执行中**（2026-08-30 订正）—— 17 组迁移、44 张表已在 `bp-db`；文档与 `migrations/` 是两份东西，无逐列一致校验 |
@@ -136,6 +137,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
+| | [go-to-market-plan.md](03-product/go-to-market-plan.md) — 获客方案（¥3/GB 成本核算、闲鱼 / 扩展 / 浏览器 / 其它渠道裁决、产品功能匹配 F1–F11、分阶段门槛） | **提案，未批准**（2026-09-02）—— 第 0 条（转向公开运营）需用户亲自裁决 |
 | **04-ops** | [runbook-node-health.md](04-ops/runbook-node-health.md) — 节点健康与封锁取证 | 设计稿 v1 |
 | | [node-provisioning.md](04-ops/node-provisioning.md) — 建机与装机 | 设计稿 v1 |
 | | [deploy.md](04-ops/deploy.md) — API/Web 部署 | 执行中（`bp-api` / `bp-db` 已上线，§5 示例命令与线上不一致） |
