@@ -5,8 +5,10 @@
 
 > **状态：控制面已上线（2026-08-31），第一台出口节点已端到端接通（2026-09-01），但产品还不能卖 —— 单节点、单协议、真实收款 0 笔。**
 > 契约（`openapi/`）、API（`api/`）、前端工作区（`web/`）、部署脚本（`infra/`）都已建起来。
-> **128 个 operation 里已实现 120 个，仍有 8 个返回 `501`**
-> （2026-08-30 实数：`operations.txt` 与各非生成文件的 `func (s *Server) X` 取交集得 123，
+> **130 个 operation 里已实现 121 个，仍有 9 个返回 `501`**
+> （2026-09-02：契约加了浏览器扩展的 `getUserProxyConfig`，它是第 9 个 501 —— 服务端挂在 E0 计量验证之后，
+> 理由钉在 `unimplemented_test.go`；扩展本身在 `web/extension/`，61 个用例全绿但还转发不了流量。
+> 以下是 2026-08-30 实数：`operations.txt` 与各非生成文件的 `func (s *Server) X` 取交集得 123，
 > 减去 3 条**契约自己声明为 501** 的用户侧 TOTP = 120；
 > 剩余 8 条逐条有阻塞原因，清单钉在 `api/internal/handler/unimplemented_test.go` 里 ——
 > 5 条缺表（`domains` / `mail_templates`）、3 条契约声明未实现。
@@ -86,7 +88,7 @@
 ```
 babel.plus/
 ├── openapi/
-│   └── openapi.yaml       # 🔴 全仓契约的唯一事实源，128 个 operation
+│   └── openapi.yaml       # 🔴 全仓契约的唯一事实源，130 个 operation
 ├── api/                   # Go 服务 → Cloud Run (bp-api)
 │   ├── cmd/server/        # 入口
 │   ├── internal/gen/      # oapi-codegen 生成物，禁止手改

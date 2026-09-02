@@ -570,6 +570,11 @@ func (Unimplemented) ChangePassword(_ context.Context, _ gen.ChangePasswordReque
 	return nil, ErrNotImplemented
 }
 
+// GetUserProxyConfig 尚未实现。
+func (Unimplemented) GetUserProxyConfig(_ context.Context, _ gen.GetUserProxyConfigRequestObject) (gen.GetUserProxyConfigResponseObject, error) {
+	return nil, ErrNotImplemented
+}
+
 // GetUserSubscription 尚未实现。
 func (Unimplemented) GetUserSubscription(_ context.Context, _ gen.GetUserSubscriptionRequestObject) (gen.GetUserSubscriptionResponseObject, error) {
 	return nil, ErrNotImplemented

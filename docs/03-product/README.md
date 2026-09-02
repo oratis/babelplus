@@ -10,4 +10,4 @@
 | [user-journey.md](user-journey.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 | [page-inventory.md](page-inventory.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 | [go-to-market-plan.md](go-to-market-plan.md) | 设计方案 | **提案，未批准**（2026-09-02 第二版）—— 前提改为**海外销售 / 非中国公民 / 不做身份验证**：闲鱼作废；SKU 改美元按行程（$2.50 / $4.50 / $8.90 / $18.90），¥3/GB 在两个主力档上成立；🔴 eSIM 已吃掉手机场景，可赢的是笔电 + 酒店 WiFi；支付翻转为卡 / MoR（触发 ADR 0012 失效条件 5），**拒付触发线是「一月 5 笔」不是 1.5%**；渠道第一位是 App Store 不是 SEO |
-| [client-products-spec.md](client-products-spec.md) | 设计方案 | **提案，未批准**（2026-09-02）—— 扩展与浏览器的完整产品形态与执行方案：扩展用 PAC 候选串白拿域名池故障转移、popup 八个状态；浏览器只做「零配置」与「按站点可见」。🔴 §7 已重写：**iOS 提到第一位**（非中国区 Apple ID 在华可下载更新），前置是 Apple 组织账号 + D-U-N-S。配套 mockup：[client-products-mockup.html](client-products-mockup.html) |
+| [client-products-spec.md](client-products-spec.md) | 设计方案 | **提案，未批准**（2026-09-02）—— 扩展与浏览器的完整产品形态与执行方案：扩展用 PAC 候选串白拿域名池故障转移、popup 八个状态；浏览器只做「零配置」与「按站点可见」。🔴 §7 已重写：**iOS 提到第一位**（非中国区 Apple ID 在华可下载更新），前置是 Apple 组织账号 + D-U-N-S。配套 mockup：[client-products-mockup.html](client-products-mockup.html) **2026-09-02 §6.4 实施状态**：扩展代码已落地（[web/extension/](../../web/extension/)，61 个用例），服务端端点 501，门是 roadmap B66 |

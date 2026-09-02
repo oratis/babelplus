@@ -15,7 +15,8 @@
     "test": "pnpm -r test",
     "lint:no-external": "node scripts/check-no-external-assets.mjs",
     "dev:user": "pnpm --filter @babelplus/user dev",
-    "dev:admin": "pnpm --filter @babelplus/admin dev"
+    "dev:admin": "pnpm --filter @babelplus/admin dev",
+    "dev:extension": "pnpm --filter @babelplus/extension dev"
   },
   "devDependencies": {
     "openapi-typescript": "7.13.0",

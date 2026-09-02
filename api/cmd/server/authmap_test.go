@@ -87,10 +87,10 @@ func TestOperationAuthCounts(t *testing.T) {
 	}{
 		{"handler.PublicOperations", len(handler.PublicOperations), 11},
 		{"nodeOperationScopes", len(nodeOperationScopes), 7},
-		{"userSessionOperations", len(userSessionOperations), 41},
+		{"userSessionOperations", len(userSessionOperations), 42},
 		{"adminOperations", len(adminOperations), 61},
 		{"internalTaskOperations", len(internalTaskOperations), 9},
-		{"StrictServerInterface 方法数", len(allOperationIDs()), 129},
+		{"StrictServerInterface 方法数", len(allOperationIDs()), 130},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = %d，期望 %d", c.name, c.got, c.want)

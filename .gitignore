@@ -68,3 +68,6 @@ tmp/
 #   web/shared/api/schema.d.ts                (openapi-typescript)
 # 上面这五处是 .github/workflows/ci.yml 的 contract-drift 作业逐一比对的路径。
 # 注意 dist/ 与 node_modules/ 被忽略不影响它们 —— web/shared/api/ 不在 dist/ 下。
+
+# 扩展的商店提交包（pnpm --filter @babelplus/extension package 的产物），每次构建可复现，不入库
+web/extension/*.zip

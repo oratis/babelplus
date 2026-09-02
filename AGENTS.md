@@ -9,16 +9,20 @@
 内部使用的流量中转服务（中国 → Cloudflare 边缘 → Google Cloud → 全球）。
 当前处于 **P1 数据面：第一台节点已端到端接通，出口标准 3.5/8**（2026-09-02 实数）：
 
-- `api/`（Go）：**128 个 operation 实现 120 个**，剩 **8 个 501**
-  （5 条缺表 `domains` / `mail_templates`，3 条契约自己声明未实现；
+- `api/`（Go）：**130 个 operation 实现 121 个**，剩 **9 个 501**（2026-09-02 实数：`operations.txt` 130 行，
+  `unimplemented_test.go` 的表 9 条 —— 5 条缺表 `domains` / `mail_templates`，3 条契约自己声明未实现，
+  **1 条是浏览器扩展的 `getUserProxyConfig`，挂在 E0 计量验证之后**；
   清单钉在 `api/internal/handler/unimplemented_test.go`，**改它之前先读那一条为什么被拦住**）。
   **40 个 `_test.go` / 600 个顶层 `Test` 函数**，19 组迁移 / 343 条 sqlc 查询。
-- `web/`（双 SPA）：**630 个前端用例 / 49 个文件全绿**（`pnpm test`；
+- `web/`（双 SPA + 一个浏览器扩展）：**691 个前端用例 / 56 个文件全绿**（`pnpm test`；其中扩展 61 / 7；
   ⚠️ 本机 Node ≥ 25 会因内置 Web Storage 抢占全局而假红 19 个用例，
   加 `NODE_OPTIONS=--no-experimental-webstorage` 即可，CI 用 Node 24）。
   用户面板 20 条业务路由全部接线；后台 23 页接线 21 页
   （不接的两页：`DomainsPage` 三个端点都是 501、`NotFoundPage` 是静态页）。
   `TODO(P1)` **22 处 / 16 个文件**。
+  🔴 `web/extension/`（MV3，Chrome / Edge）**能装、能登录、能显示配额，但一个字节都还转发不了**：
+  它唯一的服务端端点 `GET /api/v1/user/proxy-config` 是 501，门是 HTTPS 入站的每用户计量能否进 UniProxy
+  上报路径（roadmap B66，需真机实测）。见 [web/extension/README.md §6](web/extension/README.md)。
 - `infra/`：建机与部署脚本全部带 dry-run，**第一台节点 `bp-node-hk1` 就是用它们建成并接通的**
   （证据 [node-bringup-20260901](docs/evidence/node-bringup-20260901/)）。
 

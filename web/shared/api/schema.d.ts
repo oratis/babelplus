@@ -720,6 +720,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/user/proxy-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 浏览器扩展的代理配置：HTTPS 入站端点、分流规则、控制面镜像（E1，未实现）
+         * @description 给 `web/extension/`（MV3 浏览器扩展，Chrome / Edge）用的唯一服务端端点，形状按
+         *     [client-products-spec §3.3 / §3.7](../docs/03-product/client-products-spec.md) 冻结：
+         *     扩展**不硬编码任何域名**，端点列表、控制面镜像、分流规则全部从这里拿。
+         *
+         *     为什么在 `user` 面而不是 spec 原写的 `/api/v1/client/proxy-config`：它需要用户会话鉴权、
+         *     走统一信封、会随契约改版 —— 三条都是 `user` 面的性质；`client` 面是「按 UA 分发订阅、
+         *     不套信封、不改版」的生态硬接口，放那里会让订阅面的冻结承诺沾上一个会改的端点。
+         *
+         *     🔴 **服务端返回 `501` 直到 E0 / E1 完成**（钉在 `api/internal/handler/unimplemented_test.go`）：
+         *     节点侧尚无 HTTPS 代理入站，且 HTTPS 入站的每用户字节能否进 UniProxy 上报路径**未核实** ——
+         *     不能计量就不能扣配额，这是整条扩展路线的第一个可能致命点（spec §6.1 E0）。
+         *     扩展对 `501` 的处置是进「全部端点不可达」态并说明原因，不是崩溃。
+         *
+         *     `pac` 可省略：扩展本地有 Smart / Everything 模式与两个自定义列表，会用 `endpoints` + `rules`
+         *     自己拼 PAC。两边共同遵守一条：候选串**末位不放 `DIRECT`** —— 全部端点失败时连接失败并告警，
+         *     不静默直连（spec §3.3 规则 1）。
+         */
+        get: operations["getUserProxyConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/user/diagnose": {
         parameters: {
             query?: never;
@@ -2741,6 +2776,96 @@ export interface components {
              *     **第一阶段不引入倍率，但字段先留**（抄 Remnawave `consumption_multiplier BIGINT`）。
              */
             multiplier_e9?: number;
+        };
+        /**
+         * @description 浏览器扩展的代理配置（[client-products-spec §3.3 / §3.7](../docs/03-product/client-products-spec.md)）。
+         *     与计费无关：扩展本地的会话用量只用于显示，计费口径唯一来源是节点上报（data-model §9）。
+         */
+        ProxyConfig: {
+            /**
+             * @description 服务端预拼好的完整 PAC 脚本（`FindProxyForURL`）。候选串按用户地区打乱，**末位不含 `DIRECT`**。
+             *     扩展本地有自定义列表时会自己重拼，所以此字段可省略。
+             */
+            pac?: string;
+            /** @description HTTPS 代理入站端点，已按建议顺序排列。空数组 = 当前没有可用入站，扩展进「全部端点不可达」态。 */
+            endpoints: components["schemas"]["ProxyEndpoint"][];
+            rules: components["schemas"]["ProxyRules"];
+            /**
+             * Format: int64
+             * @description 分流规则版本。扩展只在版本变化时重拼 PAC，诊断报告里带它。
+             */
+            rules_rev: number;
+            /**
+             * Format: int32
+             * @description 本份配置的有效秒数；到点前扩展会重新拉取（`chrome.alarms`）。凭据随配置一起轮换。
+             */
+            expires_in: number;
+            control_plane: components["schemas"]["ProxyControlPlane"];
+        };
+        ProxyEndpoint: {
+            /**
+             * Format: int64
+             * @description 入站所在节点的 `servers.id`。诊断报告里只出现 id 与地区，不出现主机名。
+             */
+            id: number;
+            /** @description 域名池里的一个域名（ADR 0010），或 IP 字面量。扩展不做 DNS 解析，交给浏览器。 */
+            host: string;
+            /** Format: int32 */
+            port: number;
+            /**
+             * @description 只有 `https`（代理连接本身走 TLS）。Chrome 对 SOCKS5 不支持认证，所以不会出现别的值。
+             * @enum {string}
+             */
+            scheme: "https";
+            /** @description 出口地区代码，例 `HK` / `JP`；popup 的地区下拉按它分组。 */
+            region: string;
+            /** @description 给人看的名字，例 `Hong Kong`。 */
+            label?: string;
+            auth: components["schemas"]["ProxyAuth"];
+            /**
+             * Format: uri
+             * @description 经该端点可达的探测 URL：扩展用它测延迟并显示出口 IP，响应体形状 `{ "ip": "<出口 IP>" }`。
+             *     必须是一个会被 PAC 判为「走代理」的主机，否则测到的是直连。
+             */
+            probe_url?: string;
+        };
+        /**
+         * @description `Proxy-Authenticate: Basic` 的凭据。由订阅 token 派生（spec §3.7：`HMAC(token, node_id)` 取前 16 字节，
+         *     **提案，未做安全评审**），不是用户密码；重置订阅即全部失效。
+         *     扩展存 `chrome.storage.session`（浏览器关闭即丢），不进诊断报告。
+         */
+        ProxyAuth: {
+            username: string;
+            password: string;
+        };
+        /**
+         * @description 分流规则表。方向对「来华外国人」是**默认走代理**（spec §3.4）：只有这里列出的才直连。
+         *     扩展本地的 `Always route` / `Never route` 两个列表优先级高于本表；
+         *     本地 / 私有地址与 `localhost` 由扩展固定直连，不在此表。
+         */
+        ProxyRules: {
+            /** @description 直连的域名后缀（不带前导点，例 `cn` / `taobao.com`）。 */
+            direct_suffixes: string[];
+            /** @description 强制走代理的域名后缀，优先级高于 `direct_suffixes`（给 `direct_suffixes` 里的例外用）。 */
+            proxy_suffixes?: string[];
+        };
+        /**
+         * @description 控制面的域名池（ADR 0010）。扩展用它更新自己的 API 备用域名列表；
+         *     PAC 里这些主机一律**直连** —— 控制面故障不得升级为数据面故障，反之亦然（system-design §5.3）。
+         */
+        ProxyControlPlane: {
+            /** @description 按优先级排列的 API 域名（含协议）。第一项是主域名。 */
+            api_base_urls: string[];
+            /**
+             * Format: uri
+             * @description 用户面板；popup 的 `Top up` / `Renew` / `Buy more data` 都跳这里。
+             */
+            web_base_url?: string;
+            /**
+             * Format: uri
+             * @description 「全部端点不可达」态里给用户的备用域名页（page-inventory §2.2）。
+             */
+            backup_page_url?: string;
         };
         DiagnoseCheck: {
             /** @enum {string} */
@@ -5108,6 +5233,31 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["UserNode"][];
+                        meta: components["schemas"]["Meta"];
+                    };
+                };
+            };
+            401: components["responses"]["ErrUnauthorized"];
+            500: components["responses"]["ErrInternal"];
+        };
+    };
+    getUserProxyConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 代理配置 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ProxyConfig"];
                         meta: components["schemas"]["Meta"];
                     };
                 };
