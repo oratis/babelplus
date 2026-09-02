@@ -480,6 +480,11 @@ Cache-Control: no-cache
 若契约里没有位置，证书只能在装机脚本层面固定（certbot + LE），不经 `/config` 下发。
 这是 §14 的一条待办。
 
+> ✅ **2026-09-02 已核实并落地**（原文保留）：位置在 `tls_settings` —— v2node v0.4.3 的 `TlsSettings`
+> 有 `cert_mode` / `cert_file` / `key_file`（`api/v2board/node.go`），hysteria2 分支用它们构造 TLS（`core/inbound.go`）。
+> 裁决为 **`cert_mode=file`**：签发在装机脚本层（acme.sh + LE），`/config` **只下发路径**，不下发证书本身；
+> 「换证书」因此是运维操作。面板侧 **fail-closed**：三件套缺任一或 `cert_mode≠file` 拒绝组装（roadmap B10 / B64）。
+
 **新增字段的规则**：我们自己需要的字段一律加在顶层新键，且**必须做到「v2node 忽略它也能正常工作」**。
 理由是 Go 的 `encoding/json` 默认忽略未知字段（除非显式 `DisallowUnknownFields`，v2node 几乎不可能这么写，
 但仍需在契约测试里断言）。任何「节点必须理解才能工作」的新字段 = 破坏性变更，见 §11。
@@ -1767,10 +1772,12 @@ openapi/
       (b) 能否配置 `Authorization` 头（不能则 §3.2.4 退到过渡态）；
       (c) **收到 401/403 时是否清空用户列表**（若清空，一次密钥失误 = 全员瞬时掉线）。
       起一个真实 v2node 容器就能全测，成本远低于其影响。
-- [ ] **`/config` 如何下发 Let's Encrypt 证书。** 「证书必须钉 LE、禁用 GTS」是已裁定事实，
+- [x] ~~**`/config` 如何下发 Let's Encrypt 证书。** 「证书必须钉 LE、禁用 GTS」是已裁定事实，
       但 Xboard 的 hysteria 分支是否有证书字段，调研中未记录（**需核实**）。
       若契约里没有位置，证书只能固定在装机脚本层（certbot），
-      那么「换证书」就不是一次配置下发而是一次运维操作 —— 两者的 runbook 完全不同。
+      那么「换证书」就不是一次配置下发而是一次运维操作 —— 两者的 runbook 完全不同。~~
+      ✅ **2026-09-02**：位置在 `tls_settings.cert_mode/cert_file/key_file`（v2node 源码核实、真机验证）；
+      裁决 `cert_mode=file`，只发路径 → 「换证书」**是运维操作**（acme.sh 续期 + reloadcmd）。见 §6.2 的追记与 roadmap B10。
 - [ ] **`base_config.device_online_min_traffic` / `node_report_min_traffic` 的语义与单位未知。**
       v2node 会读它们，我们却不知道填什么合适。**需实测。**
 - [ ] **`subscription-userinfo` 的 `expire` 在不限时套餐下取什么值。**

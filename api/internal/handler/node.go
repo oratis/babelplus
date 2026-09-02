@@ -112,6 +112,10 @@ const (
 	// tls 字段：0 无 / 1 TLS / 2 REALITY（照抄 Xboard buildNodeConfig）。
 	tlsModeTLS     int32 = 1
 	tlsModeReality int32 = 2
+
+	// cert_mode 唯一受支持的取值（openapi NodeTlsSettings.cert_mode 的说明）：证书由装机脚本在节点上签好，
+	// /config 只下发路径。dns / http / self 会让节点自己签发（违反 ADR 0004 §3.4 钉 LE），none 等于没有证书。
+	nodeCertModeFile = "file"
 )
 
 // ---- 上报批量的上限 ----
@@ -745,15 +749,35 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 			cfg.Obfs = ptrTo(settingOr(ps.Obfs, defaultHysteriaObfs))
 			cfg.ObfsPassword = ps.ObfsPassword
 		}
-		// 证书路径走 tls_settings。三项里任一有值就下发整组；v2node 对 cert_mode=file 要求
-		// cert_file 与 key_file 都非空，缺一个它会拒绝启动 —— 那是正确的失败，这里不替它兜底。
-		if !isBlank(ps.CertMode) || !isBlank(ps.CertFile) || !isBlank(ps.KeyFile) {
-			cfg.TlsSettings = &gen.NodeTlsSettings{
-				ServerName: cfg.ServerName,
-				CertMode:   ps.CertMode,
-				CertFile:   ps.CertFile,
-				KeyFile:    ps.KeyFile,
-			}
+		// 🔴 证书三件套 fail-closed：缺 cert_mode / cert_file / key_file 任一，或 cert_mode 不是 file，
+		// 一律拒绝组装。理由就是上面 tls=1 那条实测：Hysteria2 的 TLS 不可选，而 v2node 拿到
+		// 「tls=1 但没有证书路径」的配置时**不是拒绝这一个节点**，是整个进程以退出码 0 退出
+		// （同机 REALITY 陪葬，Restart=on-failure 不触发；2026-09-02 两次中断共约 6 分钟）。
+		// 「缺一个它会拒绝启动，那是正确的失败」这句话因此不成立 —— 失败必须落在面板这一侧：
+		// /config 返回 500 + 一条指名字段的 ERROR 日志，而不是节点侧的安静退出。
+		// 这也是 roadmap B10 的落点：只发路径不发内容，私钥不进 HTTP 响应、不进库、不进日志。
+		if isBlank(ps.CertMode) {
+			return gen.NodeConfig{}, missingSettings(row, []string{"cert_mode"})
+		}
+		if mode := strings.TrimSpace(*ps.CertMode); mode != nodeCertModeFile {
+			return gen.NodeConfig{}, fmt.Errorf("%w: server=%s protocol=%s cert_mode=%q 不受支持，只认 %q",
+				errNodeConfigIncomplete, row.Code, row.Protocol, mode, nodeCertModeFile)
+		}
+		var missingCert []string
+		if isBlank(ps.CertFile) {
+			missingCert = append(missingCert, "cert_file")
+		}
+		if isBlank(ps.KeyFile) {
+			missingCert = append(missingCert, "key_file")
+		}
+		if len(missingCert) > 0 {
+			return gen.NodeConfig{}, missingSettings(row, missingCert)
+		}
+		cfg.TlsSettings = &gen.NodeTlsSettings{
+			ServerName: cfg.ServerName,
+			CertMode:   ps.CertMode,
+			CertFile:   ps.CertFile,
+			KeyFile:    ps.KeyFile,
 		}
 
 	case dbgen.ServerProtocolShadowsocks2022:
