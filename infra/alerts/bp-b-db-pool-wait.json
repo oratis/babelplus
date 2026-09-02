@@ -1,0 +1,22 @@
+{
+  "displayName": "bp-b-db-pool-wait",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "db pool wait > 0 in 5m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/bp_db_pool_wait\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bp-api\"",
+        "aggregations": [
+          { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ "projects/oratis-491316/notificationChannels/13580442405370640559" ],
+  "alertStrategy": { "autoClose": "1800s" },
+  "documentation": { "content": "B 级兼升配触发器。出现连接池等待意味着真撞了天花板：BP_DB_MAX_CONNS=2 x max-instances=8 + 6 预留 = 22 <= 25-3。稳态为 0。⚠️ 过滤器按 jsonPayload.err 文本近似匹配，**只会漏报不会误报** —— 能确认，不能排除。处置与升配：https://github.com/oratis/babelplus/blob/master/docs/05-adr/0005-database-selection.md §6.3", "mimeType": "text/markdown" }
+}

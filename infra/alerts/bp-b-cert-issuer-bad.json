@@ -1,0 +1,22 @@
+{
+  "displayName": "bp-b-cert-issuer-bad",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "cert issuer bad > 0 in 5m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/bp_cert_issuer_bad\" AND resource.type=\"global\"",
+        "aggregations": [
+          { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ "projects/oratis-491316/notificationChannels/13580442405370640559" ],
+  "alertStrategy": { "autoClose": "86400s" },
+  "documentation": { "content": "B 级（ADR 0014 A3 的带内替身，VPS 采购后应迁为带外 A 级）。web./api.babel.plus 的证书签发者不再是 Let's Encrypt。为什么要紧：GTS 证书在中国触发 IP 级单向丢包（ADR 0004 §3.4），失效形态是慢不是断。两种来路：① LE 证书过期没续 → ./infra/scripts/renew-le-cert.sh --apply；② 有人把 target-https-proxy 换回了 Google 托管证书 → 查 bp-admin-https-proxy 的 sslCertificates。先跑 renew-le-cert.sh --check。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/deploy.md §11.2", "mimeType": "text/markdown" }
+}

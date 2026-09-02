@@ -198,6 +198,11 @@ flowchart TD
 
 - [ ] 邮件服务商未选型（Resend / SES / Postmark / Mailgun / Brevo），
       **且必须以国内邮箱实测送达率为唯一选型依据**，不能看厂商宣传。
+      > **2026-08-31 实况**：用户直接指定 **Resend**，已接通并实测送达（first-deploy §4.2）；
+      > 送达率对比未做，本条不划掉。
+      > **2026-09-02 追加淘汰条件**（ADR 0014 §10.3 / §15.1 D0 第 5 条，批准后落下）：
+      > **ESP 必须提供 bounce / complaint webhook**，否则 `bp_mail_bounce` 永远没有信号源，
+      > monitoring §5 第 17 条「退信率 ≥ 5%」这条告警永远不会响。Resend 有 webhook，**尚未接线**（roadmap B42）。
 - [ ] 未实测 QQ/163/126 的实际送达率 —— **P1 阶段第一优先级验证项**。
 - [ ] `client.crisp.chat` / `client.relay.crisp.chat` / `ekr.zdassets.com`
       的中国可达性从未被测过。虽然已决定不用 widget，但若将来重新考虑，

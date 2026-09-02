@@ -1,0 +1,22 @@
+{
+  "displayName": "bp-b-uniproxy-auth-fail",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "uniproxy auth fail >= 5 in 5m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/bp_uniproxy_auth_fail\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"bp-api\"",
+        "aggregations": [
+          { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 4,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ "projects/oratis-491316/notificationChannels/13580442405370640559" ],
+  "alertStrategy": { "autoClose": "1800s" },
+  "documentation": { "content": "B 级。节点 Bearer 校验失败 5 分钟内 >= 5 次。正常态严格为 0（密钥要么对要么错，两步轮换期间不产生 401）。两种成因：密钥轮换没做完两步，或有人在试。一个密钥失效的节点每分钟约 4.5 次请求全 401，必然触发 —— 这正是想要的。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/runbook-node-health.md §2", "mimeType": "text/markdown" }
+}

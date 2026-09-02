@@ -1,0 +1,22 @@
+{
+  "displayName": "bp-b-db-backends",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "num_backends >= 18 for 10m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\" AND resource.type=\"cloudsql_database\" AND resource.labels.database_id=\"oratis-491316:bp-db\"",
+        "aggregations": [
+          { "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MAX", "crossSeriesReducer": "REDUCE_MAX" }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 17,
+        "duration": "600s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ "projects/oratis-491316/notificationChannels/13580442405370640559" ],
+  "alertStrategy": { "autoClose": "86400s" },
+  "documentation": { "content": "B 级兼升配触发器。num_backends >= 18 = 22 个可用连接的 80%（ADR 0005 §6.3）。稳态 1-3 个实例 x 2 连接 = 2-6 个 backend，距阈值 3 倍以上。处置与升配：https://github.com/oratis/babelplus/blob/master/docs/05-adr/0005-database-selection.md §6.3", "mimeType": "text/markdown" }
+}

@@ -91,7 +91,7 @@ set -a; source ~/.secrets/bp-node-hk1.env; set +a
 # 传递：变量值走 stdin 流，命令行里只出现变量名
 {
   for v in BP_PANEL_URL BP_NODE_ID BP_NODE_TOKEN BP_CERT_DOMAIN \
-           BP_HY2_OBFS_PASSWORD BP_SS_PORT BP_SS_PSK CF_Token CF_Account_ID; do
+           BP_HY2_OBFS_PASSWORD BP_SS_PORT BP_SS_PSK Ali_Key Ali_Secret; do
     printf 'export %s=%q\n' "$v" "${!v:?缺少环境变量 $v}"
   done
   cat ./bp-setup-node.sh
@@ -481,7 +481,7 @@ systemctl restart systemd-journald
 ```bash
 curl -fsSL https://get.acme.sh | sh -s email=<ops邮箱>
 ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt        # 🔴 显式钉 LE，不用默认 CA
-~/.acme.sh/acme.sh --issue --dns dns_cf -d "$BP_CERT_DOMAIN" --keylength ec-256
+~/.acme.sh/acme.sh --issue --dns dns_ali -d "$BP_CERT_DOMAIN" --keylength ec-256   # 阿里云 DNS（ADR 0016），不是 dns_cf
 ~/.acme.sh/acme.sh --install-cert -d "$BP_CERT_DOMAIN" --ecc \
   --fullchain-file /etc/bp/certs/fullchain.pem \
   --key-file       /etc/bp/certs/privkey.pem \
@@ -499,8 +499,12 @@ openssl x509 -in /etc/bp/certs/fullchain.pem -noout -issuer | grep -qi "let's en
 2. **用 DNS-01，且不给这个域名建 A 记录。** 订阅里节点地址填 **IP**、`sni` 填证书域名 ——
    客户端不做 DNS 解析，域名只存在于证书里，而 salamander obfs 之下证书不上网线。
    这样这个域名既不需要解析、也不会因为被封而影响连接。
-3. **`CF_Token` 需要的是该 zone 的 DNS 编辑权限**（变量名以 acme.sh `dnsapi` 文档为准，**待核实**）。
-   这是一个**跨系统依赖**：CF 账号出问题时无法续期，代价写在 §9。
+3. ~~**`CF_Token` 需要的是该 zone 的 DNS 编辑权限**~~ **2026-09-02 订正：DNS 在阿里云，走 `dns_ali`，
+   变量名是 `Ali_Key` / `Ali_Secret`**（acme.sh `dnsapi/dns_ali.sh`；值存 Secret Manager
+   `bp-aliyun-dns-ali-key` / `bp-aliyun-dns-ali-secret`）。`bp-node-hk1` 的 `hk1.babel.plus` 证书就是这样签出来的
+   （2026-09-01，acme.sh cron 自动续期已挂）。这是一个**跨系统依赖**：阿里云账号出问题时无法续期，代价写在 §9。
+   ⚠️ 该 AK 持有 `babel.plus` zone 的 DNS 写权限，**泄露即可劫持整个域名**（含 web./api./admin.）——
+   比原来的 CF token 影响面更大，因为 ADR 0016 之后所有入口都在这一个 zone 上。
 4. **GTS 的失效模式是单向丢包不是握手失败**（[ADR 0004 §3.4](../05-adr/0004-transport-hardening.md)：
    "it is the IP that is blocked"、"packet dropping, not RST injection"）——
    所以「能握手」不能证明证书没问题，必须直接看 issuer。
@@ -1000,9 +1004,9 @@ xray-core 是它 vendor 进去的依赖。所以这个地雷的真实形态是�
 >    也就是说**「内存爆了但我们不知道」是一个真实可能的状态**，
 >    而 [ADR 0007 §4.2](../05-adr/0007-node-migration.md) 恰恰论证了 OOM 是首要失效模式。
 >    换来的是几十到一百多 MB 的内存（**未实测**）。这是本手册最脆弱的一处取舍。
-> 5. **证书走 DNS-01 = 建机依赖 Cloudflare API token。** 这是一条跨系统依赖：
->    CF 账号出问题时无法签发也无法续期，而 Hysteria2 没有证书就完全不可用。
->    且该 token 持有 zone 的 DNS 编辑权限，**泄露即可劫持我们的 DNS**。
+> 5. **证书走 DNS-01 = 建机依赖阿里云 DNS 的 AccessKey**（2026-09-02 订正，原写 Cloudflare token；ADR 0016 之后 DNS 在阿里云）。
+>    这是一条跨系统依赖：阿里云账号出问题时无法签发也无法续期，而 Hysteria2 没有证书就完全不可用。
+>    且该 AK 持有 zone 的 DNS 编辑权限，**泄露即可劫持我们的全部入口域名**。
 > 6. **一台机器承载三条通路 = 单点。** 装机脚本任何一步出错影响全部协议；
 >    换 IP 时三条通路一起换。换来的是 [reference-repos §1.5](../01-research/reference-repos.md)
 >    第 2 条的结论：一台机器并行多入口的成本几乎为零，抗封锁收益极大。

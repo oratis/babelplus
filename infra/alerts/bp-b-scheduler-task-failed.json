@@ -1,0 +1,15 @@
+{
+  "displayName": "bp-b-scheduler-task-failed",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "bp-* scheduler job non-2xx",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=~\"^bp-\" AND severity>=ERROR"
+      }
+    }
+  ],
+  "notificationChannels": [ "projects/oratis-491316/notificationChannels/13580442405370640559" ],
+  "alertStrategy": { "autoClose": "1800s", "notificationRateLimit": { "period": "300s" } },
+  "documentation": { "content": "B 级。某条 bp-* Cloud Scheduler 作业单次非 2xx。最坏的一条是 expire-check 停跑 = 到期用户继续免费上网；其次 traffic-reset 停跑 = 周期不重置。先看 Cloud Scheduler 的最近执行状态与 bp-api 的 /internal/tasks/* 日志（403 = OIDC audience 或 caller 白名单被改；5xx = 任务体自己炸了）。处置：https://github.com/oratis/babelplus/blob/master/docs/04-ops/deploy.md §8", "mimeType": "text/markdown" }
+}

@@ -466,7 +466,7 @@ gcloud run deploy bp-api \
 
 | 端点 | 查数据库吗 | 谁用 | 失败意味着 |
 |---|---|---|---|
-| `/healthz` | **不查** | Cloud Run startup/liveness probe、Uptime check | 进程活着、能接 HTTP。返回 `{"ok":true,"revision":"<sha>"}` |
+| `/healthz` | **不查** | Cloud Run startup/liveness probe、Uptime check | 进程活着、能接 HTTP。返回~~`{"ok":true,"revision":"<sha>"}`~~ **纯文本 `ok`**（2026-09-02 订正，与上表一致；实现见 `server.go`） |
 | `/readyz` | **查**（`SELECT 1`） | 只给 [monitoring.md](monitoring.md) 用 | 数据库不可达 |
 
 **`/healthz` 绝不能查数据库。** system-design §5.3 的原则是「控制面故障不得升级为数据面故障」；

@@ -112,6 +112,10 @@ const (
 	// tls 字段：0 无 / 1 TLS / 2 REALITY（照抄 Xboard buildNodeConfig）。
 	tlsModeTLS     int32 = 1
 	tlsModeReality int32 = 2
+
+	// cert_mode 唯一受支持的取值（openapi NodeTlsSettings.cert_mode 的说明）：证书由装机脚本在节点上签好，
+	// /config 只下发路径。dns / http / self 会让节点自己签发（违反 ADR 0004 §3.4 钉 LE），none 等于没有证书。
+	nodeCertModeFile = "file"
 )
 
 // ---- 上报批量的上限 ----
@@ -644,6 +648,11 @@ type nodeProtocolSettings struct {
 	// Hysteria2
 	Obfs         *string `json:"obfs"`
 	ObfsPassword *string `json:"obfs_password"`
+	// 证书在**节点上**的来源与路径，原样下发到 tls_settings（v2node TlsSettings 的三个同名字段）。
+	// 只用 cert_mode=file：签发在装机脚本层做（acme.sh + LE），/config 只告诉节点文件在哪。
+	CertMode *string `json:"cert_mode"`
+	CertFile *string `json:"cert_file"`
+	KeyFile  *string `json:"key_file"`
 
 	// Shadowsocks-2022
 	Cipher    *string `json:"cipher"`
@@ -656,7 +665,9 @@ type nodeProtocolSettings struct {
 // buildNodeConfig 把一行 servers 展开成 Xboard 形状的裸配置对象。
 //
 // 字段名全部照抄 Xboard `buildNodeConfig()`，包括 networkSettings 的驼峰
-// 与 obfs-password 的连字符 —— 它们与周围的蛇形命名不一致，但**不能改**。
+// —— 它与周围的蛇形命名不一致，但**不能改**。
+// ⚠️ 例外：obfs_password 是**下划线**。Xboard 发连字符，但 v2node v0.4.3 读的是 obfs_password，
+// 照抄 Xboard 的后果是服务端静默不开混淆（2026-09-02 真机实测，见 openapi 该字段的说明）。
 func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 	var ps nodeProtocolSettings
 	if len(row.ProtocolSettings) > 0 {
@@ -717,19 +728,56 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 		}
 
 	case dbgen.ServerProtocolHysteria2:
-		cfg.Protocol = ptrTo("hysteria")
+		// 🔴 是 hysteria2 不是 Xboard 的 hysteria：v2node v0.4.3 只认 hysteria2，
+		// 收到 hysteria 会报 unsupport protocol 并让**整个进程**退出（退出码 0，同机 REALITY 一起下线）。
+		// 2026-09-01 之前这里写 hysteria，2026-09-02 首次启用 HY2 节点时实测撞上。
+		cfg.Protocol = ptrTo("hysteria2")
 		cfg.Version = ptrTo(hysteriaVersion)
+		// 🔴 tls=1 必须显式下发：v2node 只在 Security==Tls 时才用 tls_settings 里的证书构造监听，
+		// 缺了它 hysteria2 inbound 报 "transport/internet/hysteria: tls config is nil"，
+		// 整个进程退出（退出码 0）。Hysteria2 的 TLS 不是可选项，所以这里无条件写 1。2026-09-02 真机实测。
+		cfg.Tls = ptrTo(tlsModeTLS)
 		// 🔴 Brutal 关闭：ADR 0004 裁定用 BBR。见 hysteriaUpMbps 的注释。
 		cfg.UpMbps = ptrTo(hysteriaUpMbps)
 		cfg.DownMbps = ptrTo(hysteriaDownMbps)
 		cfg.ServerName = ptrTo(settingOr(ps.ServerName, row.Host))
-		// obfs 与 obfs-password 必须**成对出现或都不出现**：
+		// obfs 与 obfs_password 必须**成对出现或都不出现**：
 		// 只发 obfs 不发密码会让节点起一个 salamander 混淆但密码为空的监听，
 		// 客户端连不上，且现象是「握手就断」这种最难查的形态。
 		// 不配混淆是合法的 Hysteria2 配置，所以这里不报错，静默降级为不混淆。
 		if !isBlank(ps.ObfsPassword) {
 			cfg.Obfs = ptrTo(settingOr(ps.Obfs, defaultHysteriaObfs))
 			cfg.ObfsPassword = ps.ObfsPassword
+		}
+		// 🔴 证书三件套 fail-closed：缺 cert_mode / cert_file / key_file 任一，或 cert_mode 不是 file，
+		// 一律拒绝组装。理由就是上面 tls=1 那条实测：Hysteria2 的 TLS 不可选，而 v2node 拿到
+		// 「tls=1 但没有证书路径」的配置时**不是拒绝这一个节点**，是整个进程以退出码 0 退出
+		// （同机 REALITY 陪葬，Restart=on-failure 不触发；2026-09-02 两次中断共约 6 分钟）。
+		// 「缺一个它会拒绝启动，那是正确的失败」这句话因此不成立 —— 失败必须落在面板这一侧：
+		// /config 返回 500 + 一条指名字段的 ERROR 日志，而不是节点侧的安静退出。
+		// 这也是 roadmap B10 的落点：只发路径不发内容，私钥不进 HTTP 响应、不进库、不进日志。
+		if isBlank(ps.CertMode) {
+			return gen.NodeConfig{}, missingSettings(row, []string{"cert_mode"})
+		}
+		if mode := strings.TrimSpace(*ps.CertMode); mode != nodeCertModeFile {
+			return gen.NodeConfig{}, fmt.Errorf("%w: server=%s protocol=%s cert_mode=%q 不受支持，只认 %q",
+				errNodeConfigIncomplete, row.Code, row.Protocol, mode, nodeCertModeFile)
+		}
+		var missingCert []string
+		if isBlank(ps.CertFile) {
+			missingCert = append(missingCert, "cert_file")
+		}
+		if isBlank(ps.KeyFile) {
+			missingCert = append(missingCert, "key_file")
+		}
+		if len(missingCert) > 0 {
+			return gen.NodeConfig{}, missingSettings(row, missingCert)
+		}
+		cfg.TlsSettings = &gen.NodeTlsSettings{
+			ServerName: cfg.ServerName,
+			CertMode:   ps.CertMode,
+			CertFile:   ps.CertFile,
+			KeyFile:    ps.KeyFile,
 		}
 
 	case dbgen.ServerProtocolShadowsocks2022:

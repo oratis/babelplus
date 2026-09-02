@@ -2323,6 +2323,21 @@ export interface components {
              */
             server_port?: string;
             xver?: string;
+            /**
+             * @description 证书来源，v2node `api/v2board/node.go` 的 `TlsSettings.CertMode`：
+             *     `file`（本机已有证书文件，**本项目唯一用法**）/ `none` / `dns` / `http` / `self`。
+             *     🔴 `dns` / `http` / `self` 会让 v2node 自己签发或自签 —— 与 ADR 0004 §3.4「钉 Let's Encrypt」
+             *     相悖，且 DynamicUser + ProtectSystem=strict 下它根本写不了盘。只用 `file`。
+             *     2026-09-02 读 v2node v0.4.3 源码核实（此前契约头部标「需核实」）。
+             */
+            cert_mode?: string;
+            /**
+             * @description 证书全链文件在**节点上**的路径。bp-node.service 用 LoadCredential 挂载，
+             *     所以是 `/run/credentials/bp-node.service/fullchain.pem`，不是 `/etc/bp/certs/…`。
+             */
+            cert_file?: string;
+            /** @description 私钥文件在节点上的路径，同上：`/run/credentials/bp-node.service/privkey.pem`。 */
+            key_file?: string;
         } & {
             [key: string]: unknown;
         };
@@ -2334,13 +2349,18 @@ export interface components {
          *     （Go 的 `encoding/json` 默认忽略未知字段，但仍需在契约测试里断言）。
          *     任何「节点必须理解才能工作」的新字段 = 破坏性变更。
          *
-         *     > 🔴 **必须显式记录的缺口**：已裁定「证书必须钉 Let's Encrypt，禁用 Google Trust Services」，
-         *     > 但 Xboard 的 hysteria 分支**是否有证书相关字段，调研中没有记录 —— 需核实**。
-         *     > 若契约里没有位置，证书只能在装机脚本层面固定（certbot + LE），不经 `/config` 下发 ——
-         *     > 两者的 runbook 完全不同。
+         *     > ✅ **2026-09-02 已核实**（此前标「需核实」）：证书字段在 `tls_settings` 里 ——
+         *     > v2node `TlsSettings` 有 `cert_mode` / `cert_file` / `key_file`（源码 `api/v2board/node.go`），
+         *     > hysteria2 分支用它们构造 TLS（`core/inbound.go`）。签发仍在装机脚本层（acme.sh + LE），
+         *     > `/config` 只下发**路径**，不下发证书本身。
+         *     >
+         *     > 🔴 **`protocol` 对 Hysteria2 必须是 `hysteria2`，不是 Xboard 的 `hysteria` + `version: 2`。**
+         *     > v2node v0.4.3 的 `GetNodeInfo` 只接受 `vmess / trojan / hysteria2 / tuic / anytls / vless / shadowsocks`，
+         *     > 收到 `hysteria` 报 `unsupport protocol: hysteria`，**并且整个进程以退出码 0 退出** ——
+         *     > 同机的 REALITY 节点一起下线，`Restart=on-failure` 不触发。2026-09-02 真机实测（约 4 分钟中断）。
          */
         NodeConfig: {
-            /** @description `vless` / `hysteria` / `shadowsocks` … */
+            /** @description `vless` / `hysteria2` / `shadowsocks` …（🔴 Hysteria2 必须写 `hysteria2`，见上方说明） */
             protocol?: string;
             /**
              * Format: int32
@@ -2377,8 +2397,14 @@ export interface components {
             down_mbps?: number;
             /** @description 例 `salamander` */
             obfs?: string;
-            /** @description 照抄 Xboard 的连字符键名 —— **不改名**。 */
-            "obfs-password"?: string;
+            /**
+             * @description 🔴 **下划线，不是 Xboard 的连字符 `obfs-password`。** v2node v0.4.3 的 `CommonNode` 读的是
+             *     `json:"obfs_password"`（`api/v2board/node.go`）；此前照抄 Xboard 发连字符，v2node 拿到空串，
+             *     按「obfs 与密码必须成对」的逻辑**静默不开混淆** —— 客户端带 salamander 连上来全部被丢，
+             *     现象是「context deadline exceeded」，节点侧零日志。2026-09-02 真机实测（回环去掉 obfs 即通）。
+             *     订阅里给客户端的仍是 Clash 的 `obfs-password`（那是 mihomo 的键名，subgen 管），两处不是一回事。
+             */
+            obfs_password?: string;
             server_name?: string;
             base_config?: components["schemas"]["NodeBaseConfig"];
         } & {

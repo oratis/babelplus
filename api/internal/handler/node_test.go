@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,6 +11,12 @@ import (
 	dbgen "github.com/oratis/babelplus/api/db/gen"
 	"github.com/oratis/babelplus/api/internal/gen"
 )
+
+// Hysteria2 用例共用的证书三件套：自 2026-09-02 起缺任一项 buildNodeConfig 直接拒绝
+// （见 TestBuildNodeConfig_Hysteria2RequiresCert），所以凡是要走到 hysteria2 分支末尾的用例都得带上它。
+const testHy2CertSettings = `"cert_mode":"file",` +
+	`"cert_file":"/run/credentials/bp-node.service/fullchain.pem",` +
+	`"key_file":"/run/credentials/bp-node.service/privkey.pem"`
 
 // 本文件只测纯函数。Server.db 是具体类型 *store.Store，塞不了假实现，
 // 所以 handler 方法本身要等集成测试；但节点面最致命的几个 bug 全部在形状层，
@@ -229,7 +236,7 @@ func TestBuildNodeConfig_Hysteria2DisablesBrutal(t *testing.T) {
 	cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
 		Code: "bp-node-hk2", Protocol: dbgen.ServerProtocolHysteria2,
 		Host: "hk2.example.invalid", Port: 443,
-		ProtocolSettings: []byte(`{"obfs_password":"Jc7"}`),
+		ProtocolSettings: []byte(`{"obfs_password":"Jc7",` + testHy2CertSettings + `}`),
 	})
 	if err != nil {
 		t.Fatalf("组装失败: %v", err)
@@ -260,7 +267,12 @@ func TestBuildNodeConfig_Hysteria2DisablesBrutal(t *testing.T) {
 			t.Fatalf("%s = %v, want 0", k, v)
 		}
 	}
-	assertStr(t, "protocol", cfg.Protocol, "hysteria")
+	// 🔴 hysteria2 不是 hysteria：v2node v0.4.3 收到 hysteria 会让整个进程退出（2026-09-02 真机实测）。
+	assertStr(t, "protocol", cfg.Protocol, "hysteria2")
+	// tls=1 缺失时 v2node 报 "hysteria: tls config is nil" 并整个退出（2026-09-02 真机实测）。
+	if cfg.Tls == nil || *cfg.Tls != tlsModeTLS {
+		t.Fatalf("tls = %v, want %d（Hysteria2 的 TLS 不是可选项）", cfg.Tls, tlsModeTLS)
+	}
 	assertStr(t, "obfs", cfg.Obfs, "salamander")
 	// server_name 未配时取 servers.host
 	assertStr(t, "server_name", cfg.ServerName, "hk2.example.invalid")
@@ -269,18 +281,103 @@ func TestBuildNodeConfig_Hysteria2DisablesBrutal(t *testing.T) {
 	}
 }
 
+// 证书路径经 tls_settings 原样下发：v2node 用 cert_mode/cert_file/key_file 构造 Hysteria2 的 TLS。
+// 路径必须是 LoadCredential 挂载后的 /run/credentials/… —— 这是库里存什么就发什么，不在这里改写。
+func TestBuildNodeConfig_Hysteria2TlsSettingsPassthrough(t *testing.T) {
+	cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
+		Code: "n", Protocol: dbgen.ServerProtocolHysteria2, Host: "203.0.113.10", Port: 443,
+		ProtocolSettings: []byte(`{"server_name":"hk1.example.invalid","cert_mode":"file",` +
+			`"cert_file":"/run/credentials/bp-node.service/fullchain.pem",` +
+			`"key_file":"/run/credentials/bp-node.service/privkey.pem"}`),
+	})
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if cfg.TlsSettings == nil {
+		t.Fatalf("tls_settings 缺失：v2node 拿不到证书路径，Hysteria2 起不来")
+	}
+	assertStr(t, "tls_settings.server_name", cfg.TlsSettings.ServerName, "hk1.example.invalid")
+	assertStr(t, "tls_settings.cert_mode", cfg.TlsSettings.CertMode, "file")
+	assertStr(t, "tls_settings.cert_file", cfg.TlsSettings.CertFile, "/run/credentials/bp-node.service/fullchain.pem")
+	assertStr(t, "tls_settings.key_file", cfg.TlsSettings.KeyFile, "/run/credentials/bp-node.service/privkey.pem")
+	// 「没配证书字段时不下发 tls_settings」这条旧断言已作废：那种配置根本不许下发，
+	// 见 TestBuildNodeConfig_Hysteria2RequiresCert。
+}
+
+// 🔴 缺证书必须拒绝，不许静默降级 —— 这是 roadmap B10 的落点，也是 B64 那条失败形态的反面。
+//
+// Hysteria2 是三条通路里唯一需要真证书的一条（ADR 0004 §3.4：钉 LE、禁 GTS），且上面的用例已经钉死
+// tls=1 无条件下发。若此时缺 cert_mode / cert_file / key_file 仍把配置发出去，v2node 拿到的是
+// 「要 TLS 但没有证书」：2026-09-02 真机实测它报 "transport/internet/hysteria: tls config is nil"，
+// 然后**整个进程退出码 0**，同机 REALITY 陪葬、Restart=on-failure 不触发。
+// 面板侧拒绝，失败就落在 /config 的 500 与一条指名字段的日志上，而不是节点侧的安静退出。
+//
+// 正路用例另断言下发的 JSON 里**不出现任何证书内容** —— B10 的裁决是只发路径。
+func TestBuildNodeConfig_Hysteria2RequiresCert(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings string
+		wantIn   string
+	}{
+		{"完全没有证书字段", `{"obfs_password":"p"}`, "cert_mode"},
+		{"cert_mode=none 等于没有证书", `{"obfs_password":"p","cert_mode":"none"}`, `cert_mode="none"`},
+		{"cert_mode=dns 会让节点自己签发，违反钉 LE", `{"cert_mode":"dns","cert_file":"/x/f.pem","key_file":"/x/k.pem"}`, `cert_mode="dns"`},
+		{"有 mode 没有路径", `{"obfs_password":"p","cert_mode":"file"}`, "cert_file, key_file"},
+		{"只有 cert_file 少 key_file", `{"cert_mode":"file","cert_file":"/x/fullchain.pem"}`, "key_file"},
+		{"只有 key_file 少 cert_file", `{"cert_mode":"file","key_file":"/x/privkey.pem"}`, "cert_file"},
+		{"路径是空白串", `{"cert_mode":"file","cert_file":"  ","key_file":"/x/privkey.pem"}`, "cert_file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildNodeConfig(dbgen.GetServerConfigRow{
+				Code: "bp-node-hk1-hy2", Protocol: dbgen.ServerProtocolHysteria2, Host: "h", Port: 443,
+				ProtocolSettings: []byte(tc.settings),
+			})
+			if err == nil {
+				t.Fatal("缺证书却组装成功了 —— 下发出去 v2node 会整个退出，同机 REALITY 一起下线")
+			}
+			if !errors.Is(err, errNodeConfigIncomplete) {
+				t.Fatalf("错误类型不对：%v（要能被 errors.Is(errNodeConfigIncomplete) 识别，日志与告警按它分类）", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantIn) {
+				t.Fatalf("错误信息没有指名缺的字段 %q：%v", tc.wantIn, err)
+			}
+		})
+	}
+
+	// 正路：三件套齐了必须成功，且 tls_settings 里只有路径、没有证书内容。
+	cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
+		Code: "bp-node-hk1-hy2", Protocol: dbgen.ServerProtocolHysteria2, Host: "h", Port: 443,
+		ProtocolSettings: []byte(`{` + testHy2CertSettings + `}`),
+	})
+	if err != nil {
+		t.Fatalf("三件套齐了却失败: %v", err)
+	}
+	if cfg.TlsSettings == nil || cfg.TlsSettings.CertMode == nil || *cfg.TlsSettings.CertMode != "file" {
+		t.Fatalf("cert_mode 未下发：%+v", cfg.TlsSettings)
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("序列化失败: %v", err)
+	}
+	for _, leak := range []string{"BEGIN CERTIFICATE", "BEGIN EC PRIVATE KEY", "BEGIN PRIVATE KEY", "tls_cert", "tls_key"} {
+		if strings.Contains(string(raw), leak) {
+			t.Fatalf("下发的配置里出现了证书内容（%q）—— B10 的裁决是只发路径", leak)
+		}
+	}
+}
+
 // 没有 obfs 密码时不下发 obfs：只发 obfs 不发密码会让节点起一个密码为空的混淆监听，
 // 客户端表现为「握手就断」。不配混淆本身是合法的 Hysteria2 配置。
 func TestBuildNodeConfig_Hysteria2OmitsObfsWithoutPassword(t *testing.T) {
 	cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
 		Code: "n", Protocol: dbgen.ServerProtocolHysteria2, Host: "h", Port: 443,
-		ProtocolSettings: []byte(`{"obfs":"salamander"}`),
+		ProtocolSettings: []byte(`{"obfs":"salamander",` + testHy2CertSettings + `}`),
 	})
 	if err != nil {
 		t.Fatalf("组装失败: %v", err)
 	}
 	if cfg.Obfs != nil || cfg.ObfsPassword != nil {
-		t.Fatalf("obfs=%v obfs-password=%v，两者必须成对出现或都不出现", cfg.Obfs, cfg.ObfsPassword)
+		t.Fatalf("obfs=%v obfs_password=%v，两者必须成对出现或都不出现", cfg.Obfs, cfg.ObfsPassword)
 	}
 }
 
@@ -288,7 +385,7 @@ func TestBuildNodeConfig_Hysteria2OmitsObfsWithoutPassword(t *testing.T) {
 func TestBuildNodeConfig_BaseConfig(t *testing.T) {
 	cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
 		Code: "n", Protocol: dbgen.ServerProtocolHysteria2, Host: "h", Port: 443,
-		ProtocolSettings: []byte(`{}`),
+		ProtocolSettings: []byte(`{` + testHy2CertSettings + `}`),
 	})
 	if err != nil {
 		t.Fatalf("组装失败: %v", err)
@@ -335,7 +432,7 @@ func TestBuildNodeConfig_Shadowsocks2022(t *testing.T) {
 func TestBuildNodeConfig_DoesNotLeakUnknownSettings(t *testing.T) {
 	cfg, err := buildNodeConfig(dbgen.GetServerConfigRow{
 		Code: "n", Protocol: dbgen.ServerProtocolHysteria2, Host: "h", Port: 443,
-		ProtocolSettings: []byte(`{"internal_note":"给运维看的","ssh_key":"AAAA"}`),
+		ProtocolSettings: []byte(`{"internal_note":"给运维看的","ssh_key":"AAAA",` + testHy2CertSettings + `}`),
 	})
 	if err != nil {
 		t.Fatalf("组装失败: %v", err)

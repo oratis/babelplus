@@ -2,16 +2,18 @@
 #
 # setup-alerts.sh —— 按 ADR 0014 的 A/B/C 三级，在 oratis-491316 上建通知渠道与告警策略
 #
-# ⚠️⚠️ **ADR 0014 的状态是「提案，未批准」（2026-08-23）。本脚本按提案实现。**
-#      **批准之前不应该跑 --apply。** dry-run 随便跑：它一条 gcloud 都不发。
-#      这不是形式主义 —— 提案里至少有三处「待核实 / 需实测」直接决定策略长什么样
-#      （A2 的 combiner:AND 混用两种条件类型、B10 的同比能否用单条件 MQL 表达、
-#       renotifyInterval 与 notificationRateLimit 并存时的行为）。
+# ✅ **ADR 0014 已于 2026-09-02 获用户批准**（此前是「提案，未批准」，2026-08-23）。
+#    本脚本按批准后的裁决实现，`--apply` 从这一天起是允许的。
+#    2026-09-02 首轮实施的实况（哪些建了、哪些仍被门挡着、与 ADR 的三处有意偏离）
+#    记在 docs/04-ops/first-deploy-20260831.md §4.5 与 ADR 0014 文档头的批准记录里。
+#    ⚠️ 提案里那三处「待核实 / 需实测」（A2 的 combiner:AND 混用两种条件类型、
+#       B10 的同比能否用单条件 MQL 表达、renotifyInterval 与 notificationRateLimit 并存）
+#       **批准并没有让它们变成已核实** —— A2 与 B10 仍然被门挡着，理由见 gate_reason。
 #      先建后改的代价不是改一次配置，是「清单里有一条永不触发的策略」——
 #      ADR §8.4 第 2 条：**那比不存在更危险**，它让半年后的自己以为这里有覆盖。
 #
 # 事实源（引用一律带日期，理由见 ADR 0014 §17 代价第 9 条：一手实查全是某个时点的快照）：
-#   docs/05-adr/0014-slo-and-oncall.md（2026-08-23，提案）
+#   docs/05-adr/0014-slo-and-oncall.md（2026-08-23 裁决，2026-09-02 批准）
 #     §8.1 分级第一原则与三档定义 · §8.3 通道矩阵 · §8.4 静默纪律
 #     §9.1 A 级 3 条（其中 2 条不在 GCP）· §9.2 B 级表 · §9.3 C 级（不建策略）
 #     §10.1/§10.2 缺的指标怎么补 · §14 对 monitoring.md 的四处修正 · §15 实施顺序
@@ -24,7 +26,7 @@
 #   docs/04-ops/runbook-node-health.md §3/§5（收到告警之后干什么，documentation 里指向它）
 #
 # 🔴 这个脚本**建得了的比 ADR 要求的少**，而且少得不是一星半点。结尾的覆盖率对照表是本脚本
-#    最重要的输出，不是装饰：ADR 要求 14 条，GCP 侧上限 11 条，默认门槛下能建 6 条。
+#    最重要的输出，不是装饰：ADR 要求 14 条（+批准记录追加的 B11–B13），2026-09-02 默认门槛下能建 12 条。
 #    差额逐条带原因。**不要把「脚本跑完了」当成「告警建好了」。**
 #
 # 🔴 另一条更容易被忘的：**建成 != armed。** metric-absence 型告警要求那条 time series
@@ -51,6 +53,9 @@ readonly EXPECTED_PROJECT_NUMBER="2360090741"
 
 readonly REGION="us-central1"
 readonly RUN_SERVICE="bp-api"
+# uptime check 的 check_id **不是** displayName：GCP 给它追加了一段随机后缀。
+# 2026-09-02 实查（gcloud monitoring uptime list-configs）。写成 bp-api-healthz 的过滤器永远匹配不到任何序列。
+readonly UPTIME_CHECK_ID="bp-api-healthz-1bMHnj3kS4M"
 readonly SQL_INSTANCE="bp-db"
 readonly PUBSUB_TOPIC="bp-alerts"
 
@@ -62,9 +67,9 @@ readonly CH_NAME_EMAIL2="bp-alerts-email-a-only"
 # 相对路径在那里没用（monitoring §5.2：这是最便宜的一次 runbook 投递）。
 readonly DOC_BASE="https://github.com/oratis/babelplus/blob/master/docs"
 
-# 危险操作的确认串。**把「ADR 未批准」这件事折进确认串本身** ——
-# 不读一遍提示就打不出来，比再加一个 --i-know 开关可靠。
-readonly CONFIRM_APPLY="apply-unapproved-adr-0014"
+# 危险操作的确认串。不读一遍提示就打不出来，比再加一个 --i-know 开关可靠。
+# （2026-09-02 之前这个串是 apply-unapproved-adr-0014，把「ADR 未批准」折在串里；批准后改掉。）
+readonly CONFIRM_APPLY="apply-adr-0014"
 readonly CONFIRM_DELETE="delete-bp-alert-policies"
 
 # ───────────────────────── 运行时开关 ─────────────────────────
@@ -133,9 +138,16 @@ need_cmd() {
 # 给它们留一个自动化入口，收益是省几秒钟，代价是有一天它会出现在某个 CI 里。
 confirm_typed() {
   local what="$1" expect="$2" answer=""
+  # 非交互旁路：把确认串放进 BP_ALERTS_CONFIRM。它**不是** --yes —— 调用方仍然必须知道并写出那个串，
+  # 只是省掉终端。2026-09-02 加：操作者在没有 tty 的会话里跑，而 gcloud 在伪终端下行为不同
+  # （渠道查询解析失败、误建重复渠道），所以不能用 pty 冒充终端。
+  if [ ! -t 0 ] && [ "${BP_ALERTS_CONFIRM:-}" = "$expect" ]; then
+    warn "BP_ALERTS_CONFIRM 已匹配，跳过终端确认：$what"
+    return 0
+  fi
   if [ ! -t 0 ]; then
     die "需要交互确认但 stdin 不是终端：$what
-     本脚本刻意不提供 --yes 旁路。请在终端里跑。"
+     本脚本刻意不提供 --yes 旁路。请在终端里跑，或把确认串放进 BP_ALERTS_CONFIRM。"
   fi
   printf '\n  ⚠️  %s\n  确认请原样输入 %s ：' "$what" "$expect" >&2
   read -r answer || true
@@ -152,7 +164,7 @@ confirm_typed() {
 #   粘出去的那几条不会自动带上 --project。roadmap R7 的爆炸半径就在这儿。
 guard_project() {
   if [ "$PROJECT_ID" != "$EXPECTED_PROJECT_ID" ]; then
-    die "PROJECT_ID 必须是 $EXPECTED_PROJECT_ID，当前是 \"$PROJECT_ID\"。
+    die "PROJECT_ID 必须是 ${EXPECTED_PROJECT_ID}，当前是 \"$PROJECT_ID\"。
      本仓库的资产清点、隔离承诺与告警命名前缀都只对这一个项目成立
      （docs/02-architecture/as-built-gcp.md）。"
   fi
@@ -161,7 +173,7 @@ guard_project() {
   local active
   active="$(gcloud config get-value project 2>/dev/null || true)"
   if [ "$active" != "$EXPECTED_PROJECT_ID" ]; then
-    die "当前 gcloud 活动项目是 \"${active:-<未设置>}\"，不是 $EXPECTED_PROJECT_ID。
+    die "当前 gcloud 活动项目是 \"${active:-<未设置>}\"，不是 ${EXPECTED_PROJECT_ID}。
      这个 GCP 项目是共享的（AGENTS.md §4：lisa-cloud / lisa-web 不要碰），
      跑错项目会动到别人的资源。先切过去再来：
        gcloud config set project $EXPECTED_PROJECT_ID
@@ -198,9 +210,9 @@ POLICIES=(
   "A1|a|bp-a-node-tcp443-oob|oob|全部 bp-node-* 的境外 TCP 443 握手失败（Uptime Kuma）"
   "A2|a|bp-a-cp-down-and-node-absent|blocked|控制面不可达 且 有节点掉队（复合 AND）"
   "A3|a|bp-a-cert-issuer-oob|oob|证书签发者不再是 Let's Encrypt（带外 VPS cron）"
-  "B1|b|bp-b-node-heartbeat-absent|blocked|节点心跳缺失（按 node_id 分组的 absence）"
-  "B2|b|bp-b-healthz-unreachable|blocked|/-/healthz 连续 2 个周期不可达且 >=2 个探测区域"
-  "B3|b|bp-b-api-5xx|blocked|API 5xx >=5 / 10 分钟"
+  "B1|b|bp-b-node-heartbeat-absent|ready|节点心跳缺失（按 node_id 分组的 absence）"
+  "B2|b|bp-b-healthz-unreachable|ready|/-/healthz 连续 2 个周期不可达且 >=2 个探测区域"
+  "B3|b|bp-b-api-5xx|ready|API 5xx >=5 / 10 分钟"
   "B4|b|bp-b-uniproxy-auth-fail|ready|节点认证失败 >=5 / 5 分钟"
   "B5|b|bp-b-db-pool-wait|ready|DB 连接池等待 >0 / 5 分钟"
   "B6|b|bp-b-db-backends|ready|DB 连接数 >=18 / 10 分钟"
@@ -208,6 +220,13 @@ POLICIES=(
   "B8|b|bp-b-subscribe-404|ready|订阅 404 >=20 / 5 分钟"
   "B9|b|bp-b-db-disk|ready|DB 磁盘使用率 >=80%"
   "B10|b|bp-b-carrying-collapse|blocked|有效承载同比塌陷 >80%"
+  # ── 2026-09-02 追加的三条（ADR 0014 批准记录里登记为 B11–B13）──
+  # B11 就是 ADR §8.1 说「B 级 11 条」却只列出 10 条的那一条：它在 2026-09-01 被手工建出来时还没有名字。
+  "B11|b|bp-b-scheduler-task-failed|ready|任一 bp-* Cloud Scheduler 作业单次非 2xx（最坏是 expire-check 停跑 = 到期用户继续免费上网）"
+  # B12 是 ADR §9.1 A3 的**带内替身**：A3 要求带外 VPS cron，VPS 未采购，先让信号存在。故障域与 A3 不同，所以记 B 级不记 A 级。
+  "B12|b|bp-b-cert-issuer-bad|ready|证书签发者不再是 Let's Encrypt（Cloud Run Job 每日核对，带内）"
+  # B13 是 monitoring §8 自己登记「三个 event 里只有一个规划了指标」的那两个：到期临近与握手失败。
+  "B13|b|bp-b-cert-expiring-or-unreachable|ready|证书剩余 < 14 天，或对域名握手失败 / 取不到证书"
 )
 
 # policy_field <id> <1..5> —— 取登记表的第 n 个字段。
@@ -243,39 +262,39 @@ EOF
 EOF
       ;;
     A2) cat <<'EOF'
-四个前置条件，一个都还没满足（ADR §9.1、§15.1、§15.2）：
-  ① 日志指标 bp_node_alive 在 GCP 上**尚未创建**（monitoring §3.2 表；roadmap B42）。
-     应用侧已落地（handler/nodealive.go，PR #15），欠的是一条 gcloud logging metrics create。
-  ② 🔴 ADR §15.1 D0 第 3 条写死：v2node 零流量分钟是否仍发 /push **未实测**，
-     「在这个答案拿到之前，不得创建任何 bp_node_alive absence 型策略（含 B1 与 A2 的条件 2）」。
-  ③ uptime check bp-api-healthz 不存在（2026-08-21 实查：只有 lisa-cloud-health）。
-     条件 1 没有可指的 check_id。
-  ④ A 级四通道未齐：email#2 与原生推送**未建、更未演练**。ADR §15.2 阶段 1 的门是
+四个前置条件里还剩一个（ADR §9.1、§15.1、§15.2；2026-09-02 复核）：
+  ① ~~日志指标 bp_node_alive 尚未创建~~ ✅ 2026-09-02 已建（setup-metrics.sh --apply --create-only），带 node_id 标签。
+  ② ~~D0 第 3 条：v2node 零流量分钟是否仍发 /push 未实测~~ ✅ 2026-09-02 实测：**不发**
+     （24 h 日志里 /push 只在有流量的那个小时出现 8 次，其余全为 0），
+     但 bp_node_alive 记在**任一** UniProxy 端点鉴权通过之后，/user 每分钟都在轮询，
+     所以心跳不依赖 /push —— absence 型策略可以建，误报前提不成立。
+  ③ ~~uptime check bp-api-healthz 不存在~~ ✅ 2026-09-01 已建（check_id 见 UPTIME_CHECK_ID）。
+  ④ 🔴 A 级四通道未齐：email#2 与原生推送**未建、更未演练**。ADR §15.2 阶段 1 的门是
      「演练送达记录进 ledger，否则 A 级通道不算存在」（§11.1 规矩一）。
+     给 --email2=<地址> 并演练送达之后，用 --include-blocked=A2 强开。
 EOF
       ;;
     B1) cat <<'EOF'
-同 A2 的 ① 与 ②：bp_node_alive 指标未创建 + D0 第 3 条未回答（ADR §15.1）。
+（2026-09-02 起不再被门挡着：A2 的 ① 与 ② 已解除，见 A2。）
   · 附带一条 ADR §9.2 B1 表注的纪律，建的时候别忘：**不分组的那条心跳策略不建**，
     它的建立条件写死为「节点数 >= 2」—— 节点数 = 1 时它与分组版条件恒等（§2.1 攻击 2b）。
+  · 🔴 建成 != armed：metric absence 要求该 node_id 的序列曾有数据。2026-09-02 实查
+    node_id=1 每分钟一条，序列已存在。**每台新节点上线后都要回来确认一次。**
 EOF
       ;;
     B2) cat <<'EOF'
-两个前置（ADR §9.2 B2、§14 第 4 条）：
-  ① uptime check bp-api-healthz 不存在（2026-08-21 实查）。
-  ② 🔴 matcher 内容必须先改对：monitoring §6.2 / deploy.md 写的是 --matcher-content='"ok":true'，
-     而实现返回的是纯文本（api/internal/handler/server.go 的 GetHealthz200TextResponse）。
-     ADR 0011 §10.2 裁决把响应体改成定值 ok bp-api 并用它做 matcher（裸的 ok 是海量默认页的子串）。
-     照旧值建 = 从第一天永久报红、CP 的 SLI 恒为 0%、演练改前改后都失败。
-  · 这两件都不在本脚本的职权范围内（uptime check 与 api/ 的响应体），故不代建。
+（2026-09-02 起不再被门挡着。）两个前置的现状：
+  ① ~~uptime check bp-api-healthz 不存在~~ ✅ 2026-09-01 已建，check_id 带随机后缀（UPTIME_CHECK_ID）。
+  ② ~~matcher 写的是 "ok":true~~ ✅ monitoring §6.2 / deploy.md 2026-08-30 已订正为纯文本 ok。
+  · 2026-09-01 手工建过一条同题的 bp-api-healthz-down（fraction_true < 1 持续 10 min），
+    2026-09-02 由本条接管后删除 —— 同一事件不能有两条策略响。
 EOF
       ;;
     B3) cat <<'EOF'
-门是 roadmap B41 而不是 PR #13（ADR §9.2 B3、§5.3 第 1 位、§15.2 阶段 3 之后）：
-  · 「合并」那一半已完成（61c5cafd409 与 2c32b3f65d3 都在 master）。
-  · 「已部署」那一半对**当前在线的 bp-api-2fbf49d 仍不可判定** —— PR #16 的镜像 label
-    只对此后构建的镜像有效。B41 的内容因此改成「用带 label 的构建重新部署一次」。
-  · 指标 bp_api_5xx 本身 2026-08-21 已建，所以门一旦解除，这条是最快能上的一条。
+（2026-09-02 起不再被门挡着。）门曾是 roadmap B41（ADR §9.2 B3、§5.3 第 1 位、§15.2 阶段 3 之后）：
+  · 「合并」那一半 2026-08-23 完成；「已部署」那一半 2026-08-25 完成 —— 生产自此跑的都是
+    deploy-api.sh 带 label 构建的镜像（image-provenance.sh 反查通过），2026-09-02 在线的是 bp-api-f76487f。
+  · 指标 bp_api_5xx 2026-08-21 已建。
 EOF
       ;;
     B10) cat <<'EOF'
@@ -307,6 +326,9 @@ policy_doc() {
     B7) printf '%s' "B 级。活跃实例数 > 7（max-instances=8）。🔴 **此时 request_count 可能是平的甚至在下降，不要以为没事** —— 它不统计被拒绝的请求（monitoring §2.1）。这条是那个盲区的唯一替代信号。concurrency=80，跑满 8 个实例需要 640 并发，几十人规模下只可能来自重试风暴或崩溃循环。处置：${DOC_BASE}/04-ops/monitoring.md §2.1 与 ${DOC_BASE}/05-adr/0005-database-selection.md §6.3" ;;
     B8) printf '%s' "B 级。5 分钟内订阅 404 >= 20 次。订阅 token 是唯一对外可观测的攻击面（ADR 0006 §10.2 规定 404 不泄露存在性）。单个持有失效 token 的客户端最坏 5 次/5 分钟，20 需要至少 4 个独立失效客户端或一次 token 扫描。处置：${DOC_BASE}/04-ops/runbook-node-health.md §5" ;;
     B9) printf '%s' "B 级慢变量，24 小时 autoClose。10 GB SSD 使用率 >= 80%。几十用户的数据量在可预见期内不该接近它，触发即意味着有东西在意料之外地长（日志表、审计表、备份留在实例里）。处置：${DOC_BASE}/05-adr/0005-database-selection.md §6.3" ;;
+    B11) printf '%s' "B 级。某条 bp-* Cloud Scheduler 作业单次非 2xx。最坏的一条是 expire-check 停跑 = 到期用户继续免费上网；其次 traffic-reset 停跑 = 周期不重置。先看 Cloud Scheduler 的最近执行状态与 bp-api 的 /internal/tasks/* 日志（403 = OIDC audience 或 caller 白名单被改；5xx = 任务体自己炸了）。处置：${DOC_BASE}/04-ops/deploy.md §8" ;;
+    B12) printf '%s' "B 级（ADR 0014 A3 的带内替身，VPS 采购后应迁为带外 A 级）。web./api.babel.plus 的证书签发者不再是 Let's Encrypt。为什么要紧：GTS 证书在中国触发 IP 级单向丢包（ADR 0004 §3.4），失效形态是慢不是断。两种来路：① LE 证书过期没续 → ./infra/scripts/renew-le-cert.sh --apply；② 有人把 target-https-proxy 换回了 Google 托管证书 → 查 bp-admin-https-proxy 的 sslCertificates。先跑 renew-le-cert.sh --check。处置：${DOC_BASE}/04-ops/deploy.md §11.2" ;;
+    B13) printf '%s' "B 级。证书剩余有效期 < 14 天（cert_expiring_soon），或对某个域名 TLS 握手失败 / 取不到证书（cert_check_failed）。前者是续签窗口：在到期前跑 ./infra/scripts/renew-le-cert.sh --apply（LE 90 天，剩 < 30 天 certbot 才真续）。后者可能是域名整个连不上 —— 先从别的网络 curl 一次再判断。处置：${DOC_BASE}/04-ops/monitoring.md §8" ;;
     B10) printf '%s' "B 级。有效承载相对基线塌陷。🔴 **收到之后第一件事是先看控制面的 SLI**：两个信号都走控制面，控制面挂了它们都会塌（ADR 0014 §3.3 的 2x2 右下角）。若控制面正常而这条塌了，那一格是「节点 IP 被封 / 协议被识别」—— 本项目频率最高的那类事故，也是所有其它自动信号都看不见的那一类。处置：${DOC_BASE}/04-ops/runbook-node-health.md §3" ;;
     *) printf '%s' "见 ${DOC_BASE}/05-adr/0014-slo-and-oncall.md" ;;
   esac
@@ -335,6 +357,9 @@ channels_json() {
   printf '%s' "$out"
 }
 
+# 🔴 过滤器里 type 与值都必须**加引号**：`type=email` 会被 gcloud 判成「右侧是字段名 email」而报
+#    INVALID_ARGUMENT，脚本随后走「没找到 → 新建」分支，每跑一次多建一对重复渠道
+#    （2026-09-02 实测，连建了三对，已手工删掉）。
 # resolve_channels 解析（必要时创建）通知渠道。dry-run 下不发任何 gcloud，用占位符。
 resolve_channels() {
   local p="projects/${PROJECT_ID}/notificationChannels"
@@ -349,9 +374,9 @@ resolve_channels() {
   fi
 
   # email#1：B 级的唯一通道，也是今天唯一在通的通道（ADR §12.1，2026-08-23 实查）。
-  local filter="type=email"
+  local filter='type="email"'
   if [ -n "$EMAIL1_ADDR" ]; then
-    filter="type=email AND labels.email_address=${EMAIL1_ADDR}"
+    filter="type=\"email\" AND labels.email_address=\"${EMAIL1_ADDR}\""
   fi
   local found
   found="$(gcloud alpha monitoring channels list \
@@ -367,7 +392,7 @@ resolve_channels() {
       --type=email \
       --channel-labels="email_address=${EMAIL1_ADDR}"
     CH_EMAIL1="$(gcloud alpha monitoring channels list \
-      --project="$PROJECT_ID" --filter="type=email AND labels.email_address=${EMAIL1_ADDR}" \
+      --project="$PROJECT_ID" --filter="type=\"email\" AND labels.email_address=\"${EMAIL1_ADDR}\"" \
       --format='value(name)' 2>/dev/null | head -n 1 || true)"
     ok "email#1 已创建 = ${CH_EMAIL1:-<解析失败>}"
   else
@@ -380,7 +405,7 @@ resolve_channels() {
   # email#2：只接 A 级的语义隔离箱（ADR §12.2）。地址是一个决策，不是一个默认值。
   if [ -n "$EMAIL2_ADDR" ]; then
     found="$(gcloud alpha monitoring channels list \
-      --project="$PROJECT_ID" --filter="type=email AND labels.email_address=${EMAIL2_ADDR}" \
+      --project="$PROJECT_ID" --filter="type=\"email\" AND labels.email_address=\"${EMAIL2_ADDR}\"" \
       --format='value(name)' 2>/dev/null | head -n 1 || true)"
     if [ -n "$found" ]; then
       CH_EMAIL2="$found"
@@ -392,7 +417,7 @@ resolve_channels() {
         --type=email \
         --channel-labels="email_address=${EMAIL2_ADDR}"
       CH_EMAIL2="$(gcloud alpha monitoring channels list \
-        --project="$PROJECT_ID" --filter="type=email AND labels.email_address=${EMAIL2_ADDR}" \
+        --project="$PROJECT_ID" --filter="type=\"email\" AND labels.email_address=\"${EMAIL2_ADDR}\"" \
         --format='value(name)' 2>/dev/null | head -n 1 || true)"
       ok "email#2 已创建 = ${CH_EMAIL2:-<解析失败>}"
     fi
@@ -415,7 +440,7 @@ resolve_channels() {
   # Pub/Sub 通道：topic 2026-08-21 实查已存在，渠道没建。
   found="$(gcloud alpha monitoring channels list \
     --project="$PROJECT_ID" \
-    --filter="type=pubsub AND labels.topic=projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}" \
+    --filter="type=\"pubsub\" AND labels.topic=\"projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}\"" \
     --format='value(name)' 2>/dev/null | head -n 1 || true)"
   if [ -n "$found" ]; then
     CH_PUBSUB="$found"
@@ -440,7 +465,7 @@ resolve_channels() {
       --channel-labels="topic=projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}"
     CH_PUBSUB="$(gcloud alpha monitoring channels list \
       --project="$PROJECT_ID" \
-      --filter="type=pubsub AND labels.topic=projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}" \
+      --filter="type=\"pubsub\" AND labels.topic=\"projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC}\"" \
       --format='value(name)' 2>/dev/null | head -n 1 || true)"
     ok "Pub/Sub 通道已创建 = ${CH_PUBSUB:-<解析失败>}"
   fi
@@ -492,7 +517,7 @@ emit_policy_json() {
     {
       "displayName": "uptime check failing in >=2 probe regions",
       "conditionThreshold": {
-        "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"bp-api-healthz\"",
+        "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${UPTIME_CHECK_ID}\"",
         "aggregations": [
           {
             "alignmentPeriod": "60s",
@@ -570,7 +595,7 @@ EOF
     {
       "displayName": "healthz uptime check failing in >=2 regions for 120s",
       "conditionThreshold": {
-        "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"bp-api-healthz\"",
+        "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${UPTIME_CHECK_ID}\"",
         "aggregations": [
           {
             "alignmentPeriod": "60s",
@@ -594,11 +619,11 @@ EOF
       ;;
     B3)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_api_5xx" \
-        "api 5xx >= 5 in 10m" "600s" "COMPARISON_GE" "5" "1800s" "$chans" "$doc"
+        "api 5xx >= 5 in 10m" "600s" "COMPARISON_GT" "4" "1800s" "$chans" "$doc"
       ;;
     B4)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_uniproxy_auth_fail" \
-        "uniproxy auth fail >= 5 in 5m" "300s" "COMPARISON_GE" "5" "1800s" "$chans" "$doc"
+        "uniproxy auth fail >= 5 in 5m" "300s" "COMPARISON_GT" "4" "1800s" "$chans" "$doc"
       ;;
     B5)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_db_pool_wait" \
@@ -606,7 +631,7 @@ EOF
       ;;
     B8)
       emit_count_policy "$name" "logging.googleapis.com/user/bp_subscribe_404" \
-        "subscribe 404 >= 20 in 5m" "300s" "COMPARISON_GE" "20" "1800s" "$chans" "$doc"
+        "subscribe 404 >= 20 in 5m" "300s" "COMPARISON_GT" "19" "1800s" "$chans" "$doc"
       ;;
     B6)
       cat <<EOF
@@ -621,8 +646,8 @@ EOF
         "aggregations": [
           { "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MAX", "crossSeriesReducer": "REDUCE_MAX" }
         ],
-        "comparison": "COMPARISON_GE",
-        "thresholdValue": 18,
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 17,
         "duration": "600s",
         "trigger": { "count": 1 }
       }
@@ -674,8 +699,8 @@ EOF
         "aggregations": [
           { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_MEAN", "crossSeriesReducer": "REDUCE_MAX" }
         ],
-        "comparison": "COMPARISON_GE",
-        "thresholdValue": 0.8,
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.799,
         "duration": "1800s",
         "trigger": { "count": 1 }
       }
@@ -713,10 +738,106 @@ EOF
 }
 EOF
       ;;
+    B11)
+      # 与 2026-09-01 手工建的 bp-scheduler-task-failed 逐字段同形（conditionMatchedLog + 5 分钟通知限流），
+      # 2026-09-02 由本脚本接管：先删手工那条再建这条，避免同一事件响两次。
+      cat <<EOF
+{
+  "displayName": "${name}",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "bp-* scheduler job non-2xx",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=~\"^bp-\" AND severity>=ERROR"
+      }
+    }
+  ],
+  "notificationChannels": [ ${chans} ],
+  "alertStrategy": { "autoClose": "1800s", "notificationRateLimit": { "period": "300s" } },
+  "documentation": { "content": "${doc}", "mimeType": "text/markdown" }
+}
+EOF
+      ;;
+    B12)
+      emit_global_count_policy "$name" "logging.googleapis.com/user/bp_cert_issuer_bad" \
+        "cert issuer bad > 0 in 5m" "300s" "COMPARISON_GT" "0" "86400s" "$chans" "$doc"
+      ;;
+    B13)
+      # 两条指标 OR 在一起：任一 > 0 即响。24 h autoClose —— 它是慢变量，每天只核对一次。
+      cat <<EOF
+{
+  "displayName": "${name}",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "cert expiring soon (< 14d) > 0 in 5m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/bp_cert_expiring_soon\" AND resource.type=\"global\"",
+        "aggregations": [ { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" } ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    },
+    {
+      "displayName": "cert check failed (handshake / no cert) > 0 in 5m",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/bp_cert_check_failed\" AND resource.type=\"global\"",
+        "aggregations": [ { "alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" } ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ ${chans} ],
+  "alertStrategy": { "autoClose": "86400s" },
+  "documentation": { "content": "${doc}", "mimeType": "text/markdown" }
+}
+EOF
+      ;;
     *)
       die "策略 $id 没有 JSON 定义（A1 / A3 跑在 GCP 之外，本来就不该走到这里）"
       ;;
   esac
+}
+
+# 🔴 GCP 的 conditionThreshold **只支持 COMPARISON_GT / COMPARISON_LT**（2026-09-02 实测：
+#    COMPARISON_GE 被 INVALID_ARGUMENT 拒绝，"only COMPARISON_LT and COMPARISON_GT are supported at present"）。
+#    所以 ADR 里写的「>= N」一律落成「> N-1」（计数是整数，两者等价）；磁盘使用率 >= 80% 落成 > 0.799。
+#    条件的 displayName 仍按 ADR 的写法保留「>=」，读告警的人看到的是裁决口径。
+# emit_global_count_policy —— 与 emit_count_policy 同形，但资源类型是 global：
+# check-cert-issuer.sh 用 gcloud logging write 写的日志不属于任何 Cloud Run 修订版，
+# 它的日志指标序列挂在 resource.type="global" 上。套 emit_count_policy 的过滤器会永远匹配不到。
+emit_global_count_policy() {
+  local name="$1" mtype="$2" cname="$3" window="$4" cmp="$5" thr="$6" ac="$7" chans="$8" doc="$9"
+  cat <<EOF
+{
+  "displayName": "${name}",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "${cname}",
+      "conditionThreshold": {
+        "filter": "metric.type=\"${mtype}\" AND resource.type=\"global\"",
+        "aggregations": [
+          { "alignmentPeriod": "${window}", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM" }
+        ],
+        "comparison": "${cmp}",
+        "thresholdValue": ${thr},
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "notificationChannels": [ ${chans} ],
+  "alertStrategy": { "autoClose": "${ac}" },
+  "documentation": { "content": "${doc}", "mimeType": "text/markdown" }
+}
+EOF
 }
 
 # emit_count_policy <名> <指标type> <条件名> <对齐窗口> <比较> <阈值> <autoClose> <通道> <文档>
@@ -1005,7 +1126,7 @@ print_coverage() {
 
   ── 数字 ────────────────────────────────────────────────────────────
   ADR 0014 §8.1 要求          ：**14 条**（A 级 3 + B 级 11）
-  ADR 0014 §9 逐条列出        ：**13 条**（A1-A3 + B1-B10）
+  ADR 0014 §9 逐条列出        ：**13 条**（A1-A3 + B1-B10）+ 2026-09-02 批准记录追加 **B11-B13**
   ⚠️ 这里有一处 **ADR 自身的内部计数不一致**，不是本脚本的取舍：
      §8.1/§8.2/§9.2 的标题都写「B 级 11 条」，而 §9.2 的表只列出 B1-B10 共 10 条；
      §13.1 的成本表又按「11 条 GCP 策略（A2 + B1-B10）= 12 个指标引用」算钱。
@@ -1013,7 +1134,7 @@ print_coverage() {
      差的那 1 条 B 级没有名字、没有指标、没有阈值，凭空建不出来。
 
   跑在 GCP 之外，脚本建不了：**2 条**（A1 Kuma / A3 证书 cron）→ 需要一台未采购的 VPS
-  GCP 侧可建上限              ：**11 条**（A2 + B1-B10）
+  GCP 侧可建上限              ：**14 条**（A2 + B1-B13）
   本次实际创建                ：**${created} 条**
   未创建                      ：**${not_created} 条**（逐条原因见上表与下面）
 
@@ -1056,9 +1177,8 @@ usage() {
   cat <<'EOF'
 用法: setup-alerts.sh [选项]
 
-按 ADR 0014（**提案，未批准**）的 A/B/C 三级，在 oratis-491316 上建通知渠道与告警策略。
+按 ADR 0014（**已批准**，2026-09-02）的 A/B/C 三级，在 oratis-491316 上建通知渠道与告警策略。
 
-⚠️ ADR 0014 状态是「提案，未批准」（2026-08-23）。**批准之前不应该跑 --apply。**
    dry-run 是安全的：它不发任何触达 GCP 的调用（连只读的都不发）；
    唯一例外是读本机 gcloud 配置的 `gcloud config get-value project`。
 
@@ -1130,7 +1250,7 @@ main() {
 
   guard_project
 
-  log "项目 : $PROJECT_ID（gcloud 活动项目已核对一致）"
+  log "项目 : ${PROJECT_ID}（gcloud 活动项目已核对一致）"
   log "动作 : $ACTION"
   if [ "$DRY_RUN" -eq 1 ]; then
     log "模式 : DRY-RUN（不发任何 gcloud，含只读）"
@@ -1138,7 +1258,7 @@ main() {
     log "模式 : \033[31mAPPLY —— 会真的改动 GCP\033[0m"
   fi
   log ""
-  log "⚠️ ADR 0014 的状态是「提案，未批准」（2026-08-23）。本脚本按提案实现。"
+  log "ADR 0014：已批准（2026-09-02）。A2 / B10 仍被门挡着，理由见结尾对照表。"
 
   if [ "$ACTION" = "delete" ]; then
     if [ "$DRY_RUN" -eq 0 ]; then
@@ -1152,10 +1272,9 @@ main() {
   fi
 
   if [ "$ACTION" = "create" ]; then
-    confirm_typed "将在 ${PROJECT_ID} 上创建通知渠道与告警策略。
-      🔴 ADR 0014 的状态是「提案，未批准」—— 你正在按一份未批准的提案改生产项目的告警。
-      至少三处「待核实 / 需实测」直接决定策略长什么样（A2 的 AND 混用两种条件类型、
-      B10 的同比 MQL、renotifyInterval 与 notificationRateLimit 并存时的行为）。" "$CONFIRM_APPLY"
+    confirm_typed "将在 ${PROJECT_ID} 上创建通知渠道与告警策略（ADR 0014 已批准，2026-09-02）。
+      仍有两处「待核实 / 需实测」直接决定策略长什么样（A2 的 AND 混用两种条件类型、
+      B10 的同比 MQL），它们默认被门挡着；--include-blocked 强开前先读 gate_reason。" "$CONFIRM_APPLY"
   fi
 
   if [ "$SKIP_CHANNELS" -eq 1 ]; then
