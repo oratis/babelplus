@@ -2397,8 +2397,14 @@ export interface components {
             down_mbps?: number;
             /** @description 例 `salamander` */
             obfs?: string;
-            /** @description 照抄 Xboard 的连字符键名 —— **不改名**。 */
-            "obfs-password"?: string;
+            /**
+             * @description 🔴 **下划线，不是 Xboard 的连字符 `obfs-password`。** v2node v0.4.3 的 `CommonNode` 读的是
+             *     `json:"obfs_password"`（`api/v2board/node.go`）；此前照抄 Xboard 发连字符，v2node 拿到空串，
+             *     按「obfs 与密码必须成对」的逻辑**静默不开混淆** —— 客户端带 salamander 连上来全部被丢，
+             *     现象是「context deadline exceeded」，节点侧零日志。2026-09-02 真机实测（回环去掉 obfs 即通）。
+             *     订阅里给客户端的仍是 Clash 的 `obfs-password`（那是 mihomo 的键名，subgen 管），两处不是一回事。
+             */
+            obfs_password?: string;
             server_name?: string;
             base_config?: components["schemas"]["NodeBaseConfig"];
         } & {

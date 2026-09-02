@@ -318,7 +318,7 @@ func TestBuildNodeConfig_Hysteria2OmitsObfsWithoutPassword(t *testing.T) {
 		t.Fatalf("组装失败: %v", err)
 	}
 	if cfg.Obfs != nil || cfg.ObfsPassword != nil {
-		t.Fatalf("obfs=%v obfs-password=%v，两者必须成对出现或都不出现", cfg.Obfs, cfg.ObfsPassword)
+		t.Fatalf("obfs=%v obfs_password=%v，两者必须成对出现或都不出现", cfg.Obfs, cfg.ObfsPassword)
 	}
 }
 

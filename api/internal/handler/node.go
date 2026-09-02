@@ -661,7 +661,9 @@ type nodeProtocolSettings struct {
 // buildNodeConfig 把一行 servers 展开成 Xboard 形状的裸配置对象。
 //
 // 字段名全部照抄 Xboard `buildNodeConfig()`，包括 networkSettings 的驼峰
-// 与 obfs-password 的连字符 —— 它们与周围的蛇形命名不一致，但**不能改**。
+// —— 它与周围的蛇形命名不一致，但**不能改**。
+// ⚠️ 例外：obfs_password 是**下划线**。Xboard 发连字符，但 v2node v0.4.3 读的是 obfs_password，
+// 照抄 Xboard 的后果是服务端静默不开混淆（2026-09-02 真机实测，见 openapi 该字段的说明）。
 func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 	var ps nodeProtocolSettings
 	if len(row.ProtocolSettings) > 0 {
@@ -735,7 +737,7 @@ func buildNodeConfig(row dbgen.GetServerConfigRow) (gen.NodeConfig, error) {
 		cfg.UpMbps = ptrTo(hysteriaUpMbps)
 		cfg.DownMbps = ptrTo(hysteriaDownMbps)
 		cfg.ServerName = ptrTo(settingOr(ps.ServerName, row.Host))
-		// obfs 与 obfs-password 必须**成对出现或都不出现**：
+		// obfs 与 obfs_password 必须**成对出现或都不出现**：
 		// 只发 obfs 不发密码会让节点起一个 salamander 混淆但密码为空的监听，
 		// 客户端连不上，且现象是「握手就断」这种最难查的形态。
 		// 不配混淆是合法的 Hysteria2 配置，所以这里不报错，静默降级为不混淆。
