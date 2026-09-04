@@ -142,3 +142,30 @@ button, input, select { font: inherit; color: inherit; }
 .field__in { padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); width: 100%; }
 .ring { width: 60px; height: 60px; border-radius: 50%; border: 3px solid var(--signal-soft); border-top-color: var(--signal);
   display: grid; place-items: center; font-family: var(--mono); font-size: 13px; color: var(--signal); }
+
+/* ---------- 设置页（全窗覆盖层）----------
+ * 🔴 打开时主进程会把标签页视图藏起来（tabs.setOverlay）——
+ * `WebContentsView` 是盖在这张 HTML 之上的原生视图，不藏起来这一层只会被裁到上面 96px。
+ */
+.settings { position: fixed; inset: 0; background: var(--paper); overflow-y: auto; z-index: 30; }
+.settings__in { max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
+.settings__head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+.settings__head h1 { font-size: 21px; letter-spacing: -.02em; margin: 0; }
+.sheet { border: 1px solid var(--line); border-radius: 11px; background: var(--surface); overflow: hidden; }
+.row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
+.row:last-child { border-bottom: 0; }
+.row--stack { flex-wrap: wrap; }
+.row__l { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.row__t { font-weight: 600; }
+.row__d { font-size: 12.5px; color: var(--ink-3); line-height: 1.45; }
+.settings select { flex: none; min-width: 140px; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); }
+textarea.list { width: 100%; min-height: 84px; margin-top: 8px; padding: 9px 11px; border: 1px solid var(--line);
+  border-radius: 7px; background: var(--surface); font-family: var(--mono); font-size: 12.5px; resize: vertical; }
+.small-btn { padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 12px; border: 1px solid var(--line);
+  background: var(--surface); cursor: pointer; flex: none; align-self: flex-start; }
+.sw { width: 38px; height: 22px; border-radius: 999px; background: var(--line); position: relative; flex: none; border: 0; cursor: pointer; padding: 0; }
+.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .15s; }
+.sw[aria-checked='true'] { background: var(--accent); }
+.sw[aria-checked='true']::after { left: 18px; }
+@media (prefers-reduced-motion: reduce) { .sw::after { transition: none; } }
+.tagline { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); flex: none; }

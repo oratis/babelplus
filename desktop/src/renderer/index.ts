@@ -18,6 +18,8 @@ interface Bp {
   routeHost(host: string): Promise<Snapshot>;
   tab(action: string, id?: number, url?: string): Promise<Snapshot>;
   openExternal(url: string): Promise<Snapshot>;
+  overlay(open: boolean): Promise<Snapshot>;
+  diagnostics(): Promise<string>;
   onSnapshot(cb: (s: Snapshot) => void): void;
   onNotice(cb: (n: { kind: string }) => void): void;
 }
@@ -64,6 +66,19 @@ const el = {
   obp: $<HTMLParagraphElement>('obp'),
   obring: $<HTMLDivElement>('obring'),
   obstart: $<HTMLButtonElement>('obstart'),
+  settings: $<HTMLDivElement>('settings'),
+  settingsOpen: $<HTMLButtonElement>('settings-open'),
+  settingsClose: $<HTMLButtonElement>('settings-close'),
+  setMode: $<HTMLSelectElement>('set-mode'),
+  setRegion: $<HTMLSelectElement>('set-region'),
+  setAlways: $<HTMLTextAreaElement>('set-always'),
+  setNever: $<HTMLTextAreaElement>('set-never'),
+  saveAlways: $<HTMLButtonElement>('save-always'),
+  saveNever: $<HTMLButtonElement>('save-never'),
+  setLaunch: $<HTMLButtonElement>('set-launch'),
+  setVersion: $<HTMLSpanElement>('set-version'),
+  copyDiag: $<HTMLButtonElement>('copy-diag'),
+  setSignout: $<HTMLButtonElement>('set-signout'),
   back: $<HTMLButtonElement>('back'),
   forward: $<HTMLButtonElement>('forward'),
   reload: $<HTMLButtonElement>('reload'),
@@ -203,6 +218,24 @@ function render(s: Snapshot): void {
   );
   el.mode.value = s.prefs.mode;
 
+  // ---- settings ----
+  // 两个 textarea **只在没获得焦点时**跟随快照重绘：用户正在敲的内容不能被一次
+  // 后台推送冲掉（连接状态变化每几秒就会推一次）。
+  if (document.activeElement !== el.setAlways) el.setAlways.value = s.prefs.alwaysProxy.join('\n');
+  if (document.activeElement !== el.setNever) el.setNever.value = s.prefs.neverProxy.join('\n');
+  el.setMode.value = s.prefs.mode;
+  el.setLaunch.setAttribute('aria-checked', String(s.prefs.launchAtStart));
+  el.setVersion.textContent = s.version;
+  el.setRegion.replaceChildren(
+    ...regions.map((r) => {
+      const o = document.createElement('option');
+      o.value = r.tag;
+      o.textContent = r.label;
+      o.selected = (s.prefs.outbound ?? '') === r.tag;
+      return o;
+    }),
+  );
+
   // ---- blocked bar ----
   const blocked = active?.blockedHost ?? null;
   const showBlocked = blocked !== null && blocked !== dismissedBlock;
@@ -230,6 +263,15 @@ function toUrl(input: string): string {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
   if (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/.*)?$/i.test(raw) || raw === 'localhost') return `https://${raw}`;
   return `https://duckduckgo.com/?q=${encodeURIComponent(raw)}`;
+}
+
+/** 按钮上闪一下结果再变回去。比一个消失不了的 toast 省事，也不会挡住下面的内容。 */
+function flash(btn: HTMLButtonElement, text: string): void {
+  const before = btn.textContent;
+  btn.textContent = text;
+  setTimeout(() => {
+    btn.textContent = before;
+  }, 1400);
 }
 
 function wire(): void {
@@ -294,6 +336,44 @@ function wire(): void {
       await window.bp.tab('create');
     } else {
       await window.bp.connect();
+    }
+  };
+
+  const openSettings = async (open: boolean) => {
+    el.settings.hidden = !open;
+    el.panel.hidden = true;
+    // 主进程要把标签页视图藏起来，否则这一层只会被裁到 chrome 那 96px（tabs.setOverlay）。
+    await window.bp.overlay(open);
+  };
+  el.settingsOpen.onclick = () => void openSettings(true);
+  el.settingsClose.onclick = () => void openSettings(false);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el.settings.hidden) void openSettings(false);
+  });
+
+  el.setMode.onchange = () => void window.bp.setPrefs({ mode: el.setMode.value });
+  el.setRegion.onchange = () => void window.bp.connect(el.setRegion.value || null);
+  el.saveAlways.onclick = async () => {
+    await window.bp.setPrefs({ alwaysProxy: el.setAlways.value.split(/\r?\n/) });
+    flash(el.saveAlways, 'Saved');
+  };
+  el.saveNever.onclick = async () => {
+    await window.bp.setPrefs({ neverProxy: el.setNever.value.split(/\r?\n/) });
+    flash(el.saveNever, 'Saved');
+  };
+  el.setLaunch.onclick = () =>
+    void window.bp.setPrefs({ launchAtStart: el.setLaunch.getAttribute('aria-checked') !== 'true' });
+  el.setSignout.onclick = async () => {
+    await window.bp.signOut();
+    await openSettings(false);
+  };
+  el.copyDiag.onclick = async () => {
+    const text = await window.bp.diagnostics();
+    try {
+      await navigator.clipboard.writeText(text);
+      flash(el.copyDiag, 'Copied');
+    } catch {
+      flash(el.copyDiag, 'Copy failed');
     }
   };
 

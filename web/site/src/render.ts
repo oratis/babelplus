@@ -6,6 +6,14 @@
  * 那一刻多一个可能失败的东西（一个 JS 包）就多一分打不开的概率，
  * 而它恰好是用户唯一能找到「怎么办」的地方。ADR 0003 §4 记着大陆跨境链路每天有
  * 5 小时以上低于 1 Mbps —— 体积与依赖在这里是可达性问题，不是性能偏好。
+ *
+ * ── 版式（2026-09-04 按用户指定改版）────────────────────────────────
+ * 形态照 openai.com/index/* 那一类**发布页**：eyebrow → 超大紧字距标题 → 灰色 dek →
+ * 主视觉 → 窄栏长文，留白分隔章节而不是卡片网格，药丸按钮，近黑配纯白、几乎不用彩色。
+ * ⚠️ 原页面当天打不开（Cloudflare 人机验证 + WebFetch 403），所以这是按该类页面的
+ * 通用形态实现的，不是逐像素复刻 —— 这一点写在这里，免得后人以为对过稿。
+ * 🔴 两处**不能照抄**：字体只能用系统栈（ADR 0003 §5 禁一切外部资源，CI 会扫产物），
+ * 主视觉必须是内联 SVG（同上，不能引图片）。
  */
 import { AVAILABILITY, CONTENT, PLANS, type Availability, type SiteLinks } from './content.ts';
 
@@ -27,11 +35,61 @@ function link(href: string, text: string, cls = ''): string {
 function appCta(available: boolean, kind: 'browser' | 'extension'): string {
   if (available) {
     return kind === 'browser'
-      ? '<a class="btn btn--go" href="/download">Download</a>'
-      : '<a class="btn btn--go" href="/extension">Add to your browser</a>';
+      ? '<a class="pill pill--solid" href="/download">Download</a>'
+      : '<a class="pill pill--solid" href="/extension">Add to your browser</a>';
   }
   const what = kind === 'browser' ? 'The desktop app is not released yet.' : 'The extension is not in the stores yet.';
-  return `<p class="pending"><span class="dot"></span>${esc(what)} It is being tested; nothing to download today.</p>`;
+  return `<p class="pending">${esc(what)} It is being tested; nothing to download today.</p>`;
+}
+
+/**
+ * 主视觉：内联 SVG，画的是这个产品的实际形状 ——
+ * 一个浏览器窗口，标签页上带着「这一页走了代理 / 直连」的角标，右上角是配额胶囊。
+ * 不用装饰性抽象图：这一页要回答的第一个问题是「它到底是个什么东西」。
+ */
+function heroFigure(): string {
+  return `
+  <figure class="figure">
+    <svg class="figure__art" viewBox="0 0 1200 620" role="img" aria-labelledby="figure-t" preserveAspectRatio="xMidYMid meet">
+      <title id="figure-t">A browser window with a per-tab routing badge and a data allowance in the toolbar</title>
+      <defs>
+        <clipPath id="win"><rect x="60" y="60" width="1080" height="500" rx="16" /></clipPath>
+      </defs>
+      <rect x="60" y="60" width="1080" height="500" rx="16" class="a-win" />
+      <rect x="60" y="60" width="1080" height="52" class="a-chrome" clip-path="url(#win)" />
+      <!-- 标签：走代理 / 直连 / 本页有资源失败 -->
+      <g class="a-tab"><rect x="80" y="74" width="230" height="38" rx="8" class="a-tab-on" />
+        <rect x="94" y="84" width="18" height="18" rx="5" class="a-badge-proxy" />
+        <rect x="122" y="88" width="150" height="10" rx="5" class="a-text-strong" /></g>
+      <g class="a-tab"><rect x="316" y="78" width="200" height="34" rx="8" class="a-tab-off" />
+        <rect x="330" y="86" width="18" height="18" rx="5" class="a-badge-direct" />
+        <rect x="358" y="90" width="120" height="9" rx="5" class="a-text" /></g>
+      <g class="a-tab"><rect x="522" y="78" width="200" height="34" rx="8" class="a-tab-off" />
+        <rect x="536" y="86" width="18" height="18" rx="5" class="a-badge-warn" />
+        <rect x="564" y="90" width="120" height="9" rx="5" class="a-text" /></g>
+      <!-- 地址栏与配额胶囊 -->
+      <rect x="60" y="112" width="1080" height="56" class="a-bar" clip-path="url(#win)" />
+      <rect x="84" y="128" width="740" height="24" rx="12" class="a-omni" />
+      <rect x="100" y="135" width="10" height="10" rx="3" class="a-badge-proxy" />
+      <rect x="122" y="136" width="260" height="8" rx="4" class="a-text" />
+      <rect x="856" y="126" width="260" height="28" rx="14" class="a-pill" />
+      <rect x="876" y="136" width="26" height="8" rx="4" class="a-text-strong" />
+      <rect x="914" y="136" width="1" height="9" class="a-rule" />
+      <rect x="926" y="136" width="120" height="8" rx="4" class="a-text" />
+      <!-- 页面内容骨架 -->
+      <rect x="112" y="212" width="420" height="26" rx="6" class="a-text-strong" />
+      <rect x="112" y="258" width="700" height="12" rx="6" class="a-text" />
+      <rect x="112" y="284" width="640" height="12" rx="6" class="a-text" />
+      <rect x="112" y="310" width="520" height="12" rx="6" class="a-text" />
+      <g class="a-cards">
+        <rect x="112" y="360" width="220" height="130" rx="12" class="a-card" />
+        <rect x="352" y="360" width="220" height="130" rx="12" class="a-card" />
+        <rect x="592" y="360" width="220" height="130" rx="12" class="a-card" />
+        <rect x="832" y="360" width="236" height="130" rx="12" class="a-card" />
+      </g>
+    </svg>
+    <figcaption>Every tab says whether it went through babel.plus or went direct. The toolbar shows what is left on your pass.</figcaption>
+  </figure>`;
 }
 
 export interface RenderInput {
@@ -47,13 +105,13 @@ export function renderPage(input: RenderInput): string {
   const apps = c.apps
     .map(
       (app) => `
-        <article class="app">
+        <div class="app">
           <h3>${esc(app.title)}</h3>
           <p class="app__for">${esc(app.for)}</p>
           <p>${esc(app.body)}</p>
-          <p class="app__plat mono">${esc(app.platforms)}</p>
+          <p class="meta">${esc(app.platforms)}</p>
           ${appCta(app.key === 'browser' ? a.browser : a.extension, app.key)}
-        </article>`,
+        </div>`,
     )
     .join('');
 
@@ -62,8 +120,8 @@ export function renderPage(input: RenderInput): string {
   const steps = c.how.steps
     .map(
       (s, i) => `
-        <li class="step">
-          <span class="step__n mono">${i + 1}</span>
+        <li>
+          <span class="step__n">${i + 1}</span>
           <div><b>${esc(s.t)}</b><p>${esc(s.d)}</p></div>
         </li>`,
     )
@@ -71,72 +129,90 @@ export function renderPage(input: RenderInput): string {
 
   const plans = PLANS.map(
     (p) => `
-      <article class="plan">
-        <h3>${esc(p.name)}</h3>
-        <p class="plan__price mono">${esc(p.price)}</p>
-        <p class="plan__spec mono">${esc(p.data)} · ${esc(p.days)}</p>
-        <p class="plan__note">${esc(p.note)}</p>
-      </article>`,
+      <tr>
+        <th scope="row">${esc(p.name)}</th>
+        <td class="num">${esc(p.price)}</td>
+        <td class="num">${esc(p.data)}</td>
+        <td class="num">${esc(p.days)}</td>
+        <td class="plan__note">${esc(p.note)}</td>
+      </tr>`,
   ).join('');
 
   // 结账没开通时必须明说 —— 「价目表在这里但现在买不了」是一句诚实的话，
   // 而一个跳到半路的购买按钮不是。
   const plansCta = a.checkout
-    ? `<p class="plans__cta">${link(links.account, 'Get a pass', 'btn btn--go')}</p>`
-    : `<p class="pending"><span class="dot"></span>Self-service purchase is not open yet. Accounts are by invitation while we finish it.</p>`;
+    ? `<p class="cta-row">${link(links.account, 'Get a pass', 'pill pill--solid')}</p>`
+    : `<p class="pending">Self-service purchase is not open yet. Accounts are by invitation while we finish it.</p>`;
 
   const faq = c.faq
-    .map((f) => `<div class="faq__i"><h3>${esc(f.q)}</h3><p>${esc(f.a)}</p></div>`)
+    .map((f) => `<div class="qa"><h3>${esc(f.q)}</h3><p>${esc(f.a)}</p></div>`)
     .join('');
 
   return `
-  <header class="hero">
-    <div class="wrap">
-      <div class="brand"><i class="glyph" aria-hidden="true"></i><span>${esc(c.brand)}</span></div>
-      <h1>${esc(c.tagline)}</h1>
-      <p class="lede">${esc(c.lede)}</p>
-      <p class="hero__cta">
-        ${link(links.account, c.primaryCtaSignedOut, 'btn btn--go')}
-        <a class="btn btn--ghost" href="#how">${esc(c.secondaryCta)}</a>
-      </p>
+  <nav class="topbar">
+    <div class="topbar__in">
+      <a class="brand" href="/"><i class="glyph" aria-hidden="true"></i><span>${esc(c.brand)}</span></a>
+      <div class="topbar__links">
+        ${link(links.help, c.footer.help, 'topbar__link')}
+        ${link(links.account, c.footer.signIn, 'pill pill--ghost')}
+      </div>
     </div>
-  </header>
+  </nav>
 
-  <main>
-    <section class="wrap" id="apps" aria-labelledby="apps-h">
+  <article>
+    <header class="lede-block">
+      <p class="eyebrow">Product</p>
+      <h1>${esc(c.tagline)}</h1>
+      <p class="dek">${esc(c.lede)}</p>
+      <p class="cta-row">
+        ${link(links.account, c.primaryCtaSignedOut, 'pill pill--solid')}
+        <a class="pill pill--ghost" href="#how">${esc(c.secondaryCta)}</a>
+      </p>
+    </header>
+
+    ${heroFigure()}
+
+    <section id="apps" aria-labelledby="apps-h">
       <h2 id="apps-h">Two ways to use it</h2>
       <div class="apps">${apps}</div>
     </section>
 
-    <section class="wrap band" id="limits" aria-labelledby="limits-h">
+    <section id="limits" aria-labelledby="limits-h">
       <h2 id="limits-h">${esc(c.limits.title)}</h2>
       <ul class="limits">${limits}</ul>
     </section>
 
-    <section class="wrap" id="how" aria-labelledby="how-h">
+    <section id="how" aria-labelledby="how-h">
       <h2 id="how-h">${esc(c.how.title)}</h2>
       <ol class="steps">${steps}</ol>
     </section>
 
-    <section class="wrap" id="plans" aria-labelledby="plans-h">
+    <section id="plans" aria-labelledby="plans-h">
       <h2 id="plans-h">${esc(c.plansTitle)}</h2>
-      <div class="plans">${plans}</div>
-      <p class="plans__note">${esc(c.plansNote)}</p>
+      <div class="tablewrap">
+        <table class="plans">
+          <thead><tr><th scope="col">Pass</th><th scope="col">Price</th><th scope="col">Data</th><th scope="col">Days</th><th scope="col">Who it is for</th></tr></thead>
+          <tbody>${plans}</tbody>
+        </table>
+      </div>
+      <p class="note">${esc(c.plansNote)}</p>
       ${plansCta}
     </section>
 
-    <section class="wrap band" id="faq" aria-labelledby="faq-h">
+    <section id="faq" aria-labelledby="faq-h">
       <h2 id="faq-h">${esc(c.faqTitle)}</h2>
-      <div class="faq">${faq}</div>
+      <div class="qas">${faq}</div>
     </section>
-  </main>
+  </article>
 
-  <footer class="wrap">
-    <div class="brand"><i class="glyph" aria-hidden="true"></i><span>${esc(c.brand)}</span></div>
-    <nav class="foot__nav">
-      ${link(links.account, c.footer.signIn)}
-      ${link(links.help, c.footer.help)}
-      ${link(links.status, c.footer.status)}
-    </nav>
+  <footer>
+    <div class="footer__in">
+      <div class="brand"><i class="glyph" aria-hidden="true"></i><span>${esc(c.brand)}</span></div>
+      <nav class="footer__nav">
+        ${link(links.account, c.footer.signIn)}
+        ${link(links.help, c.footer.help)}
+        ${link(links.status, c.footer.status)}
+      </nav>
+    </div>
   </footer>`;
 }
