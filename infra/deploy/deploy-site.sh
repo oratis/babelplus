@@ -145,13 +145,21 @@ build_image() {
     # rsync 排除 node_modules / dist：镜像里会重新装、重新构建。
     rsync -a --exclude node_modules --exclude dist --exclude 'vendor' web/ "$ctx/web/"
     cp infra/site/Dockerfile infra/site/nginx.conf "$ctx/infra/site/"
+    # 🔴 `gcloud builds submit --tag` 要求上下文**根目录**有一个叫 Dockerfile 的文件
+    #    （2026-09-04 实测：否则报 "Dockerfile required when specifying --tag"）。
+    #    Dockerfile 里的 COPY 路径仍然是相对上下文根的，所以放一份同名副本即可。
+    cp infra/site/Dockerfile "$ctx/Dockerfile"
     # 站点的构建期变量经 .env.production 进 Vite（vite.config.ts 用 loadEnv 读）。
     {
       printf 'VITE_BP_ACCOUNT_URL=%s\n' "$ACCOUNT_URL"
       printf 'VITE_BP_HELP_URL=%s\n' "$HELP_URL"
       printf 'VITE_BP_STATUS_URL=%s\n' "$STATUS_URL"
     } > "$ctx/web/site/.env.production"
-    ( cd "$ctx" && gcloud builds submit . --project="$PROJECT_ID" --tag="$ref" --timeout=15m >&2 )
+    # 🔴 显式判失败：命令替换里的 set -e 在这种位置不可靠，而「构建失败却继续去部署」
+    #    的现象是 Cloud Run 报「镜像不存在」—— 指向的是错的地方（2026-09-04 实测踩到）。
+    if ! ( cd "$ctx" && gcloud builds submit . --project="$PROJECT_ID" --tag="$ref" --timeout=15m >&2 ); then
+      die "镜像构建失败，未部署任何东西"
+    fi
   else
     log "  [dry-run] rsync web/ → 临时上下文；gcloud builds submit --tag=$ref"
   fi
@@ -189,8 +197,13 @@ wire_lb() {
   fi
 
   if ! gcloud compute backend-services describe "$BACKEND" --project="$PROJECT_ID" --global >/dev/null 2>&1; then
-    # 🔴 serverless NEG 的后端服务**不能带 --protocol**（first-deploy §4.1 实测踩到，删了重建）。
-    run gcloud compute backend-services create "$BACKEND" --project="$PROJECT_ID" --global
+    # 🔴 两条都踩过，缺一个就得删了重建：
+    #    ① serverless NEG 的后端服务**不能带 --protocol**（first-deploy §4.1）；
+    #    ② **必须显式 --load-balancing-scheme=EXTERNAL_MANAGED** —— 默认是 EXTERNAL（经典 LB），
+    #       而这套转发规则是 EXTERNAL_MANAGED。不一致时 add-path-matcher 会失败，
+    #       且报错指向的是 url-map 里**别的**后端，看起来像是别人的问题（2026-09-04 实测）。
+    run gcloud compute backend-services create "$BACKEND" --project="$PROJECT_ID" --global \
+      --load-balancing-scheme=EXTERNAL_MANAGED
     run gcloud compute backend-services add-backend "$BACKEND" \
       --project="$PROJECT_ID" --global \
       --network-endpoint-group="$NEG" --network-endpoint-group-region="$REGION"
@@ -198,9 +211,21 @@ wire_lb() {
     skip "后端服务已存在：$BACKEND"
   fi
 
+  # 后端里必须真的有 NEG。上一次 add-backend 失败而后端已建时，只判「后端存在」会**跳过修复**，
+  # 现象是 LB 502 而资源清单看起来齐全（2026-09-04 实测：add-backend 撞到一次代理抖动）。
+  if [ "$DRY_RUN" = 0 ] && ! gcloud compute backend-services describe "$BACKEND" \
+        --project="$PROJECT_ID" --global --format='value(backends[].group)' 2>/dev/null | grep -q "$NEG"; then
+    warn "后端服务里没有 $NEG，补挂"
+    run gcloud compute backend-services add-backend "$BACKEND" \
+      --project="$PROJECT_ID" --global \
+      --network-endpoint-group="$NEG" --network-endpoint-group-region="$REGION"
+  fi
+
   # 主机规则：apex 与 www 都指向站点。
+  # 🔴 必须**逐条精确比对**，不能 grep 子串：既有的 web./api./admin.babel.plus 都含 "babel.plus"，
+  #    子串匹配会让脚本以为规则已存在而跳过（2026-09-04 实测踩到，apex 因此一直落到 admin 后端）。
   if gcloud compute url-maps describe "$URL_MAP" --project="$PROJECT_ID" \
-       --format='value(hostRules[].hosts)' 2>/dev/null | grep -q "$APEX"; then
+       --format='value(hostRules[].hosts)' 2>/dev/null | tr -s ';,[]'"'"' ' '\n' | grep -qx "$APEX"; then
     skip "url-map 已有 $APEX 的主机规则"
   else
     run gcloud compute url-maps add-path-matcher "$URL_MAP" \

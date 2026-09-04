@@ -372,6 +372,47 @@ Cloud Run Job `bp-cert-issuer-check`（镜像 `bp-images/bp-cert-issuer-check:b6
 建了哨兵用户 `drill-sentinel@babel.plus` 才测得出来。**72 h 窗口起点 2026-09-02T07:05:22Z**。
 P1 出口标准：**3.5/8 → 6/8**（剩：第 1 条路由判据重定、第 5 条 72 h 未到、第 7 条密钥轮换需在后台登录后做）。
 
+## 4.6 · 官网 `bp-site` 上线（2026-09-04 追记）
+
+> 用户当日指示：扩展与浏览器是服务主体，**做出官网并上线 babel.plus**，
+> 订阅配置只作为会员中心里的服务、不在官网暴露。本节只记**已经存在**的东西。
+
+### 建了什么
+
+```
+镜像   us-central1-docker.pkg.dev/oratis-491316/bp-images/bp-site:f6afde85441
+       （infra/site/Dockerfile —— 🔴 与 bp-web/bp-admin 不同，这份**在仓库里**）
+服务   bp-site（Cloud Run us-central1，nginx:1.29-alpine，SA bp-site-sa 零角色，max-instances=4）
+接线   bp-site-neg（serverless NEG）→ bp-site-backend（EXTERNAL_MANAGED）
+       → url-map bp-admin-lb 新增主机规则 ['babel.plus', 'www.babel.plus'] → site-paths
+验收   Cloud Run 直连 200 / 8,046 B；`/-/healthz` 200
+       经 LB 带 Host: babel.plus 与 www.babel.plus 均 **200**
+       既有三个子域回归：web. 200 · api. `/-/healthz` 200 · admin. 302（IAP）· 证书仍是 LE
+```
+
+### 三个只有真做一次才会撞上的坑（都已修进脚本）
+
+| # | 现象 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | `gcloud builds submit --tag` 报 "Dockerfile required" | 该命令要求**上下文根目录**有名为 `Dockerfile` 的文件，而我们的在 `infra/site/` | 构建上下文里放一份同名副本 |
+| 2 | `add-path-matcher` 报错，且**指向 url-map 里别的后端**（bp-admin-backend），看起来像别人的问题 | 新建的 `bp-site-backend` 默认是 `EXTERNAL`（经典 LB），而这套转发规则是 `EXTERNAL_MANAGED` | 建后端时显式 `--load-balancing-scheme=EXTERNAL_MANAGED`；已建错的删了重建 |
+| 3 | 脚本报「url-map 已有主机规则」而实际没加 | 判断用了 `grep babel.plus` —— 既有的 `web./api./admin.babel.plus` 都含这个子串 | 改成逐条**精确**比对 |
+
+另外**又一次撞上 `/healthz` 被 Google Frontend 拦截**（证据 [cloudrun-healthz-intercept-20260817](../evidence/cloudrun-healthz-intercept-20260817/)，2026-08-17 已记）：
+容器本地 `/healthz` 返 200，经 Cloud Run 是 GFE 的 404。nginx 的健康路径因此改为 `/-/healthz`，与 `bp-api` 一致。
+**同一个坑在 17 天里被踩了两次**，说明它值得写在新服务的模板里，而不是只留在证据目录。
+
+### 🔴 还没上线的那一半：DNS 与证书
+
+`babel.plus` 与 `www.babel.plus` 的 A 记录**当前指向 `76.76.21.21`（Vercel）**，
+上面跑着一个**在线的、与本项目无关的产品**（`<title>Babel Plus | A LLM Game Platform</title>`，HTTP 200）。
+把 apex 改指到本项目的负载均衡器**会让那个站点下线**，因此本次**没有改 DNS**，
+等用户裁决（三个选项记在 roadmap 2.A 的对应条目）。
+
+连带结果：**证书也没签**。`renew-le-cert.sh` 的 `DOMAINS` 已加上 apex 与 www（四个名字同一张证书），
+但 http-01 要求域名先解析到负载均衡器 —— 顺序是 **DNS → 证书**，跳不过去。
+在此之前站点只能经 `--resolve` 或 Cloud Run 直连访问。
+
 ## 代价
 
 - **两个 SPA 共享 `*.run.app` 这一个可注册主域名。** ADR 0003 §3.2 明确要求用户面板与后台
