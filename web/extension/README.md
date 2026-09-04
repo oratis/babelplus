@@ -77,7 +77,9 @@ pnpm --filter @babelplus/extension package     # dist → babelplus-extension-<v
 
 `GET /api/v1/user/proxy-config` 在服务端是 **501**，扩展把它显示为「全部端点不可达 · Couldn't fetch your proxy configuration (HTTP 501)」。打开这道门要按顺序做：
 
-1. **E0（3 天，真机）**：在 `bp-node-hk1` 上起一个 HTTPS 代理入站（Caddy `forwardproxy` + `probe_resistance`，或 Xray `http` inbound + TLS + accounts），一个真人用 curl 走它产生 100 MB，**在 `stat_user_server` 里查到这 100 MB**。查不到就停 —— 不能计量就不能扣配额。⚠️ 72 h 观察窗（P1 出口标准 5）到 2026-09-05T07:05Z 之前不要动那台机器。
+1. 🔴 **E0 已于 2026-09-04 执行，判定「不通过」**：100 MiB 经 HTTPS 入站走完，`stat_user_server` **一个字节都没变**；同一节点同一时间窗的 REALITY 正对照 20 MiB 正常入账（+0.21%）。**所以这道门现在不是「未核实」，是「已知不通」** —— 证据 [e0-metering-20260904](../../docs/evidence/e0-metering-20260904/)。
+   根因：写计量表的只有 v2node 经 `/api/v2/server/push`，而 `server_id` 由节点密钥推导；Caddy 是另一个进程，没有密钥、不认识我们的用户。「让 v2node 自己起 http inbound」也已排除（协议白名单里没有 http）。
+   **出路三条，都要写代码、都要一次裁决**：给 HTTPS 入站建独立上报通路 / 改 v2node / 放弃扩展这条传输。在裁决之前，下面第 2–4 步全部不排期。
 2. **E1（1 周）**：凭据派生（`HMAC(token, node_id)` 前 16 字节是提案，未做安全评审）、`probe_url` 的服务（返回 `{ "ip": … }`，且它的主机必须被 PAC 判为走代理）、`getUserProxyConfig` 的真实现、`probe_resistance` 的回落站点。实现那一刻把它从 `unimplemented_test.go` 的表里删掉。
 3. **E5（与 E1 并行，2 周）**：1–2 个测试域名对照 REALITY 跑两周，出一份 HTTPS 入站在大陆的存活率证据。没有它，扩展的 SLO 无法承诺（ADR 0014 要按传输拆两条）。
 4. **E4（1–2 周）**：商店提交，见 [store/README.md](store/README.md)。前置是 CWS 开发者账号（$5）与 Edge 合作伙伴中心账号；截图要在真机上装好扩展后截（本仓库里没有）。

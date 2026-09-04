@@ -758,13 +758,15 @@
 - [ ] 🔴 **E0 · 门槛验证（真机约 3 天）** —— 在 `bp-node-hk1` 起 HTTPS 代理入站，一个真人用 curl 走它产生 100 MB。
       **完成判据**：`stat_user_server` 里查得到这 100 MB。**查不到就停，先解决计量**（B66）。
       前置：72 h 观察窗（§4.3 出口标准 5）2026-09-05T07:05Z 到点 —— 到点前不动那台机器。
-      **2026-09-04 已备好、未执行**：[`infra/node/setup-https-inbound.sh`](../../infra/node/setup-https-inbound.sh)
-      （Caddy forwardproxy + `probe_resistance`，dry-run 与 443 防呆都过）与
-      [`docs/04-ops/e0-metering-verification.md`](../04-ops/e0-metering-verification.md)
-      （四条前置、四步操作、三种判定、收尾关掉）。窗口一到就能跑，判定要写进 evidence。
+      🔴 **2026-09-04 已执行，判定为「不通过」**：100 MiB 经 HTTPS 入站走完，`stat_user_server` 逐行未变；
+      同一时间窗的 REALITY 正对照 20 MiB 正常入账。证据 [e0-metering-20260904](../evidence/e0-metering-20260904/)。
+      **按 spec §6.1 的规定：停。** E1/E5/E4 全部不再排期，直到「走哪条出路」有裁决（见 B66）。
+      对 72 h 观察窗无影响（心跳最大间隔 61 s、内存峰值 24.9%，事后四项核对都干净）。
       ⚠️ 用 Xray 的 `http` inbound 这条路**不成立**：v2node v0.4.3 的协议白名单里没有普通 http，
       给它不认识的 protocol 会让整个进程退出码 0（2026-09-02 实测）—— 这正是计量成疑的由来。
-- [ ] **E1 · 服务端（约 1 周）** —— 凭据派生（`HMAC(token, node_id)` 前 16 字节，提案，未做安全评审）、
+- [ ] ⛔ **E1 · 服务端（约 1 周）—— 被 B66 挡住，不排期**。⚠️ 「1 周」这个估算建立在「计量白拿」的
+      假设上，而 2026-09-04 的实测证明那个假设是错的；重新排期前先重估。
+      原内容：凭据派生（`HMAC(token, node_id)` 前 16 字节，提案，未做安全评审）、
       `probe_url` 服务（返回 `{ "ip": … }`，其主机必须被 PAC 判为走代理）、`probe_resistance` 的回落站点、
       `getUserProxyConfig` 真实现并从 `unimplemented_test.go` 的表里删掉那一行。
       **完成判据**：无凭据访问入站域名得到一个正常网站；带凭据能代理；扩展从真机连上并显示出口 IP。前置：E0。
@@ -1316,7 +1318,7 @@ flowchart TD
 | **B63** | 🔴 **节点上只剩一个用户时，封禁 / 到期 / 配额耗尽永远不生效**（2026-09-02 新增，真机实测）。v2node `node/task.go`：`if len(newU) == 0 { "User list no change"; return }` —— 空列表被当「没变化」。这就是 B7 记过的那条保护的另一面。第一次封禁演练时 `bp-api` 3 s 内给了 200，节点什么都没做 | 单用户节点无法吊销最后一个用户；P1 出口标准 6 在没有第二个用户时**测不出来** | 🔶 **已绕过**：哨兵用户 `drill-sentinel@babel.plus`（id=2，不可登录，通知全关）让列表永不为空。**真正的修**要么上游改、要么 `/user` 永远至少回一个占位条目——未裁决。登记处：[evidence §6.0](../evidence/adr0014-alerts-hy2-20260902/) |
 | **B64** | ~~**照抄 Xboard 的 Hysteria2 配置有三处与 v2node 不符**~~ ✅ **2026-09-02 已修并上线**（`bp-api-a747ebf`）：`protocol` 要 `hysteria2` 不是 `hysteria`；`tls: 1` 必须显式；obfs 密码键名是 `obfs_password` 不是 `obfs-password`。三条的失败形态都是 v2node **整个进程退出码 0**（同机 REALITY 陪葬），第三条连日志都没有。openapi `NodeConfig` 已改 | 曾让 HY2 完全不可用；两次 REALITY 中断共约 6 分钟 | ✅ 保留本行是为了记住那条规律：**「照抄 Xboard」对 v2node 不成立，字段要逐个对源码** |
 | **B65** | 🔴 **REALITY 私钥与 HY2 obfs 密码进入了 2026-09-02 会话的转录**（本文作者排查时整列打印了 `servers.protocol_settings`）。私钥泄露 = 持有者可探测并冒充 REALITY 服务端 | 数据面凭据的机密性 | 🔴 **建议轮换**：换一对 x25519 → 改 `protocol_settings` → bump `config_rev`，客户端经订阅拿到新公钥（需重导一次）。obfs 密码同法。另：node.go 的 `TODO(P2)` 已写明这三项本就不该明文落库 |
-| **B66** | 🔴 **浏览器扩展的传输是一条还不存在的入站：HTTPS 代理入站的每用户计量能否进 UniProxy 上报路径未核实**（2026-09-02 新增，[client-products-spec §6.1](../03-product/client-products-spec.md) 的 E0）。扩展侧代码已完成并有 61 个用例（`web/extension/`），契约 `getUserProxyConfig` 已冻结，但服务端 **501** —— 节点上没有 HTTPS 入站；且不能计量就不能扣配额，扩展流量会成为无界泄漏 | 整条扩展路线（go-to-market §4.5 渠道第 4 位）；E1–E5 全部排在它后面；扩展能装、能登录、能显示配额，**一个字节都转发不了** | 🔴 **需实测**（真机约 3 天）：在 `bp-node-hk1` 起 Caddy `forwardproxy` 或 Xray `http` inbound + TLS，curl 走它产生 100 MB，查 `stat_user_server`。⚠️ 建议等 72 h 观察窗（出口标准 5）2026-09-05T07:05Z 到点后再动那台机器。登记处：[web/extension/README §6](../../web/extension/README.md)、`api/internal/handler/unimplemented_test.go`、spec §6.4 |
+| **B66** | 🔴→**已实测，答案是否定的（2026-09-04）**：**HTTPS 代理入站的字节数不进 `stat_user_server`，一个字节都不进。** 100 MiB 经该入站下载完、等两个 push 周期，计量表逐行未变；**同一节点同一时间窗**经现有 REALITY 路径的 20 MiB 则 2 分钟内入账 21,015,983 字节（+0.21%）—— 所以不是「表没在动」，是那条路径**根本没有账**。根因：写 `stat_user_server` 的只有 v2node 经 `/api/v2/server/push`，而 `server_id` 由**节点密钥**推导；Caddy 是另一个进程，不是 `servers` 里的一行、没有节点密钥、也不知道我们的 `users` 是谁。「让 v2node 自己起 http inbound」已被排除（协议白名单里没有 http，给它不认识的 protocol 会让整个进程退出码 0）。证据 [e0-metering-20260904](../evidence/e0-metering-20260904/)。**E0 不通过 → 按 spec §6.1 停**：`getUserProxyConfig` 保持 501。出路三条（独立上报通路 / 改 v2node / 放弃扩展这条传输），**都要写代码且都要一次裁决**，且出路 1 的量级与 spec 给 E1 估的「1 周」不是一回事 —— 那个估算建立在「计量白拿」的假设上。原登记如下：**浏览器扩展的传输是一条还不存在的入站：HTTPS 代理入站的每用户计量能否进 UniProxy 上报路径未核实**（2026-09-02 新增，[client-products-spec §6.1](../03-product/client-products-spec.md) 的 E0）。扩展侧代码已完成并有 61 个用例（`web/extension/`），契约 `getUserProxyConfig` 已冻结，但服务端 **501** —— 节点上没有 HTTPS 入站；且不能计量就不能扣配额，扩展流量会成为无界泄漏 | 整条扩展路线（go-to-market §4.5 渠道第 4 位）；E1–E5 全部排在它后面；扩展能装、能登录、能显示配额，**一个字节都转发不了** | 🔴 **需实测**（真机约 3 天）：在 `bp-node-hk1` 起 Caddy `forwardproxy` 或 Xray `http` inbound + TLS，curl 走它产生 100 MB，查 `stat_user_server`。⚠️ 建议等 72 h 观察窗（出口标准 5）2026-09-05T07:05Z 到点后再动那台机器。登记处：[web/extension/README §6](../../web/extension/README.md)、`api/internal/handler/unimplemented_test.go`、spec §6.4 |
 | **B67** | 🔴 **扩展必须申请 `<all_urls>` host 权限，而它对商店审核的影响无数据**（2026-09-02 新增）。Chrome 文档：webRequest 只对扩展有 host 权限的 URL 派发事件，而代理质询挂在被代理的目标 URL 上，所以 `onAuthRequired` 回填凭据离不开它（spec §3.2 已订正；第一版写的 `host_permissions: []` 与同节的 `onAuthRequired` 互相矛盾）。头部 VPN 扩展普遍申请，但「申请了它的 VPN 类扩展审核时长与被拒率」查不到 | E4 上架的时长不可预估；隐私政策与权限说明要为它负责 | 🔴 **只能提交一次才知道**（E4，且必须在 B66 之后）。文案与逐权限说明已按最保守口径写好（`web/extension/store/`）。登记处：spec §3.2 / §10 |
 
 > **统计**（按主归属计，跨类的取第一归属）：初版 40 条时是

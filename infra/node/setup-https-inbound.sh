@@ -34,6 +34,18 @@
 #
 # 这个脚本**不碰 v2node、不碰 443、不改防火墙**。防火墙那一步刻意留给人：
 # 开一个新端口是一次爆炸半径判断，不该被一个装机脚本顺手做掉。
+#
+# ── 2026-09-04 首次真机执行撞到的三条（都已修在下面）────────────────────────
+#  1. 🔴 **站点地址必须是端口形式 `:PORT`，不能带主机名。** CONNECT 请求的 Host 是**目标站**
+#     （`example.com:443`），匹配不上 `hk1.babel.plus:8443` 那样的站点块，于是整条链路空转：
+#     隧道回 200 但什么都不转发，客户端表现为内层 TLS `wrong version number`（curl 退出码 35）。
+#     **报错指向的是错的方向。**
+#  2. 🔴 **Caddy 会往系统信任库里装一个自己的本地 CA**（`Caddy_Local_Authority_-_…`），
+#     即使写了 `auto_https off`。本脚本因此在最后主动删掉它 —— 一个代理进程不该顺手
+#     成为这台机器信任的证书颁发者。
+#  3. **在节点上装 Go 并用 xcaddy 现构建，是这套流程里唯一会顶高内存的动作。**
+#     2026-09-04 改成在开发机上交叉编译后只拷二进制，节点侧内存峰值 24.9%（阈值 70%）。
+#     `BP_CADDY_BIN=<本机已构建好的二进制路径>` 走这条路；不给才在节点上构建。
 
 set -euo pipefail
 
@@ -96,6 +108,14 @@ preflight() {
 
 install_caddy() {
   step "装 Caddy（带 forwardproxy 插件）"
+  # 已经有构建好的二进制就直接用 —— 见文件头第 3 条（推荐做法）。
+  if [ -n "${BP_CADDY_BIN:-}" ]; then
+    [ -x "$BP_CADDY_BIN" ] || die "BP_CADDY_BIN 指向的文件不存在或不可执行：$BP_CADDY_BIN"
+    run install -m 755 "$BP_CADDY_BIN" "$BIN"
+    ok "$BIN（用已构建的二进制，未在节点上编译）"
+    return
+  fi
+  warn "将在节点上装 Go 并构建 —— 这是本流程里唯一会顶高内存的动作（见文件头第 3 条）"
   # 🔴 官方发行版**不含** forwardproxy，必须用 xcaddy 构建或取一个带插件的构建。
   #    这里刻意不自动下载一个「带插件的第三方构建」—— 那是把整条流量交给一个来历不明的二进制。
   #    E0 阶段用 xcaddy 在节点上现构建：慢，但可复现且来源清楚。
@@ -122,6 +142,8 @@ write_config() {
   auto_https off
 }
 
+# 🔴 站点地址**必须是端口形式**，不能写主机名：CONNECT 的 Host 是目标站，
+# 带主机名的站点块匹配不上，链路会空转（隧道回 200 但不转发）。见文件头第 1 条。
 :${BP_PROXY_PORT} {
   tls /run/credentials/bp-node.service/fullchain.pem /run/credentials/bp-node.service/privkey.pem
 
@@ -176,6 +198,22 @@ EOF
   ok "${UNIT}.service"
 }
 
+# 🔴 Caddy 会往信任库里装一个自己的本地 CA（文件头第 2 条）。删掉它。
+remove_caddy_ca() {
+  step "清掉 Caddy 装进系统信任库的本地 CA"
+  if [ "$DRY_RUN" = 1 ]; then
+    log "  [dry-run] rm /usr/local/share/ca-certificates/Caddy_Local_Authority*.crt; update-ca-certificates --fresh"
+    return
+  fi
+  if ls /usr/local/share/ca-certificates/Caddy_Local_Authority*.crt >/dev/null 2>&1; then
+    rm -f /usr/local/share/ca-certificates/Caddy_Local_Authority*.crt
+    update-ca-certificates --fresh >/dev/null 2>&1 || true
+    ok "已删除并刷新信任库"
+  else
+    ok "信任库里没有 Caddy 的 CA"
+  fi
+}
+
 verify() {
   step "自检（只证明入站起来了，**不证明能计量** —— 那是 E0 runbook 的事）"
   if [ "$DRY_RUN" = 1 ]; then
@@ -201,6 +239,7 @@ main() {
   write_config
   write_unit
   verify
+  remove_caddy_ca
 }
 
 main "$@"

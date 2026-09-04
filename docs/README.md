@@ -160,7 +160,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0013](05-adr/0013-billing-and-refund-rules.md) — 计费与退款规则 | **提案，未批准**（2026-08-23） |
 | | [0014](05-adr/0014-slo-and-oncall.md) — SLO、on-call 与告警分级 | **已批准**（2026-09-02，用户裁决） |
 | | [0015](05-adr/0015-client-strategy.md) — 客户端策略 | **提案，未批准**（2026-08-23） |
-| **evidence** | **9 个证据目录**（出口单价 · IPv6 审查 · v2node 契约 · healthz 拦截 · 网络层级落地 · 账单 SKU 拆分 · v2node 401 行为 · gcloud 实查 · 客户端配置校验）。2026-08-29 `ls docs/evidence/*/` 实数，此前写「6 个」是漏计 | 见 [evidence/README.md](evidence/README.md) |
+| **evidence** | **15 个证据目录**（出口单价 · IPv6 审查 · v2node 契约 · healthz 拦截 · 网络层级落地 · 账单 SKU 拆分 · v2node 401 行为 · gcloud 实查 · 客户端配置校验 · 建机清点 · 路由方法证伪 · 路由采样 · 首节点接通 · ADR 0014 落地与 HY2 · **E0 计量判定（否定）**）。2026-09-04 `ls docs/evidence/*/` 实数；此前写「9 个」漏了 2026-09-01/02 的五个，再往前写「6 个」也是漏计 —— 同一个洞掉了两次，见 [evidence/README.md](evidence/README.md) 的两条登记欠账 | 见 [evidence/README.md](evidence/README.md) |
 
 ---
 
