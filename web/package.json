@@ -16,7 +16,8 @@
     "lint:no-external": "node scripts/check-no-external-assets.mjs",
     "dev:user": "pnpm --filter @babelplus/user dev",
     "dev:admin": "pnpm --filter @babelplus/admin dev",
-    "dev:extension": "pnpm --filter @babelplus/extension dev"
+    "dev:extension": "pnpm --filter @babelplus/extension dev",
+    "dev:site": "pnpm --filter @babelplus/site dev"
   },
   "devDependencies": {
     "openapi-typescript": "7.13.0",

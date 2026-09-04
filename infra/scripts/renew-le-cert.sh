@@ -45,7 +45,10 @@ set -euo pipefail
 
 readonly EXPECTED_PROJECT_ID="oratis-491316"
 readonly LB_IP="34.117.101.225"
-readonly DOMAINS="web.babel.plus,api.babel.plus"
+# 🔴 apex 与 www 是 2026-09-04 加的（官网 bp-site 上线）。四个名字**同一张证书**：
+# 面向中国的入口必须钉 LE（ADR 0004 §3.4，GTS 会触发 IP 级单向丢包），而多签一张证书
+# 就多一条会忘记续的链路。admin.babel.plus 仍然不在这里 —— 它走 IAP，保留 Google 托管证书。
+readonly DOMAINS="web.babel.plus,api.babel.plus,babel.plus,www.babel.plus"
 readonly CERT_NAME="bp-public"
 readonly ACME_BUCKET="bp-acme-challenge"
 readonly HTTPS_PROXY_NAME="bp-admin-https-proxy"
@@ -70,7 +73,7 @@ usage() {
   cat <<'EOF'
 用法: renew-le-cert.sh [--check | --dry-run | --apply]
 
-  --check    （默认）只查 web./api.babel.plus 当前的签发者与剩余天数
+  --check    （默认）只查 DOMAINS 里各域名当前的签发者与剩余天数
   --dry-run  打印将要执行的动作，不做任何写操作
   --apply    真的续签并把新证书换到负载均衡器上
 

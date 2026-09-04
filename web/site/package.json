@@ -1,0 +1,21 @@
+{
+  "name": "@babelplus/site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "babel.plus 官网（bp-site）。软件是服务主体；订阅配置只在会员中心，公开页面一个字不提。",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "jsdom": "30.0.1",
+    "typescript": "5.9.3",
+    "vite": "8.2.1",
+    "vitest": "4.1.11"
+  }
+}
