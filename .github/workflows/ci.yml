@@ -56,6 +56,7 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       desktop: ${{ steps.filter.outputs.desktop }}
       infra: ${{ steps.filter.outputs.infra }}
+      docs: ${{ steps.filter.outputs.docs }}
       openapi: ${{ steps.filter.outputs.openapi }}
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +75,10 @@ jobs:
               - '.github/workflows/ci.yml'
             infra:
               - 'infra/**'
+              - '.github/workflows/ci.yml'
+            docs:
+              - 'docs/**'
+              - 'infra/scripts/check-evidence-index.sh'
               - '.github/workflows/ci.yml'
             openapi:
               - 'openapi/**'
@@ -522,6 +527,23 @@ jobs:
           shellcheck -x "${files[@]}"
 
   # ───────────────────────────────────────────────────────────────────
+  # 文档约定：证据目录的两条硬约定此前没有任何机制在执行，同一个洞掉了两次
+  # （2026-08-29 漏 1 个、2026-09-04 漏 5 个）。脚本头部记着完整经过。
+  # ───────────────────────────────────────────────────────────────────
+  docs:
+    name: 文档约定（证据目录）
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 核对 docs/evidence/ 的索引与 README
+        run: infra/scripts/check-evidence-index.sh
+
+  # ───────────────────────────────────────────────────────────────────
   # 部署镜像构建验证（只构建，不推送）
   # ───────────────────────────────────────────────────────────────────
   docker-build:
@@ -560,7 +582,7 @@ jobs:
   # ───────────────────────────────────────────────────────────────────
   # 汇总门禁：分支保护规则只需要勾这一个
   #
-  # 直接把 8 个作业逐个勾进分支保护是行不通的 —— 被路径过滤跳过的作业永远处于
+  # 直接把这些作业逐个勾进分支保护是行不通的 —— 被路径过滤跳过的作业永远处于
   # pending，PR 会卡死。这个作业把「skipped 视为通过、失败/取消视为失败」显式化。
   # ───────────────────────────────────────────────────────────────────
   ci-ok:
@@ -576,6 +598,7 @@ jobs:
       - desktop
       - shellcheck
       - docker-build
+      - docs
     runs-on: ubuntu-24.04
     steps:
       - name: 判定
