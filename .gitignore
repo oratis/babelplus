@@ -79,3 +79,9 @@ desktop/release/
 
 # 站点构建期变量由部署脚本写进构建上下文，不入库
 web/site/.env.production
+
+# 自用机队凭据（ADR 0017 §3 / §6）——绝不入库
+infra/fleet/.secrets*.env
+infra/fleet/fleet.json
+infra/fleet/out/
+infra/fleet/_py/__pycache__/

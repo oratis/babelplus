@@ -1,0 +1,100 @@
+{
+  "_comment": [
+    "自用机队的非机密拓扑。凭据一律不进本文件——它们在 gitignored 的 .secrets*.env 里。",
+    "本文件是三样东西的唯一事实源：gen-subscription.py 的输入、",
+    "verify-isolation.sh 的期望清单（ADR 0017 §3）、以及日报里节点缺席判定的名单。",
+    "🔴 name 的前缀（JP- / US- / SG-）是接口的一部分：",
+    "客户端 proxy-groups 用 filter 正则按它分组，改名会让分组静默变空。"
+  ],
+  "project": "oratis-491316",
+  "budget": {
+    "monthly_usd_cap": 500,
+    "egress_soft_gib": 3000,
+    "egress_hard_gib": 3800,
+    "_note": "阈值推导见 personal-fleet-runbook §1.6；GCP budget 只告警不停机，这里才是执行点"
+  },
+  "nodes": [
+    {
+      "host": "vpn-jp",
+      "zone": "asia-northeast1-a",
+      "region": "asia-northeast1",
+      "machine_type": "e2-micro",
+      "network_tier": "PREMIUM",
+      "ip": "34.104.192.233",
+      "address_name": "vpn-jp-ip",
+      "tags": ["vpn-node"],
+      "role": "proxy",
+      "secrets_prefix": "JP_",
+      "paths": [
+        { "name": "JP-HY2",     "kind": "hysteria2",       "port": 443,   "sort": 10 },
+        { "name": "JP-Reality", "kind": "vless_reality",   "port": 443,   "sort": 20 },
+        { "name": "JP-SS",      "kind": "shadowsocks2022", "port": 48882, "sort": 30 },
+        { "name": "JP-CDN",     "kind": "vless_ws_tls",    "port": 443,   "sort": 40,
+          "server": "jp.gptwiki.net", "note": "Cloudflare Tunnel，抗封锁保险，非日常路径" }
+      ]
+    },
+    {
+      "host": "vpn-us",
+      "zone": "us-west1-a",
+      "region": "us-west1",
+      "machine_type": "e2-micro",
+      "network_tier": "PREMIUM",
+      "ip": "8.231.52.43",
+      "address_name": "vpn-us-ip-v4",
+      "tags": ["vpn-node"],
+      "role": "proxy",
+      "secrets_prefix": "",
+      "paths": [
+        { "name": "US-CDN",     "kind": "vless_ws_tls",    "port": 443,   "sort": 10,
+          "server": "cdn.gptwiki.net", "note": "AI 站点首选：VM IP 被封不受影响" },
+        { "name": "US-Reality", "kind": "vless_reality",   "port": 443,   "sort": 20 },
+        { "name": "US-SS",      "kind": "shadowsocks2022", "port": 48882, "sort": 30 }
+      ]
+    },
+    {
+      "host": "vpn-sg",
+      "zone": "asia-southeast1-a",
+      "region": "asia-southeast1",
+      "machine_type": "e2-medium",
+      "network_tier": "STANDARD",
+      "ip": null,
+      "address_name": null,
+      "tags": ["vpn-node"],
+      "role": "proxy",
+      "status": "planned",
+      "secrets_prefix": "SG_",
+      "_note": "STANDARD 是刻意的：与 vpn-jp 的 PREMIUM 构成同期对照（ADR 0017 §4.3）。⚠️ 这个对照不干净。",
+      "paths": [
+        { "name": "SG-HY2",     "kind": "hysteria2",       "port": 443,   "sort": 10 },
+        { "name": "SG-Reality", "kind": "vless_reality",   "port": 443,   "sort": 20 }
+      ]
+    },
+    {
+      "host": "vpn-ops",
+      "zone": "us-central1-a",
+      "region": "us-central1",
+      "machine_type": "e2-micro",
+      "network_tier": "STANDARD",
+      "ip": null,
+      "address_name": null,
+      "tags": ["vpn-node"],
+      "role": "ops",
+      "status": "planned",
+      "_note": "吃 Always Free 的唯一那台 e2-micro（744h + 30GiB 盘）。不承载代理流量，不开 443/48882。",
+      "paths": []
+    }
+  ],
+  "notice": {
+    "_comment": "订阅的第一位是公告伪节点：语法合法但连不上，用节点名传达状态。",
+    "_comment2": "这是订阅域名被封时唯一还能触达用户的通道（ADR 0002 §4.1 第 2 条恢复路径）。",
+    "name_template": "📢 订阅 {sub_domain} · 更新于 {date}"
+  },
+  "devices": [
+    { "id": "mac",    "note": "token 在 .secrets.env 的 DEVICE_TOKEN_MAC" },
+    { "id": "iphone", "note": "每台设备一个 token —— 为的是吊销，不是计费" },
+    { "id": "ipad" },
+    { "id": "laptop" },
+    { "id": "windows" },
+    { "id": "spare" }
+  ]
+}

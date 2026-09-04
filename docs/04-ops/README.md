@@ -7,6 +7,7 @@
 | 文档 | 性质 | 状态 |
 |---|---|---|
 | [runbook-node-health.md](runbook-node-health.md) | 执行手册 | 设计稿 v1（未经本项目实战验证） |
+| [personal-fleet-runbook.md](personal-fleet-runbook.md) | 执行手册 | 设计稿 v1（2026-09-04）—— 自用机队的扩容 / 订阅热更新 / 每日巡检与飞书日报。**三节全部未在真机上执行过** |
 | [node-provisioning.md](node-provisioning.md) | 执行手册 | 设计稿 v1（2026-08-16） |
 | [deploy.md](deploy.md) | 执行手册 | **执行中**（2026-08-20 —— `bp-api` / `bp-db` 已上线；§5 示例命令与线上不一致，以 `infra/deploy/` 为准） |
 | [monitoring.md](monitoring.md) | 执行手册 | 设计稿 v1（2026-08-16） |
