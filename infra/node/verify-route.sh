@@ -63,18 +63,40 @@ IS_PEAK=0
 MANUAL_DONE=0
 SKIP_INSTALL=0
 
-# 探测目标。⚠️ 这三个是**占位示例**（分别取自电信 / 联通 / 移动的公共递归 DNS 段），
-# 归属与可达性 **待核实** —— 第一次执行时按实际选定的探测点替换，
-# 并把最终列表回写进 docs/04-ops/node-provisioning.md §5.2。
+# ⚠️⚠️ **2026-09-01 实测推翻了 ICMP 判据（roadmap B55），本脚本据此改过一次，读之前先看这一段。**
+#
+# 原判据（J1/J2/J3）建立在「ICMP 打三个运营商 DNS」之上，而那些目标**对 ICMP 的响应
+# 与真实路径质量无关**：联通 202.106.196.115 ICMP 100% 丢包（旧脚本据此「硬否决、立即换 IP」），
+# 而同一时刻对同一目标的**真实 DNS 查询 5/5 成功**（中位 331 ms）—— 路径是通的，只是不回 ICMP；
+# 电信 202.96.209.133 ICMP 293–302 ms 却对 UDP/53 无应答。
+# **按旧判据，一个到大陆 TCP 中位 36 ms 的健康节点会被判「IP 不合格」——而这真的发生过一次。**
+# 证据：docs/evidence/node-route-methodology-20260901/
+#
+# 2026-09-04 的处置（只改机制，不编新阈值）：
+#   ① 新增 **TCP 握手** 探测（`tcp_probe`），目标必须是「确定在大陆、且确定开着那个 TCP 端口」；
+#   ② **ICMP 类判据（J1/J2/J3）一律降级为参考值**：它们只警告，不再硬否决；
+#   ③ 🔴 **TCP 的阈值仍然空着**，因为标定需要多台节点的样本而现在只有一台（B55 第 ③ 条）。
+#      空着的时候脚本**只报数不判决** —— 一个没标定的阈值比没有阈值更危险，它会让人以为判过了。
+#
+# ICMP 探测目标。⚠️ 这三个是**占位示例**，归属与可达性 **待核实**。
 TARGETS_DEFAULT="202.96.209.133:电信 202.106.196.115:联通 211.136.112.50:移动"
 TARGETS="${BP_PROBE_TARGETS:-$TARGETS_DEFAULT}"
 
-# ---- 判定阈值。**全部是「设定值」，不来自任何测量。** ----------------------
-# 第一批节点跑完必须整体重标定（node-provisioning §10）。
+# TCP 握手探测目标。114.114.114.114:53 是 2026-09-01 用过的对照组：
+# **确定在大陆、确定开着 TCP/53**，实测 TCP 中位 36.2 ms、8/8 成功。
+# 换目标的唯一标准就是这两条「确定」——不确定的目标测出来的数只会再骗一次人。
+TCP_TARGETS_DEFAULT="114.114.114.114:53:114DNS"
+TCP_TARGETS="${BP_TCP_PROBE_TARGETS:-$TCP_TARGETS_DEFAULT}"
+TCP_SAMPLES="${BP_TCP_SAMPLES:-8}"
+
+# 🔴 TCP 判据阈值：**默认空 = 只报数不判决**（见上面第 ③ 条）。
+# 标定之后把数字填进来（或用环境变量传），那一刻它才成为一条判据。
+JT_RTT_MS="${BP_JT_RTT_MS:-}"          # TCP 握手中位耗时上限，**未标定**
+JT_SUCCESS_PCT="${BP_JT_SUCCESS_PCT:-}" # TCP 握手成功率下限，**未标定**
+
+# ---- ICMP 类阈值。**全部是「设定值」，且自 2026-09-04 起只用于参考，不再硬否决。** ----
 J1_JUMP_MS="${BP_J1_JUMP_MS:-80}"      # 相邻跳 RTT 跃升超过它 → 疑似跨洋绕行
-J2_RTT_MS="${BP_J2_RTT_MS:-120}"       # 非高峰中位 RTT 上限。参考：香港物理下限
-                                       #   深圳 0.3 / 上海 12.3 / 北京 19.7 ms，
-                                       #   实测正常值应落在 30–80 ms
+J2_RTT_MS="${BP_J2_RTT_MS:-120}"       # 非高峰中位 RTT 上限
 J3_LOSS_PCT="${BP_J3_LOSS_PCT:-5}"     # 非高峰丢包率上限
 J4_SPREAD_MS="${BP_J4_SPREAD_MS:-60}"  # 三网中位 RTT 极差，超了只警告不否决
 J5_PEAK_RATIO="${BP_J5_PEAK_RATIO:-3}" # 晚高峰相对非高峰的劣化倍数，超了只警告
@@ -230,7 +252,8 @@ j1_check() {
             prev = avg; phost = $2; pidx = $1
         }' "$_j1_file")"
     if [ -n "$_j1_jump" ]; then
-        fail "J1 [$_j1_name] 相邻跳 RTT 跃升 > ${J1_JUMP_MS} ms —— 疑似跨洋绕行，**硬否决，立即换 IP**"
+        # B55：ICMP 类判据自 2026-09-04 起只警告不否决（见文件头阈值区那一段）。
+        soft "J1 [$_j1_name] 相邻跳 RTT 跃升 > ${J1_JUMP_MS} ms —— 疑似跨洋绕行（**参考值**，不否决；ICMP 与真实路径质量未必相关）"
         printf '%s\n' "$_j1_jump" | sed 's/^/         /'
     else
         ok "J1 [$_j1_name] 无 > ${J1_JUMP_MS} ms 的相邻跳跃升"
@@ -256,7 +279,8 @@ j3_check() {
     _j3_loss="$1"
     _j3_name="$2"
     if fgt "$_j3_loss" "$J3_LOSS_PCT"; then
-        fail "J3 [$_j3_name] 末跳丢包 ${_j3_loss}% > ${J3_LOSS_PCT}% —— 硬否决"
+        # B55：联通那个目标 ICMP 100% 丢包而真实查询 5/5 成功 —— 这条不能再硬否决。
+        soft "J3 [$_j3_name] 末跳丢包 ${_j3_loss}% > ${J3_LOSS_PCT}%（**参考值**，不否决 —— 目标可能只是不回 ICMP）"
     else
         ok "J3 [$_j3_name] 末跳丢包 ${_j3_loss}%"
     fi
@@ -327,12 +351,13 @@ measure() {
 
         _m_med="$(median_of_ping "$_m_png")"
         if [ -z "$_m_med" ]; then
-            fail "J2 [$_m_op] 拿不到任何 ping 样本 —— 目标可能不响应 ICMP，换探测点并回写文档"
+            # B55：拿不到 ICMP 样本**不再是失败** —— 「这个目标不回 ICMP」与「路径不通」是两回事。
+            soft "J2 [$_m_op] 拿不到 ping 样本（目标可能只是不响应 ICMP；真实判据看下面的 TCP 握手）"
             _m_med="NA"
         elif fgt "$_m_med" "$J2_RTT_MS"; then
-            fail "J2 [$_m_op] 中位 RTT ${_m_med} ms > ${J2_RTT_MS} ms —— 硬否决"
+            soft "J2 [$_m_op] 中位 RTT ${_m_med} ms > ${J2_RTT_MS} ms（**参考值**，不否决）"
         else
-            ok "J2 [$_m_op] 中位 RTT ${_m_med} ms（正常应落在 30–80 ms）"
+            ok "J2 [$_m_op] 中位 RTT ${_m_med} ms（参考值）"
         fi
 
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -497,16 +522,88 @@ verdict() {
     return 0
 }
 
+# now_ms · 毫秒时钟。拿不到就**输出空**，让调用方据此放弃计时（而不是退化成秒）。
+#   · GNU date（节点是 Debian）有 %3N；BSD date 没有，所以要判一次。
+#   · python3 是第二选择；两个都没有就空着。
+now_ms() {
+    _nm="$(date +%s%3N 2>/dev/null || true)"
+    case "$_nm" in
+        ''|*N*) : ;;
+        *) printf '%s' "$_nm"; return 0 ;;
+    esac
+    python3 -c 'import time;print(int(time.time()*1000))' 2>/dev/null || printf ''
+}
+
+# ---------------------------------------------------------------------------
+# JT · TCP 握手探测（B55 之后的**真实判据**，取代 ICMP 那三条的地位）
+# ---------------------------------------------------------------------------
+# 为什么是 TCP 握手：它测的是「一个真实连接建立得起来吗、要多久」，
+# 而这正是用户会经历的事。ICMP 测的是「目标愿不愿意回一个 ping」——
+# 2026-09-01 实测证明后者与前者无关（联通目标 ICMP 100% 丢包但查询 5/5 成功）。
+#
+# 🔴 **阈值默认空 = 只报数不判决。** 标定需要多台节点的样本，现在只有一台（B55 ③）。
+# 一个没标定的阈值比没有阈值更危险：它会让人以为判过了。
+tcp_probe() {
+    step "JT · TCP 握手探测（每个目标 ${TCP_SAMPLES} 次）"
+    if ! command -v nc >/dev/null 2>&1; then
+        soft "JT 跳过：目标机器上没有 nc"
+        return
+    fi
+    for _t in $TCP_TARGETS; do
+        _t_ip="${_t%%:*}"
+        _t_rest="${_t#*:}"
+        _t_port="${_t_rest%%:*}"
+        _t_name="${_t_rest#*:}"
+        _t_tmp="$(mktemp)"
+        _t_ok=0
+        _i=0
+        while [ "$_i" -lt "$TCP_SAMPLES" ]; do
+            _i=$((_i + 1))
+            _t_start="$(now_ms)"
+            if nc -z -w 3 "$_t_ip" "$_t_port" >/dev/null 2>&1; then
+                _t_ok=$((_t_ok + 1))
+                _t_end="$(now_ms)"
+                # 🔴 拿不到毫秒时钟时**不记时间**，只记成功次数。
+                # 一个用秒级时钟算出来的「0 ms」比没有数字危害大得多 —— 它会被当成实测值。
+                if [ -n "$_t_start" ] && [ -n "$_t_end" ]; then
+                    printf '%s\n' "$((_t_end - _t_start))" >>"$_t_tmp"
+                fi
+            fi
+        done
+        _t_pct=$(( _t_ok * 100 / TCP_SAMPLES ))
+        _t_med="$(sort -n "$_t_tmp" 2>/dev/null | awk '{a[NR]=$1} END{ if (NR==0) print ""; else print a[int((NR+1)/2)] }')"
+        rm -f "$_t_tmp"
+
+        if [ -z "$_t_med" ]; then
+            fail "JT [$_t_name] ${_t_ip}:${_t_port} 八次握手**一次都没成功** —— 这条是硬判据：一个连不上的目标不是「不回 ICMP」，是真的不通"
+            continue
+        fi
+        log "  JT [$_t_name] 中位握手 ${_t_med} ms · 成功率 ${_t_pct}%（${_t_ok}/${TCP_SAMPLES}）"
+        if [ -n "$JT_RTT_MS" ] && fgt "$_t_med" "$JT_RTT_MS"; then
+            fail "JT [$_t_name] 中位握手 ${_t_med} ms > ${JT_RTT_MS} ms —— 硬否决"
+        elif [ -n "$JT_SUCCESS_PCT" ] && fgt "$JT_SUCCESS_PCT" "$_t_pct"; then
+            fail "JT [$_t_name] 成功率 ${_t_pct}% < ${JT_SUCCESS_PCT}% —— 硬否决"
+        elif [ -z "$JT_RTT_MS" ] && [ -z "$JT_SUCCESS_PCT" ]; then
+            ok "JT [$_t_name] 已记录（**阈值未标定，本次不判决** —— 见文件头 B55 那一段）"
+        else
+            ok "JT [$_t_name] 在阈值内"
+        fi
+        printf '%s\tJT\t%s\t%s\t%s\t%s\n' \
+            "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$_t_ip:$_t_port" "$_t_name" "$_t_med" "$_t_pct" >>"$LEDGER"
+    done
+}
+
 main() {
     warn_local_tun
     log ""
-    log "  ⚠️ 阈值全部是「设定值」，不来自任何测量（§5.3）："
-    log "     J1 相邻跳跃升 > ${J1_JUMP_MS} ms 硬否决 · J2 中位 RTT > ${J2_RTT_MS} ms 硬否决"
-    log "     J3 丢包 > ${J3_LOSS_PCT}% 硬否决 · J4 极差 > ${J4_SPREAD_MS} ms 警告"
-    log "     J5 高峰劣化 > ${J5_PEAK_RATIO}× 警告 · J6 证书必须是 Let's Encrypt"
-    log "     第一批节点跑完必须整体重标定。"
+    log "  ⚠️ 判据现状（2026-09-04，roadmap B55 之后）："
+    log "     · ICMP 类 J1/J2/J3 **只作参考，不否决** —— 实测证明「不回 ICMP」与「路径不通」是两回事"
+    log "     · JT TCP 握手是真实判据；**一次都握不上是硬否决**，"
+    log "       但 ${JT_RTT_MS:+中位阈值 ${JT_RTT_MS} ms}${JT_RTT_MS:-中位与成功率阈值**未标定**（需多台节点样本）}"
+    log "     · J4 极差 > ${J4_SPREAD_MS} ms 警告 · J5 高峰劣化 > ${J5_PEAK_RATIO}× 警告 · J6 证书必须是 LE"
 
     measure
+    tcp_probe
     j4_check
     j5_check
     j6_check
