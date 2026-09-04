@@ -25,7 +25,7 @@ import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WEB_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const TARGETS = ['user/dist', 'admin/dist', 'extension/dist'];
+const TARGETS = ['user/dist', 'admin/dist', 'extension/dist', 'site/dist'];
 const SCANNED_EXT = new Set(['.html', '.js', '.css', '.mjs']);
 
 /** ① 点名的高风险主机名。命中即失败，附理由 —— 报错时给理由比只说「不允许」更可能被正确处理。 */

@@ -71,3 +71,11 @@ tmp/
 
 # 扩展的商店提交包（pnpm --filter @babelplus/extension package 的产物），每次构建可复现，不入库
 web/extension/*.zip
+
+# 浏览器的随包内核与构建产物（scripts/fetch-core.mjs 取，可复现，不入库）
+desktop/vendor/
+desktop/out/
+desktop/release/
+
+# 站点构建期变量由部署脚本写进构建上下文，不入库
+web/site/.env.production

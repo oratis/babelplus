@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      CSP：这一页是浏览器自己的界面（chrome），不是网页内容。
+      它不该加载任何外部东西 —— 一个代理浏览器的界面去取第三方资源，
+      等于在用户还没连上之前就发出一个可被观察的请求。
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'" />
+    <title>babel.plus</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="chrome">
+      <div class="tabstrip" id="tabstrip"></div>
+      <div class="nav">
+        <button class="navbtn" id="back" title="Back" aria-label="Back">‹</button>
+        <button class="navbtn" id="forward" title="Forward" aria-label="Forward">›</button>
+        <button class="navbtn" id="reload" title="Reload" aria-label="Reload">⟳</button>
+        <div class="omni">
+          <span class="omni__badge" id="omnibadge">·</span>
+          <input id="omni" class="omni__input" type="text" spellcheck="false" autocomplete="off" aria-label="Address" />
+        </div>
+        <button class="pill" id="pill" aria-haspopup="dialog" aria-expanded="false">
+          <span class="pill__geo" id="pillgeo">—</span>
+          <span class="pill__sep"></span>
+          <span class="pill__quota mono" id="pillquota">not signed in</span>
+        </button>
+      </div>
+      <div class="blockbar" id="blockbar" hidden>
+        <b id="blockhost"></b>
+        <span>looks blocked on this network. Route it through babel.plus?</span>
+        <span class="blockbar__sp"></span>
+        <button class="bb-btn" id="blockroute">Route it</button>
+        <button class="bb-x" id="blockdismiss" aria-label="Dismiss">✕</button>
+      </div>
+      <div class="banner" id="banner" hidden role="alert"></div>
+    </div>
+
+    <div class="panel" id="panel" hidden role="dialog" aria-label="Your pass">
+      <div class="panel__t">Your pass</div>
+      <div class="meter">
+        <div class="meter__row">
+          <span class="meter__val mono" id="quotaval">—</span>
+          <span class="meter__days mono" id="quotadays">—</span>
+        </div>
+        <div class="track"><div class="fill" id="quotafill"></div></div>
+      </div>
+      <label class="row">
+        <span class="row__t">Region</span>
+        <select id="region" aria-label="Region"></select>
+      </label>
+      <label class="row">
+        <span class="row__t">Routing</span>
+        <select id="mode" aria-label="Routing">
+          <option value="smart">Smart</option>
+          <option value="everything">Everything</option>
+        </select>
+      </label>
+      <div class="kv"><span>This tab</span><span class="mono" id="tabbytes">—</span></div>
+      <div class="kv"><span>Exit</span><span class="mono" id="exittag">—</span></div>
+      <div class="panel__actions">
+        <button class="btn btn--go" id="connect">Connect</button>
+        <button class="btn btn--ghost" id="topup">Top up</button>
+        <button class="btn btn--ghost" id="signout">Sign out</button>
+      </div>
+      <p class="hint">
+        This browser routes only its own tabs. Other apps on your computer are untouched.
+      </p>
+    </div>
+
+    <div class="onboarding" id="onboarding" hidden>
+      <div class="ob">
+        <div class="ob__brand"><i class="glyph"></i>babel.plus</div>
+        <h1 class="ob__h" id="obh">Sign in with the email you bought your pass with</h1>
+        <p class="ob__p" id="obp">
+          Nothing else is asked — no name, no card, no account to create first.
+        </p>
+        <form id="obform" class="ob__form">
+          <label class="field">
+            <span class="field__lab">Email</span>
+            <input class="field__in" id="obemail" type="email" autocomplete="username" required />
+          </label>
+          <label class="field">
+            <span class="field__lab">Password</span>
+            <input class="field__in" id="obpassword" type="password" autocomplete="current-password" required />
+          </label>
+          <p class="error" id="oberror" hidden role="alert"></p>
+          <button class="btn btn--go" id="obsubmit" type="submit">Sign in</button>
+        </form>
+        <div class="ob__done" id="obdone" hidden>
+          <div class="ring" id="obring">✓</div>
+          <p class="ob__p" id="obdonep"></p>
+          <button class="btn btn--go" id="obstart">Start browsing</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

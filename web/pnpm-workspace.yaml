@@ -3,6 +3,7 @@ packages:
   - user
   - admin
   - extension
+  - site
 
 # pnpm 10 默认禁止依赖执行安装脚本。这里只放确实需要落平台二进制的包。
 onlyBuiltDependencies:
