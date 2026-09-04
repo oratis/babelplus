@@ -54,6 +54,7 @@ jobs:
     outputs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
+      desktop: ${{ steps.filter.outputs.desktop }}
       infra: ${{ steps.filter.outputs.infra }}
       openapi: ${{ steps.filter.outputs.openapi }}
     steps:
@@ -76,6 +77,11 @@ jobs:
               - '.github/workflows/ci.yml'
             openapi:
               - 'openapi/**'
+              - '.github/workflows/ci.yml'
+            desktop:
+              - 'desktop/**'
+              # 契约类型是跨目录 type-only 引用（desktop/src/main/api.ts），改了它 desktop 也要重查。
+              - 'web/shared/api/schema.d.ts'
               - '.github/workflows/ci.yml'
 
   # ───────────────────────────────────────────────────────────────────
@@ -440,6 +446,47 @@ jobs:
         run: pnpm run --if-present lint:no-external
 
   # ───────────────────────────────────────────────────────────────────
+  # 浏览器（desktop/）：类型检查 + 单测
+  #
+  # 🔴 `--ignore-scripts`：electron 的 postinstall 会下载约 100 MB 的二进制，而这个作业
+  #    一行 Electron API 都不跑（主进程与渲染层的验证靠本机 `BP_SMOKE=1`，见 desktop/README §验证）。
+  #    装它只是为了类型。同理不跑 `pnpm core`：sing-box 的真二进制校验用例会自己跳过。
+  # ───────────────────────────────────────────────────────────────────
+  desktop:
+    name: 浏览器构建与测试
+    needs: changes
+    if: >-
+      github.event_name != 'pull_request'
+      || needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: pnpm install（不跑安装脚本）
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: 类型检查
+        working-directory: desktop
+        run: pnpm typecheck
+
+      - name: 单元测试
+        working-directory: desktop
+        run: pnpm test
+
+      - name: 构建（esbuild 三个产物）
+        working-directory: desktop
+        run: pnpm build
+
+  # ───────────────────────────────────────────────────────────────────
   # shellcheck：infra/ 下全部 .sh
   #
   # 这些脚本会对着生产 GCP 项目跑 gcloud，而项目里还住着 vpn-us / vpn-jp
@@ -526,6 +573,7 @@ jobs:
       - migrations
       - openapi-lint
       - web
+      - desktop
       - shellcheck
       - docker-build
     runs-on: ubuntu-24.04

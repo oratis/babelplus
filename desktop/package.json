@@ -1,0 +1,29 @@
+{
+  "name": "@babelplus/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "babel.plus 浏览器（bp-browser）：Electron 外壳 + 随包 sing-box，消费会员中心的订阅，不需要新的服务端端点。",
+  "main": "out/main.cjs",
+  "scripts": {
+    "core": "node scripts/fetch-core.mjs",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
+}
