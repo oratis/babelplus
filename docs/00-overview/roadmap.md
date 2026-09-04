@@ -614,11 +614,12 @@
 - [ ] 🔶 **落地页已建成并部署，但 DNS 未切**（2026-09-04）：`web/site/`（Vite，**产出零 JavaScript**，
       8.0 kB HTML + 4.9 kB CSS），镜像与 nginx 配置在 `infra/site/`，服务是 Cloud Run `bp-site`，
       已接进负载均衡器且经 `Host: babel.plus` 实测 200（[first-deploy §4.6](../04-ops/first-deploy-20260831.md)）。
-      🔴 **apex 与 www 现在指向 Vercel 上一个在线的、与本项目无关的产品**（LLM Game Platform），
-      改指过来会让它下线 —— **等用户裁决**，三个选项：① 改指 apex（那个站点下线）；
-      ② 官网放子域（如 `get.babel.plus`），apex 不动；③ 那个产品先搬到子域再让出 apex。
-      连带：证书也没签（http-01 要求先有解析），`renew-le-cert.sh` 的 DOMAINS 已备好。
-      ⚠️ `docs.*` 教程站仍不存在。
+      ✅ **2026-09-04 已上线**：用户裁决改指 apex（原先指向 Vercel 上一个在线的无关产品
+      「LLM Game Platform」，已因此下线；回滚值与 RecordId 记在 first-deploy §4.6）。
+      `https://babel.plus/` 与 `https://www.babel.plus/` 实测 **200**，证书是 Let's Encrypt
+      （一张证书四个 SAN，到期 2026-12-03）。
+      ⚠️ 仍缺：`docs.*` 教程站不存在；站点上没有可下载的客户端（两个都还不能分发）；
+      自助购买未开（F8），页面据此显示「暂不开放自助购买」。
 - [ ] 落地页四条硬约束：零 API 调用纯静态、域名探测后台并行不阻塞首屏、
       页脚常驻全部镜像域名、字体图标全部自托管
 - [ ] 备用域名页部署在**每一个**镜像域名上，< 20 KB 且无 JS

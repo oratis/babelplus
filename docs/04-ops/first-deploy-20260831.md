@@ -402,16 +402,43 @@ P1 出口标准：**3.5/8 → 6/8**（剩：第 1 条路由判据重定、第 5 
 容器本地 `/healthz` 返 200，经 Cloud Run 是 GFE 的 404。nginx 的健康路径因此改为 `/-/healthz`，与 `bp-api` 一致。
 **同一个坑在 17 天里被踩了两次**，说明它值得写在新服务的模板里，而不是只留在证据目录。
 
-### 🔴 还没上线的那一半：DNS 与证书
+### DNS 切换与证书（同日完成，用户裁决后）
 
-`babel.plus` 与 `www.babel.plus` 的 A 记录**当前指向 `76.76.21.21`（Vercel）**，
-上面跑着一个**在线的、与本项目无关的产品**（`<title>Babel Plus | A LLM Game Platform</title>`，HTTP 200）。
-把 apex 改指到本项目的负载均衡器**会让那个站点下线**，因此本次**没有改 DNS**，
-等用户裁决（三个选项记在 roadmap 2.A 的对应条目）。
+🔴 **切换前 apex 与 www 指向 `76.76.21.21`（Vercel），上面跑着一个在线的、与本项目无关的产品**
+（`<title>Babel Plus | A LLM Game Platform</title>`，HTTP 200）。用户当日裁决：**改指 apex，那个站点下线**。
+**回滚只需把两条记录改回 `76.76.21.21`**，RecordId 记在这里以免下次要现查：
 
-连带结果：**证书也没签**。`renew-le-cert.sh` 的 `DOMAINS` 已加上 apex 与 www（四个名字同一张证书），
-但 http-01 要求域名先解析到负载均衡器 —— 顺序是 **DNS → 证书**，跳不过去。
-在此之前站点只能经 `--resolve` 或 Cloud Run 直连访问。
+```
+@    A  807134811974956032   76.76.21.21 → 34.117.101.225
+www  A  807134812432126976   76.76.21.21 → 34.117.101.225
+（阿里云 DNS，profile bp-dns；TTL 600）
+```
+
+⚠️ **本机 `dig` 在这台机器上不可信**：本地代理开了 fake-ip，任何域名都会解析到 `198.18.x`。
+核对解析要么问阿里云 API（权威数据源），要么走 DoH（`cloudflare-dns.com/dns-query`）。两者当天都确认过。
+
+证书：`renew-le-cert.sh --apply` 一次签下四个名字。**第一次失败**，值得记：
+
+> LE 对 `babel.plus` / `www.babel.plus` 报 `unauthorized`，detail 是
+> `Invalid response from https://babel.plus:443/.well-known/acme-challenge/…: 404`。
+> 根因不在挑战文件 —— 是 **`bp-acme-http-lb`（:80）的主机规则只有 web./api./admin.**，
+> apex 落到它的默认动作「跳 HTTPS」，于是 LE 跟到 :443 落在 nginx 上拿到 404。
+> **报错信息指向的是错的方向**（看起来像挑战没写对），而这一轮要跑完整个 certbot 才看得到。
+> 处置：给 ACME url-map 加 `--hosts=babel.plus,www.babel.plus --path-matcher-name=acme`；
+> 并在 `renew-le-cert.sh` 里加了 `assert_acme_hosts` 前置检查 —— DOMAINS 与那张 url-map
+> 不同步时**立刻失败并打印该跑的命令**，不再浪费一轮 certbot。
+
+终态（同日实测，不带 `--resolve`、不带 `-k`）：
+
+```
+https://babel.plus/      HTTP 200 · 8,046 B · TLS 校验通过
+https://www.babel.plus/  HTTP 200 · 8,046 B · TLS 校验通过
+证书 bp-public-le-202609040817 · Let's Encrypt CN=YE2 · 到期 2026-12-03
+  SAN: api.babel.plus, babel.plus, web.babel.plus, www.babel.plus
+回归：web. 200 · api. /-/healthz 200 · admin. 302（IAP）
+```
+
+⚠️ 遗留：旧证书 `bp-public-le-20260901` 仍在 `ssl-certificates` 列表里（脚本刻意不自动删）。
 
 ## 代价
 
