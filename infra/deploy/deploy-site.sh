@@ -106,11 +106,29 @@ guard_project() {
   fi
 }
 
+# 解析一个域名的 A 记录。
+#
+# 🔴 **优先走 DoH，`dig` 只作兜底**：开发机上常有本地代理开着 fake-ip
+# （2026-09-04 实测：这台机器上任何域名都解析到 198.18.x），
+# 那时 `dig` 的答案与公网无关，check_dns 会永远误判。DoH 是一次普通 HTTPS 请求，
+# 代理转发它不会改内容。
+resolve_a() {
+  local d="$1" out=""
+  out="$(curl -sS --max-time 10 -H 'accept: application/dns-json' \
+        "https://cloudflare-dns.com/dns-query?name=${d}&type=A" 2>/dev/null |
+        sed -n 's/.*"data":"\([0-9.]*\)".*/\1/p' | head -n 1 || true)"
+  if [ -n "$out" ]; then
+    printf '%s' "$out"
+    return
+  fi
+  dig +short A "$d" 2>/dev/null | head -n 1 || true
+}
+
 check_dns() {
   step "核对 DNS（apex 必须已经指向负载均衡器，否则证书签不出来）"
   local bad=0 got
   for d in "$APEX" "$WWW"; do
-    got="$(dig +short A "$d" 2>/dev/null | head -n 1 || true)"
+    got="$(resolve_a "$d")"
     if [ "$got" = "$LB_IP" ]; then
       ok "$d → $got"
     else
