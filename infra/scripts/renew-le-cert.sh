@@ -51,6 +51,7 @@ readonly LB_IP="34.117.101.225"
 readonly DOMAINS="web.babel.plus,api.babel.plus,babel.plus,www.babel.plus"
 readonly CERT_NAME="bp-public"
 readonly ACME_BUCKET="bp-acme-challenge"
+readonly ACME_URL_MAP="bp-acme-http-lb"
 readonly HTTPS_PROXY_NAME="bp-admin-https-proxy"
 readonly ADMIN_CERT="bp-admin-cert"
 readonly ACCOUNT_EMAIL="wangharp@gmail.com"
@@ -184,7 +185,33 @@ restore_state() {
   ok "已从 Secret Manager 恢复 certbot 账号状态"
 }
 
+
+# 🔴 前置：DOMAINS 里的每个域名都必须在 ACME url-map（:80）的主机规则里。
+#
+# 不在的后果不是「报错」，是**等 certbot 跑完一整轮再失败**：:80 的默认动作是跳 HTTPS，
+# 于是 LE 跟到 :443 落在站点上，拿到 404 并判 unauthorized。
+# 2026-09-04 实测：给 apex 与 www 签证书时正是这样失败的，而失败信息里只有一句 404，
+# 指向的是「挑战文件没写对」这个错的方向。
+assert_acme_hosts() {
+  local missing=()
+  local hosts
+  hosts="$(gcloud compute url-maps describe "$ACME_URL_MAP" --project="$PROJECT_ID" \
+            --format='value(hostRules[].hosts)' 2>/dev/null | tr -s ";,[]' " '\n')"
+  local d
+  for d in ${DOMAINS//,/ }; do
+    printf '%s\n' "$hosts" | grep -qx "$d" || missing+=("$d")
+  done
+  if [ ${#missing[@]} -gt 0 ]; then
+    die "这些域名不在 ${ACME_URL_MAP} 的主机规则里，http-01 一定会失败：${missing[*]}
+     补上（每个域名只需一次）：
+       gcloud compute url-maps add-host-rule ${ACME_URL_MAP} --project=${PROJECT_ID} \\
+         --hosts=$(IFS=,; echo "${missing[*]}") --path-matcher-name=acme"
+  fi
+  ok "ACME 主机规则齐全（${DOMAINS}）"
+}
+
 do_renew() {
+  assert_acme_hosts
   step "续签"
   restore_state
   write_hooks
