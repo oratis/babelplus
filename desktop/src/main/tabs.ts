@@ -42,6 +42,7 @@ export class Tabs {
   private readonly tabs: Tab[] = [];
   private active: number | null = null;
   private seq = 0;
+  private overlay = false;
 
   constructor(deps: TabsDeps) {
     this.d = deps;
@@ -177,11 +178,21 @@ export class Tabs {
     this.d.onChange();
   }
 
+  /**
+   * 覆盖层（设置页）开关。
+   * 🔴 必须有这个东西：`WebContentsView` 是**盖在** chrome 页面之上的原生视图，
+   * chrome 里的任何全屏覆盖层都只会被裁到上面那 96 px。所以打开设置时先把标签页视图藏起来。
+   */
+  setOverlay(on: boolean): void {
+    this.overlay = on;
+    for (const t of this.tabs) t.view.setVisible(!on && t.id === this.active);
+  }
+
   select(id: number): void {
     const tab = this.tabs.find((t) => t.id === id);
     if (!tab) return;
     this.active = id;
-    for (const t of this.tabs) t.view.setVisible(t.id === id);
+    for (const t of this.tabs) t.view.setVisible(!this.overlay && t.id === id);
     this.layout();
     this.d.onChange();
   }

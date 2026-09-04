@@ -35,7 +35,7 @@ src/main/       routing.ts（一张表两处用）· config.ts（组装完整配
                 store.ts（token 与偏好，写入串行化）· tabs.ts（WebContentsView + per-tab 归属与字节）
                 ports.ts · quota.ts · index.ts（Electron 接线，薄）
 src/preload/    窄接口 window.bp（渲染层拿不到 ipcRenderer）
-src/renderer/   chrome 界面（无框架，经典脚本）：标签条 · 地址栏 · 地球胶囊 · 被屏蔽提示条 · 首次运行
+src/renderer/   chrome 界面（无框架，经典脚本）：标签条 · 地址栏 · 地球胶囊 · 被屏蔽提示条 · 首次运行 · 设置页
 scripts/        fetch-core.mjs（取内核，钉校验和）· build.mjs（esbuild ×3）
 vendor/         随包内核，**不入库**
 ```
@@ -59,14 +59,17 @@ cd desktop && pnpm install && pnpm core && pnpm start
 - **连接的判据是端口真的可连**，不是「setProxy 调过了」。
 - **下载功能关闭**（v1，spec §4.4）：一个代理浏览器不该顺手变成下载器，`will-download` 直接取消并提示。
 - **外链只放行我们自己的两个域名**：把任意 URL 交给系统浏览器，等于把用户从被保护的窗口里推出去而他不会注意到。
+- **设置页是全窗覆盖层，打开时主进程会把标签页视图藏起来**（`tabs.setOverlay`）：`WebContentsView` 是盖在 chrome 页面**之上**的原生视图，不藏起来任何全屏层都只会被裁到上面那 96 px。
+- **诊断报告只报个数不报内容**：两个自定义列表是「访问过什么」的强指纹，所以只出 `alwaysProxyCount`；报告里没有 token、地址、端口、页面标题（`diagnostics.test.ts` 逐条断言）。
+- **设置页里没有假的「更新通道」**：这个版本不自更新（§6 第 7 条），就写这句话，而不是摆一个下拉。
 
 ## 5 · 验证到什么程度（2026-09-04 实跑）
 
 | 层 | 手段 | 结果 |
 |---|---|---|
-| 纯逻辑 | `pnpm test`，51 个用例 | ✅ 全绿 |
+| 纯逻辑 | `pnpm test`，55 个用例 | ✅ 全绿 |
 | **配置 schema** | `config.singbox.test.ts` 拿 **vendor 里的真 sing-box v1.14.0** 对生成的配置跑 `check`，并另跑一条「故意写坏必须不过」 | ✅ 通过（这是本目录最值钱的一条） |
-| Electron 外壳 | `BP_SMOKE=1 pnpm start`：窗口加载后到渲染层里读真实节点再退出 | ✅ `{"bridge":true,"onboarding":true,"signInButton":true,"pill":"not signed in","styled":"96px"}` —— preload 桥、渲染、CSS 都生效 |
+| Electron 外壳 | `BP_SMOKE=1 pnpm start`：窗口加载后到渲染层里读真实节点再退出 | ✅ `{"bridge":true,…,"styled":"96px","settings":true,"settingsHidden":true}` —— preload 桥、渲染、CSS、设置页七个控件都在 |
 | **端到端连上真节点** | 需要一个真账号（登录 → 订阅 → 起内核 → 出口 IP） | 🔴 **没做**：本机没有可用账号凭据 |
 | Windows / Intel Mac | — | 🔴 **一次都没跑过** |
 

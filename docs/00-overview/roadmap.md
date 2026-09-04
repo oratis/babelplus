@@ -755,10 +755,15 @@
 > spec §9 代价第 1 条的三项持续成本（Electron 每 8 周跟版、中国法域物证、签名与误报）原样保留，不因排期而消失。
 > 已完成的两步不列为待办：**E2 扩展内核 ✅ / E3 界面 ✅**（PR #39，`web/extension/`，61 个用例）。
 
-- [ ] 🔴 **E0 · 门槛验证（真机约 3 天）** —— 在 `bp-node-hk1` 起 HTTPS 代理入站（Caddy `forwardproxy` + `probe_resistance`，
-      或 Xray `http` inbound + TLS + accounts），一个真人用 curl 走它产生 100 MB。
+- [ ] 🔴 **E0 · 门槛验证（真机约 3 天）** —— 在 `bp-node-hk1` 起 HTTPS 代理入站，一个真人用 curl 走它产生 100 MB。
       **完成判据**：`stat_user_server` 里查得到这 100 MB。**查不到就停，先解决计量**（B66）。
       前置：72 h 观察窗（§4.3 出口标准 5）2026-09-05T07:05Z 到点 —— 到点前不动那台机器。
+      **2026-09-04 已备好、未执行**：[`infra/node/setup-https-inbound.sh`](../../infra/node/setup-https-inbound.sh)
+      （Caddy forwardproxy + `probe_resistance`，dry-run 与 443 防呆都过）与
+      [`docs/04-ops/e0-metering-verification.md`](../04-ops/e0-metering-verification.md)
+      （四条前置、四步操作、三种判定、收尾关掉）。窗口一到就能跑，判定要写进 evidence。
+      ⚠️ 用 Xray 的 `http` inbound 这条路**不成立**：v2node v0.4.3 的协议白名单里没有普通 http，
+      给它不认识的 protocol 会让整个进程退出码 0（2026-09-02 实测）—— 这正是计量成疑的由来。
 - [ ] **E1 · 服务端（约 1 周）** —— 凭据派生（`HMAC(token, node_id)` 前 16 字节，提案，未做安全评审）、
       `probe_url` 服务（返回 `{ "ip": … }`，其主机必须被 PAC 判为走代理）、`probe_resistance` 的回落站点、
       `getUserProxyConfig` 真实现并从 `unimplemented_test.go` 的表里删掉那一行。

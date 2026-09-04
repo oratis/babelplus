@@ -22,6 +22,7 @@
           <span class="omni__badge" id="omnibadge">·</span>
           <input id="omni" class="omni__input" type="text" spellcheck="false" autocomplete="off" aria-label="Address" />
         </div>
+        <button class="navbtn" id="settings-open" title="Settings" aria-label="Settings">⚙</button>
         <button class="pill" id="pill" aria-haspopup="dialog" aria-expanded="false">
           <span class="pill__geo" id="pillgeo">—</span>
           <span class="pill__sep"></span>
@@ -68,6 +69,88 @@
       <p class="hint">
         This browser routes only its own tabs. Other apps on your computer are untouched.
       </p>
+    </div>
+
+    <div class="settings" id="settings" hidden role="dialog" aria-label="Settings">
+      <div class="settings__in">
+        <div class="settings__head">
+          <h1>Settings</h1>
+          <button class="small-btn" id="settings-close">Done</button>
+        </div>
+
+        <div class="sheet">
+          <div class="row">
+            <div class="row__l">
+              <span class="row__t">Routing</span>
+              <span class="row__d">Smart keeps Chinese sites direct so local services stay fast. Everything sends all sites through babel.plus.</span>
+            </div>
+            <select id="set-mode" aria-label="Routing">
+              <option value="smart">Smart</option>
+              <option value="everything">Everything</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <div class="row__l">
+              <span class="row__t">Exit</span>
+              <span class="row__d">Which server on your pass to use. Automatic picks the one your subscription lists first.</span>
+            </div>
+            <select id="set-region" aria-label="Exit"></select>
+          </div>
+
+          <div class="row row--stack">
+            <div class="row__l">
+              <span class="row__t">Always route these sites</span>
+              <span class="row__d">One host per line. Added automatically when you accept a &ldquo;blocked here&rdquo; prompt.</span>
+            </div>
+            <textarea class="list" id="set-always" aria-label="Always route these sites" spellcheck="false"></textarea>
+            <button class="small-btn" id="save-always">Save</button>
+          </div>
+
+          <div class="row row--stack">
+            <div class="row__l">
+              <span class="row__t">Never route these sites</span>
+              <span class="row__d">Banking and government sites often refuse foreign addresses.</span>
+            </div>
+            <textarea class="list" id="set-never" aria-label="Never route these sites" spellcheck="false"></textarea>
+            <button class="small-btn" id="save-never">Save</button>
+          </div>
+
+          <div class="row">
+            <div class="row__l">
+              <span class="row__t">Connect when the browser starts</span>
+              <span class="row__d">Reconnects to your last exit without opening this window.</span>
+            </div>
+            <button class="sw" id="set-launch" role="switch" aria-checked="false" aria-label="Connect when the browser starts"></button>
+          </div>
+
+          <div class="row">
+            <div class="row__l">
+              <span class="row__t">Updates</span>
+              <!-- 🔴 说实话：这个版本没有自动更新（desktop/README §6 第 7 条）。
+                   摆一个假的「更新通道」下拉，比不摆更糟。 -->
+              <span class="row__d">This build does not update itself yet. You will be told where to get the next one.</span>
+            </div>
+            <span class="tagline" id="set-version">&mdash;</span>
+          </div>
+
+          <div class="row">
+            <div class="row__l">
+              <span class="row__t">Copy diagnostics</span>
+              <span class="row__d">Connection state, core status, how much of your pass is used. No credentials, no addresses, no page titles.</span>
+            </div>
+            <button class="small-btn" id="copy-diag">Copy</button>
+          </div>
+
+          <div class="row">
+            <div class="row__l">
+              <span class="row__t">Sign out</span>
+              <span class="row__d">Clears the session on this computer and disconnects.</span>
+            </div>
+            <button class="small-btn" id="set-signout">Sign out</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="onboarding" id="onboarding" hidden>

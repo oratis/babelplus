@@ -15,6 +15,7 @@ import { app, BrowserWindow, ipcMain, session, shell, type IpcMainInvokeEvent } 
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { Api } from './api.ts';
+import { buildDiagnostics, diagnosticsText } from './diagnostics.ts';
 import { Controller } from './controller.ts';
 import { Core } from './core.ts';
 import { Store } from './store.ts';
@@ -203,6 +204,28 @@ function wireIpc(): void {
       }
       return snapshot();
     },
+    'bp:overlay': (_e, payload: never) => {
+      const { open } = payload as unknown as { open: boolean };
+      tabs?.setOverlay(open === true);
+      return snapshot();
+    },
+    'bp:diagnostics': () => {
+      const s = snapshot();
+      return diagnosticsText(
+        buildDiagnostics({
+          version: s.version,
+          platform: `${process.platform}-${process.arch}`,
+          signedIn: s.signedIn,
+          connection: s.connection,
+          subscription: s.subscription,
+          subscriptionFetchedAt: s.subscriptionFetchedAt,
+          prefs: s.prefs,
+          tabs: s.tabs,
+          corePath: coreBinary(),
+          now: new Date().toISOString(),
+        }),
+      );
+    },
     'bp:open-external': async (_e, payload: never) => {
       const { url } = payload as unknown as { url: string };
       // 只放行我们自己的两个站点：一个代理浏览器把任意 URL 交给系统浏览器
@@ -265,11 +288,19 @@ app.whenReady().then(async () => {
              signInButton: !!document.getElementById('obsubmit'),
              pill: document.getElementById('pillquota').textContent,
              styled: getComputedStyle(document.getElementById('chrome')).height,
+             settings: ['set-mode','set-region','set-always','set-never','set-launch','copy-diag','set-signout']
+               .every(function (id) { return !!document.getElementById(id); }),
+             settingsHidden: document.getElementById('settings').hidden,
            })`,
         );
         process.stdout.write(`BP_SMOKE ${probe}\n`);
         const r = JSON.parse(String(probe)) as Record<string, unknown>;
-        const ok = r['bridge'] === true && r['signInButton'] === true && r['styled'] === '96px';
+        const ok =
+          r['bridge'] === true &&
+          r['signInButton'] === true &&
+          r['styled'] === '96px' &&
+          r['settings'] === true &&
+          r['settingsHidden'] === true;
         app.exit(ok ? 0 : 1);
       } catch (cause) {
         process.stdout.write(`BP_SMOKE failed: ${String(cause)}\n`);

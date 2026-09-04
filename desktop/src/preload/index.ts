@@ -16,6 +16,8 @@ const api = {
   routeHost: (host: string) => ipcRenderer.invoke('bp:route-host', { host }),
   tab: (action: string, id?: number, url?: string) => ipcRenderer.invoke('bp:tab', { action, id, url }),
   openExternal: (url: string) => ipcRenderer.invoke('bp:open-external', { url }),
+  overlay: (open: boolean) => ipcRenderer.invoke('bp:overlay', { open }),
+  diagnostics: (): Promise<string> => ipcRenderer.invoke('bp:diagnostics'),
   onSnapshot: (cb: (snapshot: unknown) => void) => {
     ipcRenderer.on('bp:snapshot', (_e, s) => cb(s));
   },
