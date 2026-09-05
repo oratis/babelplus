@@ -17,7 +17,7 @@ import { Icon } from './icons.tsx';
 export function Skeleton({ className }: { className?: string }) {
   return (
     <div
-      className={cx('animate-pulse rounded-md bg-skeleton', className)}
+      className={cx('animate-pulse rounded-sm bg-skeleton', className)}
       aria-hidden="true"
     />
   );
@@ -60,7 +60,7 @@ export function SlowHint({ afterMs }: { afterMs?: number }) {
   if (!shown) return null;
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
       <span>跨境链路较慢，正在重试。可以先去下面的备用域名试试。</span>
       <MirrorDomainInline />
     </div>
@@ -99,7 +99,7 @@ export function EmptyState({
   secondary?: ReactNode;
 }) {
   return (
-    <Card className="text-center">
+    <Card className="bp-grid-bg text-center">
       <h3 className="text-base font-semibold text-fg">{title}</h3>
       {description ? (
         <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-fg-muted">{description}</p>
@@ -175,8 +175,8 @@ export function ErrorState({
           {kind === 'offline' ? <MirrorDomainList className="mt-4" /> : null}
 
           {requestId ? (
-            <p className="mt-3 font-mono text-xs text-fg-subtle">
-              请求号 {requestId} —— 提工单时贴上它，我们能直接定位。
+            <p className="mt-3 font-mono text-[11px] tracking-wide text-fg-subtle">
+              REQ {requestId} —— 提工单时贴上它，我们能直接定位。
             </p>
           ) : null}
         </div>
@@ -198,7 +198,7 @@ export function MirrorDomainList({ className }: { className?: string }) {
 
   if (cfg.mirrorDomains.length === 0) {
     return (
-      <div className={cx('rounded-lg border border-dashed border-line p-3 text-xs text-fg-muted', className)}>
+      <div className={cx('rounded-md border border-dashed border-line p-3 text-xs text-fg-muted', className)}>
         <span className="font-medium text-fg">备用域名尚未配置。</span>{' '}
         部署时覆盖 <code className="font-mono">/runtime-config.js</code> 的{' '}
         <code className="font-mono">mirrorDomains</code> 即可，不需要重新构建。
@@ -208,8 +208,8 @@ export function MirrorDomainList({ className }: { className?: string }) {
   }
 
   return (
-    <div className={cx('rounded-lg border border-line bg-surface-alt p-3', className)}>
-      <p className="mb-2 text-xs font-medium text-fg">备用域名（任选其一，内容相同）</p>
+    <div className={cx('rounded-md border border-line bg-surface-alt p-3', className)}>
+      <p className="mb-2 font-mono text-[11px] tracking-wide text-fg">MIRRORS · 备用域名（任选其一，内容相同）</p>
       <ul className="space-y-1.5">
         {cfg.mirrorDomains.map((m) => (
           <li key={m.url} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">

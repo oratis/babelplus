@@ -137,6 +137,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [tutorials-spec.md](03-product/tutorials-spec.md) — 教程体系规格 | 设计稿 v1 |
 | | [user-journey.md](03-product/user-journey.md) — 用户旅程 | 设计稿 v1 |
 | | [page-inventory.md](03-product/page-inventory.md) — 页面清单 | 设计稿 v1 |
+| | [design-system.md](03-product/design-system.md) — 设计系统「控制台」：一套色板、等宽字承载数据、状态用灯 | **设计稿 v1，已落地到代码**（2026-09-05）—— 官网 / 用户面板 / 后台重做，扩展与桌面端只换色板 |
 | | [go-to-market-plan.md](03-product/go-to-market-plan.md) — 获客方案（海外销售前提下的定价、渠道与功能匹配） | **提案，未批准**（2026-09-02 **第二版**）—— 闲鱼作废、SKU 改美元、支付翻转为卡通道、渠道第一位改 App Store |
 | | [client-products-spec.md](03-product/client-products-spec.md) — 扩展与浏览器的完整产品形态与执行方案（配 [mockup](03-product/client-products-mockup.html)） | **提案，未批准**（2026-09-02） **2026-09-02 §6.4 实施状态**：扩展代码已落地（[web/extension/](../web/extension/)，61 个用例），服务端端点 501，门是 roadmap B66 |
 | **04-ops** | [runbook-node-health.md](04-ops/runbook-node-health.md) — 节点健康与封锁取证 | 设计稿 v1 |

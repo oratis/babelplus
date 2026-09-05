@@ -92,6 +92,11 @@ function heroFigure(): string {
   </figure>`;
 }
 
+/** 品牌图形：经线球，与两个客户端的角标同源（index.html 的 favicon 是同一张图）。 */
+function brandGlyph(): string {
+  return `<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="16" cy="16" r="11" stroke-width="3"/><ellipse cx="16" cy="16" rx="4.6" ry="11" stroke-width="2"/><path d="M3 16h26" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+}
+
 export interface RenderInput {
   readonly links: SiteLinks;
   readonly availability?: Availability;
@@ -144,6 +149,9 @@ export function renderPage(input: RenderInput): string {
     ? `<p class="cta-row">${link(links.account, 'Get a pass', 'pill pill--solid')}</p>`
     : `<p class="pending">Self-service purchase is not open yet. Accounts are by invitation while we finish it.</p>`;
 
+  // 读数条：两个客户端各自的平台清单，原样取自 content.ts（不新增文案）。
+  const readout = c.apps.map((app) => `<li>${esc(app.platforms)}</li>`).join('');
+
   const faq = c.faq
     .map((f) => `<div class="qa"><h3>${esc(f.q)}</h3><p>${esc(f.a)}</p></div>`)
     .join('');
@@ -151,7 +159,7 @@ export function renderPage(input: RenderInput): string {
   return `
   <nav class="topbar">
     <div class="topbar__in">
-      <a class="brand" href="/"><i class="glyph" aria-hidden="true"></i><span>${esc(c.brand)}</span></a>
+      <a class="brand" href="/"><span class="brand__mark" aria-hidden="true">${brandGlyph()}</span><span>${esc(c.brand)}</span><span class="brand__sub"><i class="led" aria-hidden="true"></i>console</span></a>
       <div class="topbar__links">
         ${link(links.help, c.footer.help, 'topbar__link')}
         ${link(links.account, c.footer.signIn, 'pill pill--ghost')}
@@ -160,6 +168,7 @@ export function renderPage(input: RenderInput): string {
   </nav>
 
   <article>
+    <div class="hero-wrap">
     <header class="lede-block">
       <p class="eyebrow">Product</p>
       <h1>${esc(c.tagline)}</h1>
@@ -168,7 +177,9 @@ export function renderPage(input: RenderInput): string {
         ${link(links.account, c.primaryCtaSignedOut, 'pill pill--solid')}
         <a class="pill pill--ghost" href="#how">${esc(c.secondaryCta)}</a>
       </p>
+      <ul class="readout" aria-label="Platforms">${readout}</ul>
     </header>
+    </div>
 
     ${heroFigure()}
 
@@ -207,7 +218,7 @@ export function renderPage(input: RenderInput): string {
 
   <footer>
     <div class="footer__in">
-      <div class="brand"><i class="glyph" aria-hidden="true"></i><span>${esc(c.brand)}</span></div>
+      <div class="brand"><span class="brand__mark" aria-hidden="true">${brandGlyph()}</span><span>${esc(c.brand)}</span></div>
       <nav class="footer__nav">
         ${link(links.account, c.footer.signIn)}
         ${link(links.help, c.footer.help)}

@@ -1,4 +1,5 @@
 /*
+ * 🎨 色板 2026-09-05 起与 web/shared/src/ui/tokens.css 一致（「控制台」视觉，design-system.md）；改色板先改 tokens.css 再同步这里。
  * 浏览器 chrome 的样式。取自 docs/03-product/client-products-mockup.html 的变量，
  * 但**只用系统字体**：界面不加载任何外部资源（见 index.html 的 CSP）。
  *
@@ -6,47 +7,47 @@
  * 否则标签页视图会盖住地址栏或在下面留一条缝。改这里要同时改 src/main/index.ts。
  */
 :root {
-  --paper: #e9ebee;
-  --surface: #fbfbfc;
-  --surface-2: #f1f3f5;
-  --ink: #131a24;
-  --ink-2: #43505f;
-  --ink-3: #6c7a89;
-  --line: #d3d8de;
-  --line-2: #e3e7eb;
-  --accent: #1b4d8f;
-  --accent-soft: #e4ebf5;
-  --signal: #1b7355;
-  --signal-soft: #dcefe7;
-  --amber: #9a6a10;
+  --paper: #f3f5f7;
+  --surface: #ffffff;
+  --surface-2: #ecf0f3;
+  --ink: #0f1721;
+  --ink-2: #4e6072;
+  --ink-3: #7b8a99;
+  --line: #d5dde5;
+  --line-2: #e3e9ee;
+  --accent: #0b7c8c;
+  --accent-soft: #e2f1f3;
+  --signal: #1e8a55;
+  --signal-soft: #dff2e8;
+  --amber: #9a6700;
   --amber-soft: #f6ecd6;
-  --stamp: #a8352c;
-  --stamp-soft: #f6e1de;
-  --chrome: #dde1e6;
-  --chrome-2: #cdd3da;
+  --stamp: #c33a2c;
+  --stamp-soft: #f8e2df;
+  --chrome: #e6ebef;
+  --chrome-2: #d8dfe6;
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #0e1319;
-    --surface: #171d25;
-    --surface-2: #1e252e;
-    --ink: #e5e9ed;
-    --ink-2: #a9b4c0;
-    --ink-3: #78848f;
-    --line: #2b333d;
-    --line-2: #232b34;
-    --accent: #74a6e6;
-    --accent-soft: #1a2735;
-    --signal: #56c39c;
-    --signal-soft: #132a24;
-    --amber: #dca83e;
-    --amber-soft: #2b2415;
-    --stamp: #e0796e;
-    --stamp-soft: #2e1a18;
-    --chrome: #222933;
-    --chrome-2: #2c343e;
+    --paper: #0a0e13;
+    --surface: #10161d;
+    --surface-2: #161e27;
+    --ink: #e7edf3;
+    --ink-2: #98a8b8;
+    --ink-3: #667889;
+    --line: #202b37;
+    --line-2: #1a242e;
+    --accent: #38d2e6;
+    --accent-soft: #12303a;
+    --signal: #3cd67f;
+    --signal-soft: #123424;
+    --amber: #f0b24a;
+    --amber-soft: #33290f;
+    --stamp: #f26b60;
+    --stamp-soft: #3a1a17;
+    --chrome: #0d1218;
+    --chrome-2: #161e27;
   }
 }
 * { box-sizing: border-box; }

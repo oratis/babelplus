@@ -104,7 +104,8 @@ web/
 | `pnpm -r typecheck` | 只类型检查，不产出 |
 | `pnpm -r test` | 三个包各自跑 `vitest run`（见 §9） |
 | `pnpm lint:no-external` | 扫描 `dist`，确认没有任何第三方主机名（见 §5） |
-| `pnpm dev:user` / `pnpm dev:admin` | 5173 / 5174 |
+| `pnpm dev:user` / `pnpm dev:admin` / `pnpm dev:site` | 5173 / 5174 / 5173（site 自己也默认 5173，同时开要 `--port`） |
+| `node scripts/mock-api.mjs --mode user\|admin` | **仅本机看界面用**的假后端 + 反向代理：`/api/*` 回写死的样例（信封与字段名照契约，数字是编的），其余转发到 Vite。没有真后端也能看到面板与后台的每一页；不进构建、CI 不跑（[design-system.md §5](../docs/03-product/design-system.md)） |
 
 生成物 `shared/api/schema.d.ts` **必须提交**。它不在 `.gitignore` 的忽略范围内，
 和 `api/internal/gen/`、`api/db/gen/` 是同一条纪律。
