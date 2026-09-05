@@ -326,7 +326,7 @@ proxy-groups:
                     │
                     │ cron 00:37 UTC（08:37 CST；避开整/半点；在节点 23:30 UTC daily 之后）
                     ▼
-        飞书自定义机器人 Webhook（签名校验；D3，原案应用「胖狗」私聊）
+        飞书应用「胖猫」im/v1/messages（2026-09-05 用户指定；webhook 为备选；原案应用「胖狗」私聊）
                     │
                     ▼  只有用户 + 机器人的群
                   用户本人
@@ -365,7 +365,7 @@ proxy-groups:
 
 ### 3.3 飞书接线（已实测的部分与未实测的部分分开写）
 
-**应用**：`胖狗`，App ID `cli_a9439762a1789bc9`。
+**应用**（2026-09-05 用户改为）：`胖猫`，App ID `cli_a94eb8811578dcd4`，`activate_status: 2`，bot `open_id: ou_8f9991…`；实测在 **16 个**有其他人的工作群里、没有只有用户本人的会话。原案 `胖狗`（`cli_a9439762a1789bc9`）留作备用。
 
 ✅ **已实测（2026-09-04，本机 curl）**：
 
@@ -385,7 +385,7 @@ proxy-groups:
 # 路 A：用邮箱/手机号反查（需应用有 contact:user.id:readonly 权限）
 infra/fleet/feishu-notify.sh --whoami <你的飞书邮箱或手机号>
 
-# 路 B（零额外权限，推荐）：在飞书里建一个只有你和胖狗的群，然后
+# 路 B（零额外权限，推荐）：在飞书里建一个只有你和胖猫的群，然后
 infra/fleet/feishu-notify.sh --list-chats     # 这条接口已实测可用
 ```
 
