@@ -28,7 +28,7 @@ NODE="${1:?用法: healthcheck-install.sh <vpn-host> [--dry-run]}"
 DRY=0; [ "${2:-}" = "--dry-run" ] && DRY=1
 
 ZONE="$(jq -r --arg h "$NODE" '.nodes[] | select(.host==$h) | .zone' "$FLEET_JSON")"
-[ -n "$ZONE" ] && [ "$ZONE" != "null" ] || { printf 'fleet.json 里没有 %s\n' "$NODE" >&2; exit 2; }
+if [ -z "$ZONE" ] || [ "$ZONE" = "null" ]; then printf 'fleet.json 里没有 %s\n' "$NODE" >&2; exit 2; fi
 SS_PORT="$(jq -r --arg h "$NODE" '[.nodes[] | select(.host==$h) | .paths[] | select(.kind=="shadowsocks2022") | .port] | .[0] // 48882' "$FLEET_JSON")"
 
 TOKEN_VAR="NODE_TOKEN_$(printf '%s' "$NODE" | tr '[:lower:]-' '[:upper:]_')"

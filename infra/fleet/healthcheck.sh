@@ -104,7 +104,7 @@ if [ -n "$peer_list" ]; then
   IFS=',' read -r -a arr <<< "$peer_list"
   for kv in "${arr[@]}"; do
     h="${kv%%=*}"; ip="${kv#*=}"
-    [ -n "$h" ] && [ -n "$ip" ] || continue
+    if [ -z "$h" ] || [ -z "$ip" ]; then continue; fi
     t0="$(date +%s%N)"
     if timeout 5 bash -c "exec 3<>/dev/tcp/$ip/443" 2>/dev/null; then ok=true; else ok=false; fi
     t1="$(date +%s%N)"

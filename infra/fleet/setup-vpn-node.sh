@@ -200,5 +200,5 @@ sed -i -e 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' -e 's/^#*Pe
 systemctl reload ssh || systemctl reload sshd || true
 for s in xray hysteria-server ssserver cloudflared; do printf '%s=%s ' "$s" "$(systemctl is-active "$s" 2>/dev/null || echo n/a)"; done; echo
 ss -tulnp | awk 'NR>1{print $1, $5, $7}' | grep -E ':443 |:'"$SS_PORT"' ' | sed -E 's/users:\(\("([^"]+)".*/\1/' | sort -u
-ls /var/run/reboot-required >/dev/null 2>&1 && echo "⚠️ 有内核更新待重启（装完本脚本可以马上 reboot 一次）" || true
+if [ -f /var/run/reboot-required ]; then echo "⚠️ 有内核更新待重启（装完本脚本可以马上 reboot 一次）"; fi
 echo "done."

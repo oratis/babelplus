@@ -52,7 +52,7 @@ kv() {
 }
 command -v wrangler >/dev/null || die "缺少 wrangler"
 command -v jq >/dev/null || die "缺少 jq"
-[ -n "$NS" ] && [ "$NS" != "null" ] || die "fleet.json 缺 .subscription.kv_namespace_id"
+if [ -z "$NS" ] || [ "$NS" = "null" ]; then die "fleet.json 缺 .subscription.kv_namespace_id"; fi
 
 if [ "$LIST" = 1 ]; then
   kv key list
