@@ -218,10 +218,11 @@
     "_note": "hostname 待 D5 的独立 zone 定下来再填；填了以后在 worker/wrangler.jsonc 加 routes 重新 deploy。为空时订阅走 workers.dev（大陆不可达，只能当发布验证）"
   },
   "report": {
-    "channel": "feishu-custom-bot-webhook",
+    "channel": "feishu-app（胖猫 cli_a94eb8811578dcd4，用户 2026-09-05 指定）；备选 feishu-custom-bot-webhook",
     "worker_cron_utc": "37 0 * * *",
     "node_timer_utc": "*-*-* *:30:00",
-    "_note": "节点每小时 :30 上报，23:30 UTC 那次为 daily；Worker 00:37 UTC（08:37 CST）发日报，避开整点/半点（飞书文档建议）"
+    "_note": "节点每小时 :30 上报，23:30 UTC 那次为 daily；Worker 00:37 UTC（08:37 CST）发日报，避开整点/半点（飞书文档建议）",
+    "_recipient": "🔴 待定：胖猫当前在 16 个有其他人的群里，没有只有用户本人的会话；日报含节点 IP，收件会话确定前不发"
   },
   "devices": [
     {

@@ -333,7 +333,7 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
 |---|---|---|
 | D1 | 按修订批准本 ADR | 本节 |
 | D2 | `vpn-ops` 推迟 | Worker 承担 ingest + cron 日报；节点互探；`fleet.json .deferred` 记录复审条件 |
-| D3 | 飞书改自定义机器人 Webhook | Worker 直接 POST（签名）；**webhook 待用户建群取得** |
+| D3 | ~~飞书改自定义机器人 Webhook~~ → **用户 2026-09-05 改为用应用「胖猫」**（`cli_a94eb8811578dcd4`，`activate_status=2` 实测） | Worker 走 tenant_access_token + `im/v1/messages`（webhook 留作备选）；🔴 **收件会话待定**：胖猫在 16 个有其他人的群里，没有只有用户的会话，日报含节点 IP，确定前不发 |
 | D4 | `vpn-us` 先 `e2-small`、`vpn-jp` 不升、`vpn-sg` 从 `e2-small` 起步 | ✅ 09:42 `vpn-us` 升级；`vpn-sg` 15:33 建成 |
 | D5 | 订阅用独立 zone | **域名待定**；Worker 暂在 workers.dev |
 | D6 | 换 SA 与升机型合并一次停机；SA = `vpn-node-sa` | ✅ 三台全部 `vpn-node-sa`（`vpn-jp` 序列失控 5.5 h，代价 10） |

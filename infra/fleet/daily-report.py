@@ -10,7 +10,7 @@
   daily-report.py --source nodes --preview     # Worker 不可用：IAP SSH 逐台拉 /var/lib/fleet/latest.json，本地渲染精简版
   daily-report.py --source nodes --send
 
-需要：FLEET_INGEST_URL（Worker 基址）、ADMIN_TOKEN；发送还需 FEISHU_WEBHOOK_URL（+ FEISHU_WEBHOOK_SECRET 可选）。
+需要：FLEET_INGEST_URL（Worker 基址）、ADMIN_TOKEN；发送还需 FEISHU_APP_ID + FEISHU_APP_SECRET + FEISHU_RECEIVE_ID（应用「胖猫」），或备选 FEISHU_WEBHOOK_URL（+ _SECRET）。
 🔴 本地渲染是精简版（没有月度用量差分 —— 那份状态只在 KV 里），只保证「每台一行 + 未上报正向可读 + 待办」。
 """
 import argparse, base64, datetime, hashlib, hmac, json, os, pathlib, subprocess, sys, time, urllib.request
@@ -99,6 +99,19 @@ def card_local(latest):
 
 
 def send_feishu(card):
+    # 应用「胖猫」优先（用户 2026-09-05 指定）：复用 feishu-notify.sh --card（同一条契约，content 必须是字符串化 JSON）
+    if env("FEISHU_APP_ID") and env("FEISHU_APP_SECRET"):
+        if not env("FEISHU_RECEIVE_ID"):
+            sys.exit("FEISHU_RECEIVE_ID 未配置：日报含节点 IP，只能发到只有你本人的会话（feishu-notify.sh --list-chats 取 chat_id）")
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(card, f, ensure_ascii=False); tmp = f.name
+        try:
+            r = subprocess.run([str(HERE / "feishu-notify.sh"), "--card", tmp], capture_output=True, text=True)
+        finally:
+            os.unlink(tmp)
+        print(r.stdout[-400:] or r.stderr[-400:])
+        return r.returncode == 0 and '"code": 0' in r.stdout
     url = env("FEISHU_WEBHOOK_URL", True)
     payload = {"msg_type": "interactive", "card": card}
     secret = env("FEISHU_WEBHOOK_SECRET")

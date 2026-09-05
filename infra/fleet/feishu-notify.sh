@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# feishu-notify.sh · 自用机队的飞书出口（应用「胖狗」）
+# feishu-notify.sh · 自用机队的飞书出口（应用「胖猫」）
 #
 # 事实源：docs/04-ops/personal-fleet-runbook.md §3.3
 #         docs/05-adr/0017-personal-fleet-in-repo.md §6（凭据红线）
@@ -10,7 +10,7 @@
 #   ① 本机 gitignored 的 infra/fleet/.secrets.env
 #   ② vpn-ops 的 Secret Manager 引用
 # **不下发到任何一台代理节点。** 代理节点是暴露面最大的资产，它们需要的只是
-# 「把巡检 JSON 交出去」的能力，不需要「以胖狗身份发消息」的能力。
+# 「把巡检 JSON 交出去」的能力，不需要「以胖猫身份发消息」的能力。
 #
 # 凭据只经环境变量传入，不落盘、不进命令行、不进 shell history。
 # -----------------------------------------------------------------------------
@@ -58,7 +58,7 @@ send() {
   local tok="$1" msg_type="$2" content="$3"
   [ -n "$TO" ] || die "缺少收件人：设 FEISHU_RECEIVE_ID 或传 --to。
   取 open_id：  $0 --whoami <邮箱|手机号>
-  取 chat_id：  $0 --list-chats   （建一个只有你和胖狗的群，零额外权限）"
+  取 chat_id：  $0 --list-chats   （建一个只有你和胖猫的群，零额外权限）"
   curl -sS -m 30 -X POST "$BASE/open-apis/im/v1/messages?receive_id_type=$TO_TYPE" \
     -H "Authorization: Bearer $tok" \
     -H 'Content-Type: application/json; charset=utf-8' \

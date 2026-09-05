@@ -305,20 +305,54 @@ async function runReport(env, opts = {}) {
   const report = await buildReport(env);
   const result = { ts: new Date().toISOString(), cron: opts.cron || null, template: report.template, sent: false };
   if (opts.send) {
-    if (!env.FEISHU_WEBHOOK_URL) {
-      result.error = "FEISHU_WEBHOOK_URL 未配置（wrangler secret put）";
-    } else {
+    // 投递通道二选一：应用（胖猫，tenant_access_token + im/v1/messages，用户 2026-09-05 指定）优先；
+    // 自定义机器人 webhook 作为备选。两者都没配就只落 report/last，不报错也不静默——error 字段写明。
+    if (env.FEISHU_APP_ID && env.FEISHU_APP_SECRET) {
+      if (!env.FEISHU_RECEIVE_ID) {
+        result.error = "FEISHU_RECEIVE_ID 未配置：日报含节点 IP，只能发到只有用户本人的会话（wrangler secret put）";
+      } else {
+        const r = await sendFeishuCardViaApp(env, report.card);
+        result.channel = "app"; result.sent = r.ok; result.status = r.status; result.body = r.body;
+      }
+    } else if (env.FEISHU_WEBHOOK_URL) {
       const r = await sendFeishuCard(env, report.card);
-      result.sent = r.ok;
-      result.status = r.status;
-      result.body = r.body;
+      result.channel = "webhook"; result.sent = r.ok; result.status = r.status; result.body = r.body;
+    } else {
+      result.error = "未配置飞书通道（FEISHU_APP_ID+FEISHU_APP_SECRET+FEISHU_RECEIVE_ID，或 FEISHU_WEBHOOK_URL）";
     }
   }
   await env.KV.put("report/last", JSON.stringify({ ...result, card: report.card }));
   return result;
 }
 
-// sendFeishuCard · 飞书自定义机器人 webhook（open.feishu.cn add-custom-bot，2026-09-05 核实）：
+// sendFeishuCardViaApp · 飞书应用出口（与 feishu-notify.sh 同一条契约）：
+// ① POST auth/v3/tenant_access_token/internal 取 token（有效期 7200 s，每次取，不落盘）；
+// ② POST im/v1/messages?receive_id_type=<chat_id|open_id>，content 必须是**字符串化的 JSON**——
+//    写成对象不会报错，只会静默发不出去（feishu-notify.sh 里那条注释的同款坑）。
+async function sendFeishuCardViaApp(env, card) {
+  const base = env.FEISHU_BASE || "https://open.feishu.cn";
+  const tr = await fetch(`${base}/open-apis/auth/v3/tenant_access_token/internal`, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ app_id: env.FEISHU_APP_ID, app_secret: env.FEISHU_APP_SECRET }),
+  });
+  const tj = await tr.json().catch(() => ({}));
+  if (!tj || tj.code !== 0 || !tj.tenant_access_token) {
+    return { ok: false, status: tr.status, body: `tenant_access_token 失败 code=${tj && tj.code} msg=${tj && tj.msg}` };
+  }
+  const type = env.FEISHU_RECEIVE_ID_TYPE || "chat_id";
+  const r = await fetch(`${base}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(type)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8", authorization: `Bearer ${tj.tenant_access_token}` },
+    body: JSON.stringify({ receive_id: env.FEISHU_RECEIVE_ID, msg_type: "interactive", content: JSON.stringify(card) }),
+  });
+  const body = (await r.text()).slice(0, 300);
+  let ok = r.ok;
+  try { const j = JSON.parse(body); if (j && typeof j.code === "number") ok = j.code === 0; } catch {}
+  return { ok, status: r.status, body };
+}
+
+// sendFeishuCard · 飞书自定义机器人 webhook（备选通道）（open.feishu.cn add-custom-bot，2026-09-05 核实）：
 // 不需要 app_id / app_secret / tenant_access_token；签名 = base64(HMAC-SHA256(key = `${timestamp}\n${secret}`, msg = ""))。
 // 限 100 次/分钟、请求体 ≤ 20 KB。
 async function sendFeishuCard(env, card) {
