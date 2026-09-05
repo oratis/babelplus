@@ -141,9 +141,9 @@ verify() {
   url="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')"
   ok "最新修订版：$rev"
   code="$(curl -sS -m 30 -o /dev/null -w '%{http_code}' "${url}/-/healthz" || echo 000)"
-  [ "$code" = "200" ] && ok "run.app /-/healthz → 200" || warn "run.app /-/healthz → $code"
+  if [ "$code" = "200" ]; then ok "run.app /-/healthz → 200"; else warn "run.app /-/healthz → $code"; fi
   code="$(curl -sS -m 30 -o /dev/null -w '%{http_code}' "${url}/" || echo 000)"
-  [ "$code" = "200" ] && ok "run.app / → 200" || warn "run.app / → $code"
+  if [ "$code" = "200" ]; then ok "run.app / → 200"; else warn "run.app / → $code"; fi
   # 经 LB：web. 应当 200；admin. 应当被 IAP 挡成 302（能挡说明路由与 IAP 都在）。
   code="$(curl -sS -m 40 -o /dev/null -w '%{http_code}' "https://${HOST}/" || echo 000)"
   ok "https://${HOST}/ → $code（web 期望 200，admin 期望 302 IAP）"
