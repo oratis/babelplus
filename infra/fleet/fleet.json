@@ -1,0 +1,249 @@
+{
+  "_comment": [
+    "自用机队（vpn-*）的非机密拓扑与隔离期望。凭据一律不进本文件——它们在 gitignored 的 infra/fleet/.secrets.env 里。",
+    "本文件是四样东西的唯一事实源：gen-subscription.py 的输入、infra/scripts/verify-isolation.sh 的 vpn 侧期望清单（ADR 0017 §3 / roadmap B69）、",
+    "日报里「未上报」的判定名单（Worker 读 KV 里的副本，由 publish-subscription.sh 发布），以及节点互探的对端表（Worker GET /fleet）。",
+    "🔴 paths[].name 的前缀（JP- / US- / SG-）是接口的一部分：客户端 proxy-groups 用 filter 正则按它分组，改名会让分组静默变空。",
+    "🔴 status=planned 的节点意味着「此刻不得存在」——verify-isolation.sh 会在它被意外建出来时报红；建成后把 status 改成 running 并填 ip / address_name。",
+    "改机型 / 换 IP / 换服务账号 / 加节点：先改这里，再跑 verify-isolation.sh 到绿，再发布订阅。顺序反了脚本会红，这是设计如此（D7，2026-09-05）。",
+    "vpn-ops 按 D2（2026-09-05）推迟：Worker 承担聚合与日报，节点互探代替跨节点回打；复审条件见 personal-fleet-runbook §4 代价 5。"
+  ],
+  "updated": "2026-09-05",
+  "project": "oratis-491316",
+  "fleet_name": "vpn-fleet",
+  "budget": {
+    "monthly_usd_cap": 500,
+    "egress_soft_gib": 3000,
+    "egress_hard_gib": 3800,
+    "_note": "阈值推导见 personal-fleet-runbook §1.6；GCP budget（$500/月，EXCLUDE_ALL_CREDITS）只告警不停机，日报与订阅流量条才是观测点"
+  },
+  "isolation": {
+    "vpn_prefix": "vpn-",
+    "bp_prefix": "bp-",
+    "vpn_tag": "vpn-node",
+    "bp_tag": "bp-node",
+    "expected_firewall_non_bp": [
+      "allow-hysteria-udp443",
+      "allow-iap-ssh",
+      "allow-ss-48882",
+      "allow-xray-443",
+      "default-allow-icmp",
+      "default-allow-internal",
+      "default-allow-rdp",
+      "default-allow-ssh",
+      "vpn-allow-hy2-udp443",
+      "vpn-allow-reality-443",
+      "vpn-deny-from-bp",
+      "vpn-iap-ssh-allow",
+      "vpn-public-ssh-deny"
+    ],
+    "expected_disabled": [
+      "default-allow-rdp"
+    ],
+    "ssh_chain": {
+      "iap_allow": "vpn-iap-ssh-allow",
+      "public_deny": "vpn-public-ssh-deny",
+      "default_allow": "default-allow-ssh",
+      "tag": "vpn-node"
+    },
+    "cross_fleet_deny": {
+      "name": "vpn-deny-from-bp",
+      "source_tag": "bp-node",
+      "target_tag": "vpn-node",
+      "must_outrank": "default-allow-internal",
+      "_note": "2026-09-04 21:15 CST 由 optimize-vpn.sh p1 建立：禁止 bp-node 经内网访问 vpn-node。它是两支机队之间唯一一条 GCP 强制的隔离，脚本要守它"
+    },
+    "_history": [
+      "2026-08-16 as-built-gcp §3：10 条非 bp- 规则",
+      "2026-09-04 21:15 CST：+vpn-deny-from-bp（optimize-vpn.sh p1），default-allow-rdp 改 disabled",
+      "2026-09-05 08:5x CST：+vpn-allow-reality-443 / vpn-allow-hy2-udp443（roadmap B70）→ 13 条",
+      "2026-09-05 05:40 CST：vpn-us 经 optimize-vpn.sh p2 摘掉默认 Compute SA（vpn-jp 未动）",
+      "2026-09-05 09:42 CST：vpn-us stop → e2-small → vpn-node-sa → start（停机 50 s）",
+      "2026-09-05 09:44–15:17 CST：vpn-jp stop → 网络中断 → 15:17 set vpn-node-sa + start（🔴 约 5.5 h 不可用）",
+      "2026-09-05 15:33 CST：+vpn-sg（asia-southeast1-a / e2-small / STANDARD / 34.2.143.75 / vpn-node-sa）"
+    ]
+  },
+  "services": {
+    "_comment": "paths[].kind → 节点上的 systemd unit。healthcheck 只上报状态，期望由 Worker 按这张表判定。",
+    "hysteria2": "hysteria-server",
+    "vless_reality": "xray",
+    "vless_ws_tls": "cloudflared",
+    "shadowsocks2022": "ssserver"
+  },
+  "nodes": [
+    {
+      "host": "vpn-jp",
+      "zone": "asia-northeast1-a",
+      "region": "asia-northeast1",
+      "machine_type": "e2-micro",
+      "network_tier": "PREMIUM",
+      "ip": "34.104.192.233",
+      "address_name": "vpn-jp-ip",
+      "tags": [
+        "vpn-node"
+      ],
+      "role": "proxy",
+      "status": "running",
+      "deletion_protection": true,
+      "service_account": "vpn-node-sa@oratis-491316.iam.gserviceaccount.com",
+      "secrets_prefix": "JP_",
+      "cert": {
+        "hysteria": "/etc/hysteria/server.crt"
+      },
+      "paths": [
+        {
+          "name": "JP-HY2",
+          "kind": "hysteria2",
+          "port": 443,
+          "sort": 10
+        },
+        {
+          "name": "JP-Reality",
+          "kind": "vless_reality",
+          "port": 443,
+          "sort": 20
+        },
+        {
+          "name": "JP-SS",
+          "kind": "shadowsocks2022",
+          "port": 48882,
+          "sort": 30
+        },
+        {
+          "name": "JP-CDN",
+          "kind": "vless_ws_tls",
+          "port": 443,
+          "sort": 40,
+          "server": "jp.gptwiki.net",
+          "note": "Cloudflare Tunnel，抗封锁保险，非日常路径"
+        }
+      ],
+      "_note": "2026-09-05（D6）：默认 Compute SA → vpn-node-sa；机型不升（as-built §4.3：不是 CPU 瓶颈）。🔴 停机窗口失控：09:44 stop 后 gcloud 连接中断，15:17 才 start，约 5.5 h 不可用；内核更新随这次重启生效（6.1.0-52）。"
+    },
+    {
+      "host": "vpn-us",
+      "zone": "us-west1-a",
+      "region": "us-west1",
+      "machine_type": "e2-small",
+      "network_tier": "PREMIUM",
+      "ip": "8.231.52.43",
+      "address_name": "vpn-us-ip-v4",
+      "tags": [
+        "vpn-node"
+      ],
+      "role": "proxy",
+      "status": "running",
+      "deletion_protection": true,
+      "service_account": "vpn-node-sa@oratis-491316.iam.gserviceaccount.com",
+      "secrets_prefix": "",
+      "cert": {},
+      "paths": [
+        {
+          "name": "US-CDN",
+          "kind": "vless_ws_tls",
+          "port": 443,
+          "sort": 10,
+          "server": "cdn.gptwiki.net",
+          "note": "AI 站点首选：VM IP 被封不受影响"
+        },
+        {
+          "name": "US-Reality",
+          "kind": "vless_reality",
+          "port": 443,
+          "sort": 20
+        },
+        {
+          "name": "US-SS",
+          "kind": "shadowsocks2022",
+          "port": 48882,
+          "sort": 30
+        }
+      ],
+      "_note": "2026-09-05 09:42 CST（D4/D6 停机窗口，停机 50 s）：e2-micro → e2-small，挂 vpn-node-sa（logging.write + monitoring.write scopes）。复审判据：ADR 0017 §8 代价 2（4 轮交叉、单流中位提升 <20% 回退）。"
+    },
+    {
+      "host": "vpn-sg",
+      "zone": "asia-southeast1-a",
+      "region": "asia-southeast1",
+      "machine_type": "e2-small",
+      "network_tier": "STANDARD",
+      "ip": "34.2.143.75",
+      "address_name": "vpn-sg-ip-cand1",
+      "tags": [
+        "vpn-node"
+      ],
+      "role": "proxy",
+      "status": "running",
+      "deletion_protection": true,
+      "service_account": "vpn-node-sa@oratis-491316.iam.gserviceaccount.com",
+      "secrets_prefix": "SG_",
+      "cert": {
+        "hysteria": "/etc/hysteria/server.crt"
+      },
+      "_note": "2026-09-05 15:33 CST 由 create-vpn-node.sh 建成（evidence/fleet-node-provision-vpn-sg-20260905），15:4x setup-vpn-node.sh 装 xray REALITY + Hysteria2。STANDARD 是刻意的：与 vpn-jp 的 PREMIUM 构成同期对照（ADR 0017 §4.3，⚠️ 不干净）。机型按 D4 从 e2-small 起步。地址名 vpn-sg-ip-cand1 是候选命名遗留。",
+      "paths": [
+        {
+          "name": "SG-HY2",
+          "kind": "hysteria2",
+          "port": 443,
+          "sort": 10
+        },
+        {
+          "name": "SG-Reality",
+          "kind": "vless_reality",
+          "port": 443,
+          "sort": 20
+        }
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "host": "vpn-ops",
+      "decision": "D2 2026-09-05 推迟",
+      "reason": "Worker 承担 ingest + 日报；互探代替回打；只剩 BigQuery 拉 $ 实收与订阅静态兜底两件事，先不为它开机器"
+    }
+  ],
+  "notice": {
+    "_comment": "订阅的第一位是公告伪节点：语法合法但连不上，用节点名传达状态。这是订阅域名被封时唯一还能触达用户的通道（ADR 0002 §4.1 第 2 条恢复路径）。",
+    "name_template": "📢 订阅 {sub_domain} · 更新于 {date}"
+  },
+  "subscription": {
+    "worker_name": "fleet-sub",
+    "cloudflare_account_id": "905b414662eeded1a3a1ebb6fa1c4237",
+    "kv_namespace_id": "df18867b8815457d868b91b9a8958922",
+    "hostname": "sub.telloria.com",
+    "profile_update_interval_h": 24,
+    "provider_interval_s": 900,
+    "_note": "sub.telloria.com（用户 2026-09-05 指定，D5 独立 zone，不与 gptwiki.net 的 CDN 保险通路同失效面）。Worker custom_domain 由 Cloudflare 自动建 DNS 与证书。workers.dev 地址保留为发布验证用。"
+  },
+  "report": {
+    "channel": "feishu-app（胖猫 cli_a94eb8811578dcd4，用户 2026-09-05 指定）；备选 feishu-custom-bot-webhook",
+    "worker_cron_utc": "37 0 * * *",
+    "node_timer_utc": "*-*-* *:30:00",
+    "_note": "节点每小时 :30 上报，23:30 UTC 那次为 daily；Worker 00:37 UTC（08:37 CST）发日报，避开整点/半点（飞书文档建议）",
+    "_recipient": "用户本人私聊（open_id，2026-09-05 由 feishu-notify.sh --whoami 按手机号反查取得；值只在 .secrets.env 与 Worker secret）。首条真实日报 2026-09-05 15:53 CST 发送成功（code 0）"
+  },
+  "devices": [
+    {
+      "id": "mac",
+      "note": "token 在 .secrets.env 的 DEVICE_TOKEN_MAC"
+    },
+    {
+      "id": "iphone",
+      "note": "每台设备一个 token —— 为的是吊销，不是计费"
+    },
+    {
+      "id": "ipad"
+    },
+    {
+      "id": "laptop"
+    },
+    {
+      "id": "windows"
+    },
+    {
+      "id": "spare"
+    }
+  ]
+}

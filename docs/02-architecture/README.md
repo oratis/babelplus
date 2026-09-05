@@ -10,6 +10,7 @@
 | 文档 | 性质 | 状态 |
 |---|---|---|
 | [as-built-gcp.md](as-built-gcp.md) | 证据型核查 | **As-Built**（§2–§6 为 2026-08-16 快照；§10 为 2026-08-20 复核） |
+| [as-built-personal-fleet.md](as-built-personal-fleet.md) | 证据型核查 | **As-Built**（2026-09-04 快照 + 2026-09-05 增补节）—— 自用机队 `vpn-*`：**3 台机 / 9 条通路**；443 入向的隐式耦合已由 B70 关掉；三台全部 `vpn-node-sa` |
 | [system-design.md](system-design.md) | 设计方案 | 设计稿 v1（2026-08-16，未实施） |
 | [data-model.md](data-model.md) | 设计方案 | 设计稿 v1（2026-08-16） |
 | [api-contract.md](api-contract.md) | 设计方案 | 设计稿 v1（2026-08-16） |

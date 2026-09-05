@@ -1,0 +1,83 @@
+# as-built §7 清点 · before · 2026-09-05T07:30:14Z
+
+
+$ gcloud compute instances list --project=oratis-491316
+NAME         ZONE               MACHINE_TYPE  PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP     STATUS
+vpn-us       us-west1-a         e2-small                   10.138.0.2   8.231.52.43     RUNNING
+vpn-jp       asia-northeast1-a  e2-micro                   10.146.0.2   34.104.192.233  RUNNING
+bp-node-hk1  asia-east2-a       e2-small                   10.170.0.2   35.215.158.52   RUNNING
+
+$ gcloud compute addresses list --project=oratis-491316
+NAME                         ADDRESS/RANGE   TYPE      PURPOSE  NETWORK  REGION           SUBNET  STATUS
+bp-admin-lb-ip               34.117.101.225  EXTERNAL                                             IN_USE
+vpn-us-ip-v4                 8.231.52.43     EXTERNAL                    us-west1                 IN_USE
+vpn-jp-ip                    34.104.192.233  EXTERNAL                    asia-northeast1          IN_USE
+bp-node-hk1-ip-202609010135  35.215.158.52   EXTERNAL                    asia-east2               IN_USE
+
+$ gcloud compute firewall-rules list --project=oratis-491316
+NAME                    NETWORK  DIRECTION  PRIORITY  ALLOW                         DENY    DISABLED
+allow-hysteria-udp443   default  INGRESS    1000      udp:443                               False
+allow-iap-ssh           default  INGRESS    1000      tcp:22                                False
+allow-ss-48882          default  INGRESS    1000      tcp:48882,udp:48882                   False
+allow-xray-443          default  INGRESS    1000      tcp:443                               False
+bp-allow-hy2-udp443     default  INGRESS    1000      udp:443                               False
+bp-allow-reality-443    default  INGRESS    1000      tcp:443                               False
+bp-iap-ssh-allow        default  INGRESS    900       tcp:22                                False
+bp-public-ssh-deny      default  INGRESS    1000                                    tcp:22  False
+default-allow-icmp      default  INGRESS    65534     icmp                                  False
+default-allow-internal  default  INGRESS    65534     tcp:0-65535,udp:0-65535,icmp          False
+default-allow-rdp       default  INGRESS    65534     tcp:3389                              True
+default-allow-ssh       default  INGRESS    65534     tcp:22                                False
+vpn-allow-hy2-udp443    default  INGRESS    1000      udp:443                               False
+vpn-allow-reality-443   default  INGRESS    1000      tcp:443                               False
+vpn-deny-from-bp        default  INGRESS    700                                     all     False
+vpn-iap-ssh-allow       default  INGRESS    500       tcp:22                                False
+vpn-public-ssh-deny     default  INGRESS    600                                     tcp:22  False
+
+To show all fields of the firewall, please show in JSON format: --format=json
+To show all fields in table format, please see the examples in --help.
+
+
+$ gcloud run services list --project=oratis-491316
+   SERVICE          REGION       URL                                                     LAST DEPLOYED BY    LAST DEPLOYED AT
+✔  anthropic-relay  us-central1  https://anthropic-relay-2360090741.us-central1.run.app  WangHarp@gmail.com  2026-08-20T11:27:43.329070Z
+✔  bp-admin         us-central1  https://bp-admin-2360090741.us-central1.run.app         WangHarp@gmail.com  2026-08-30T17:26:51.600474Z
+✔  bp-api           us-central1  https://bp-api-2360090741.us-central1.run.app           WangHarp@gmail.com  2026-09-02T07:03:36.905717Z
+✔  bp-site          us-central1  https://bp-site-2360090741.us-central1.run.app          WangHarp@gmail.com  2026-09-04T08:32:58.799296Z
+✔  bp-web           us-central1  https://bp-web-2360090741.us-central1.run.app           WangHarp@gmail.com  2026-08-30T17:26:20.932548Z
+✔  lisa-cloud       us-central1  https://lisa-cloud-2360090741.us-central1.run.app       WangHarp@gmail.com  2026-08-21T08:31:29.033248Z
+✔  lisa-web         us-central1  https://lisa-web-2360090741.us-central1.run.app         WangHarp@gmail.com  2026-07-14T03:28:39.911561Z
+
+$ gcloud secrets list --project=oratis-491316
+NAME                          CREATED              REPLICATION_POLICY  LOCATIONS
+anthropic-api-key             2026-07-02T03:53:10  automatic           -
+bp-acme-certbot-state         2026-08-31T17:00:34  automatic           -
+bp-admin-iap-oauth-client-id  2026-08-31T15:30:00  automatic           -
+bp-admin-iap-oauth-secret     2026-08-31T15:29:46  automatic           -
+bp-admin-totp-enc-key         2026-08-31T09:06:18  automatic           -
+bp-aliyun-dns-ali-key         2026-09-02T04:50:18  automatic           -
+bp-aliyun-dns-ali-secret      2026-09-02T04:50:47  automatic           -
+bp-database-url               2026-08-17T03:28:58  user_managed        us-central1
+bp-jwt-signing-key            2026-08-17T03:12:31  user_managed        us-central1
+bp-node-token-pepper          2026-08-17T03:12:18  user_managed        us-central1
+bp-resend-api-key             2026-08-31T15:50:35  automatic           -
+bp-sub-token-pepper           2026-08-17T03:12:02  user_managed        us-central1
+paypal-app-clipie             2026-08-21T03:14:15  automatic           -
+paypal-app-dimbluedot         2026-08-21T04:22:10  automatic           -
+paypal-app-gptwiki            2026-08-21T03:13:11  automatic           -
+paypal-app-takoapi            2026-08-21T03:13:35  automatic           -
+paypal-app-telloria           2026-08-21T03:13:56  automatic           -
+relay-token                   2026-07-02T03:53:15  automatic           -
+
+$ gcloud iam service-accounts list --project=oratis-491316
+DISPLAY NAME                               EMAIL                                                       DISABLED
+                                           vertex-express@oratis-491316.iam.gserviceaccount.com        False
+Cuddler Play billing (RevenueCat/EAS/API)  cuddler-play-billing@oratis-491316.iam.gserviceaccount.com  False
+babel.plus bp-api-sa                       bp-api-sa@oratis-491316.iam.gserviceaccount.com             False
+babel.plus bp-deploy-sa                    bp-deploy-sa@oratis-491316.iam.gserviceaccount.com          False
+babel.plus bp-tasks-sa                     bp-tasks-sa@oratis-491316.iam.gserviceaccount.com           False
+Compute Engine default service account     2360090741-compute@developer.gserviceaccount.com            False
+babel.plus node runtime                    bp-node-sa@oratis-491316.iam.gserviceaccount.com            False
+vpn-node-sa                                vpn-node-sa@oratis-491316.iam.gserviceaccount.com           False
+oratisbase CI                              oratisbase-ci@oratis-491316.iam.gserviceaccount.com         False
+babel.plus 官网（无任何角色）              bp-site-sa@oratis-491316.iam.gserviceaccount.com            False

@@ -9,6 +9,7 @@
 > 关联：[0001](0001-cloudflare-tos-risk.md) §5.4（cloudflared 账号归属）、
 > [0004](0004-transport-hardening.md)、[system-design.md](../02-architecture/system-design.md) §3.3、
 > [runbook-node-health.md](../04-ops/runbook-node-health.md) §3.1（换 IP 流程）
+> ⚠️ **2026-09-05 追记：本文 §4 / §8「`vpn-jp` 作为第一次节点切换的人工回滚落点」已被 [ADR 0017](0017-personal-fleet-in-repo.md)（用户 2026-09-05 按修订批准）撤销。** 撤销后 babel.plus 的节点切换**没有回滚落点**（roadmap B68）。其余裁决不变。
 
 ---
 

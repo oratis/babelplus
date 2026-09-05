@@ -31,6 +31,9 @@
 | [node-bringup-20260901](node-bringup-20260901/) | **第一条 REALITY 通路端到端接通**，以及**四条只有真机才会撞上的缺陷**；ADR 0004 §3.3 的 mux 裁决被本文推翻；B15 有了实测判定。计量口径 +0.3% 的基线也在这里 |
 | [adr0014-alerts-hy2-20260902](adr0014-alerts-hy2-20260902/) | ADR 0014 落地 + **HY2 通路接通** + **又三条真机缺陷**（含 B63「节点上只剩一个用户时封禁永不生效」）。三态计时见 §6 |
 | [e0-metering-20260904](e0-metering-20260904/) | 🔴 **E0 的答案是否定的（B66）**：100 MiB 经 HTTPS 代理入站走完，`stat_user_server` **一个字节都没变**；**同一节点同一时间窗**的 REALITY 正对照 20 MiB 正常入账（+0.21%）—— 所以不是「表没在动」，是那条路径**根本没有账**。扩展这条传输就此停在门口，`getUserProxyConfig` 保持 501。三条出路都要写代码、都要一次裁决 |
+| [fleet-pricing-20260904](fleet-pricing-20260904/) | **机队扩容的目录价**（同法取自 Billing Catalog API，32,771 个 SKU）。补齐 `gcp-egress-pricing-20260817` 缺的三个维度：**机型**（`e2-medium` 俄勒冈 $24.46 / 东京 $31.38 / 新加坡 $30.17）、**盘**（美国前 30 GiB 的 $0 免费档直接编码在 SKU 第一档里，且是**账户级一份**）、**外网 IPv4**（🔴 目录里有两条候选 SKU，差 3–4 倍，判不出该走哪条 —— `VPN方案设计.md` 写的「挂在运行中 VM 上免费」已过时）。另证：**免费层对本机队只值约 $11/月**，因为 Always Free 的出网额度明确排除中国大陆 |
+| [fleet-egress-attribution-20260905](fleet-egress-attribution-20260905/) | **自用机队出网归因**（VPC Flow Logs 12 h 窗口，`flow-report.py`）：31.35 GiB / 12 h（jp 20.41 · us 10.94），**一个北京联通客户端占下行 9.99 GiB**，回源 top 几乎全是 Cloudflare 边缘 —— Flow Logs 看不透共享 IP 背后的域名，砍流量的杠杆在客户端分流规则。客户端 IP 末段已打码 |
+| [fleet-node-provision-vpn-sg-20260905](fleet-node-provision-vpn-sg-20260905/) | **第一台用 `create-vpn-node.sh` 建的自用节点 `vpn-sg`**（asia-southeast1-a / e2-small / STANDARD）：建机前后清点快照与 diff，`vpn-us` / `vpn-jp` / `bp-*` / 三个 Cloud Run 服务零变化 |
 
 > **2026-08-29 登记欠账（自查）：本表此前只有 8 行，而 `docs/evidence/` 下有 9 个目录。**
 > 漏掉的是 `ipv6-censorship-20260817/` —— 它 2026-08-17 随 ADR 0008 一起入库，

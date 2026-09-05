@@ -93,9 +93,14 @@ As-Built，不回改）。
 | 触碰 `anthropic-relay` / `lisa-cloud` / `lisa-web` 三个 Cloud Run 服务 | 与本项目无关的现有服务 |
 | 复用 Compute 默认服务账号 | 权限过大且被现有工作负载共用 |
 | 把凭据写进仓库 | 一律走 Secret Manager 或 `.env`（已 gitignore） |
+| 让 babel.plus 的用户流量落到 `vpn-*` 上（装组件 / 接面板 / 指订阅 / 复用静态 IP / 改 `vpn-node` 相关防火墙） | `vpn-us` / `vpn-jp` 是用户**私人自用**节点，[ADR 0017](docs/05-adr/0017-personal-fleet-in-repo.md) 裁决「同仓不同队」：共享设计与工具，**不共享任何一份 GCP 资源**。⚠️ [ADR 0007 §4/§8](docs/05-adr/0007-node-migration.md) 拿 `vpn-jp` 当回滚落点那一条**已被 0017 撤销**（roadmap B68） |
 | 在竞品站点执行下单/支付/重置等副作用操作 | 调研只做只读走查 |
 
 新建 GCP 资源一律 **`bp-` 前缀** + **`bp-node` 网络标签**。
+
+> 自用机队的工具在 [`infra/fleet/`](infra/fleet/)，一律 **`vpn-` 前缀** + **`vpn-node` 标签** + **`vpn-node-sa`**。
+> [`infra/fleet/fleet.json`](infra/fleet/fleet.json) 是 `verify-isolation.sh` 的 vpn 侧期望清单：**改现役自用节点（机型 / IP / SA / 规则）先改它，再跑脚本到绿；脚本红了改清单，不改脚本，不改宽松。**
+> 两个目录**不要混**：`infra/node/` 硬编码 `STANDARD` 层级（ADR 0008 明令不给开关），`infra/fleet/` 允许显式选层级（要跑 A/B）。
 
 ---
 
