@@ -7,82 +7,80 @@
 @source '../../shared/src';
 
 /*
- * 与用户面板同一套 token（两边视觉一致，评审时不用来回适应），但约束的来源不同：
- * 后台的大陆可达性要求是「不要求」，所以这里用系统字体栈**不是**为了体积，
+ * 与用户面板同一套 token（shared/src/ui/tokens.css；两边视觉一致，评审时不用来回适应），
+ * 但约束的来源不同：后台的大陆可达性要求是「不要求」，所以这里用系统字体栈**不是**为了体积，
  * 而是为了「不引用任何第三方主机名」这条一致的纪律 ——
  * 后台一旦引了外部 CDN，等于在 IP 白名单 / IAP 之后又开了一个对外连接。
- *
- * 若将来要上 webfont，同样必须放进 public/fonts/ 自托管。
  */
-@theme {
-  --font-sans:
-    system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
-  --font-mono:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+@import '../../shared/src/ui/tokens.css';
 
-  /* 浅色是基准。深色在下面的 media query 里覆盖同名变量。 */
-  --color-bg: oklch(99% 0.003 250);
-  --color-surface: oklch(100% 0 0);
-  --color-surface-alt: oklch(97% 0.005 250);
-  --color-line: oklch(90% 0.008 250);
-  --color-fg: oklch(25% 0.02 250);
-  --color-fg-muted: oklch(50% 0.015 250);
-  --color-fg-subtle: oklch(64% 0.012 250);
-  --color-skeleton: oklch(93% 0.008 250);
+@theme inline {
+  --font-sans: var(--bp-font-sans);
+  --font-mono: var(--bp-font-mono);
 
-  --color-accent: oklch(55% 0.16 250);
-  --color-accent-strong: oklch(48% 0.17 250);
-  --color-accent-fg: oklch(100% 0 0);
+  --color-bg: var(--bp-bg);
+  --color-surface: var(--bp-surface);
+  --color-surface-alt: var(--bp-surface-alt);
+  --color-line: var(--bp-line);
+  --color-line-strong: var(--bp-line-strong);
+  --color-fg: var(--bp-fg);
+  --color-fg-muted: var(--bp-fg-muted);
+  --color-fg-subtle: var(--bp-fg-subtle);
+  --color-skeleton: var(--bp-skeleton);
 
-  --color-ok: oklch(52% 0.13 150);
-  --color-warn: oklch(58% 0.13 75);
-  --color-danger: oklch(55% 0.19 25);
-}
+  --color-accent: var(--bp-accent);
+  --color-accent-strong: var(--bp-accent-strong);
+  --color-accent-fg: var(--bp-accent-fg);
+  --color-accent-soft: var(--bp-accent-soft);
 
-/*
- * 深色。写在 @layer 之外，所以优先级高于 @theme 生成的 :root 变量。
- * 不做手动切换开关 —— 跟随系统即可，少一个要存的偏好、少一处要同步的状态。
- */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: oklch(18% 0.012 250);
-    --color-surface: oklch(22% 0.014 250);
-    --color-surface-alt: oklch(26% 0.014 250);
-    --color-line: oklch(32% 0.016 250);
-    --color-fg: oklch(94% 0.006 250);
-    --color-fg-muted: oklch(72% 0.012 250);
-    --color-fg-subtle: oklch(58% 0.012 250);
-    --color-skeleton: oklch(30% 0.014 250);
+  --color-ok: var(--bp-ok);
+  --color-warn: var(--bp-warn);
+  --color-danger: var(--bp-danger);
 
-    --color-accent: oklch(70% 0.14 250);
-    --color-accent-strong: oklch(76% 0.14 250);
-    --color-accent-fg: oklch(18% 0.012 250);
-
-    --color-ok: oklch(72% 0.14 150);
-    --color-warn: oklch(78% 0.13 75);
-    --color-danger: oklch(70% 0.17 25);
-  }
+  --radius-lg: var(--bp-radius);
+  --radius-md: 6px;
+  --radius-sm: var(--bp-radius-sm);
 }
 
 html {
-  background-color: var(--color-bg);
-  color: var(--color-fg);
-  /* 移动端旋转时不要自动放大字号，否则 375px 布局会错位。 */
+  background-color: var(--bp-bg);
+  color: var(--bp-fg);
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
   min-height: 100dvh;
-  font-family: var(--font-sans);
-  /*
-   * 后台是 M3（桌面优先），**不设 overflow-x: hidden** ——
-   * 宽表格在小屏上横向滚动是可以接受的降级，而 hidden 会把内容直接切掉看不见。
-   * M2 的三个模块（工单 / 节点 / 订单）则要求卡片化，那是组件层的事。
-   */
+  font-family: var(--bp-font-sans);
+  /* 后台是 M3（桌面优先），**不设 overflow-x: hidden** ——
+     宽表格在小屏上横向滚动是可以接受的降级，而 hidden 会把内容直接切掉看不见。 */
 }
 
-/* 尊重「减少动态效果」——骨架屏的脉冲对前庭敏感用户是负担。 */
+.font-mono { font-variant-numeric: tabular-nums; }
+::selection { background: var(--bp-accent-soft); color: var(--bp-fg); }
+:focus-visible { outline: 2px solid var(--bp-accent); outline-offset: 2px; }
+
+/*
+ * 后台的表格是主体（用户 / 订单 / 节点 / 审计），各页的 <table> 是手写的 Tailwind 类，
+ * 这里只补它们共同缺的两样：表头做成等宽小标、数字列等宽对齐。不改任何列宽与布局。
+ */
+@layer base {
+  table thead th {
+    font-family: var(--bp-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--bp-fg-subtle);
+    font-weight: 500;
+  }
+  table tbody td {
+    font-variant-numeric: tabular-nums;
+  }
+  table tbody tr:hover {
+    background: color-mix(in srgb, var(--bp-surface-alt) 55%, transparent);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

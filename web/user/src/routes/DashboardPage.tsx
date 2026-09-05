@@ -33,7 +33,10 @@ import {
   Icon,
   LinkButton,
   LoadingState,
+  Meter,
+  Mono,
   SkeletonCard,
+  Stat,
   cx,
   daysUntil,
   formatBytes,
@@ -227,6 +230,7 @@ function SubscriptionCard({ summary }: { summary: SubscriptionSummary }) {
   // user-journey §4.4 最后一行：到期 / 流量耗尽时「续费」置为主按钮。
   const renewIsPrimary = expired || exhausted;
   const atDeviceLimit = summary.device_limit > 0 && summary.device_count >= summary.device_limit;
+  const remainingBytes = hasQuota ? Math.max(0, summary.total_bytes - used) : null;
 
   return (
     <Card>
@@ -244,79 +248,53 @@ function SubscriptionCard({ summary }: { summary: SubscriptionSummary }) {
         当前订阅
       </CardTitle>
 
-      <p className="text-lg font-semibold text-fg">{summary.plan_name || '未命名套餐'}</p>
+      <p className="text-lg font-semibold tracking-tight text-fg">{summary.plan_name || '未命名套餐'}</p>
 
-      <dl className="mt-3 space-y-3 text-sm">
-        <div>
-          <dt className="text-fg-muted">到期</dt>
-          <dd className="mt-0.5 text-fg">
-            {summary.expired_at ? (
-              <>
-                {formatDate(summary.expired_at)}
-                <span className={cx('ml-2', expired ? 'text-danger' : 'text-fg-muted')}>
-                  {expired
-                    ? `已过期 ${Math.abs(remainingDays ?? 0)} 天`
-                    : `还剩 ${remainingDays ?? 0} 天`}
-                </span>
-              </>
-            ) : (
-              // `expired_at` 为 null 在契约里明确表示不限时套餐，不是「读不到」。
-              '不限时套餐，不会到期'
-            )}
-          </dd>
-        </div>
-
-        <div>
-          <dt className="flex flex-wrap items-baseline justify-between gap-x-3 text-fg-muted">
-            <span>流量</span>
-            <span className="text-fg">
-              已用 {formatBytes(used)}
-              {hasQuota ? ` / 总 ${formatBytes(summary.total_bytes)}` : ''}
+      {/* 三个大数字：剩余流量 / 剩余天数 / 设备。数字是这一页的主视觉（design-system.md §3.3）。 */}
+      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3">
+        <Stat
+          label="Remaining · 剩余流量"
+          value={remainingBytes === null ? '—' : formatBytes(remainingBytes, 1)}
+          tone={exhausted ? 'danger' : usedPercent >= 90 ? 'warn' : undefined}
+          hint={hasQuota ? `已用 ${formatBytes(used)} / 总 ${formatBytes(summary.total_bytes)}` : '这个套餐没有给出流量上限。'}
+        />
+        <Stat
+          label="Days · 剩余天数"
+          value={summary.expired_at ? Math.abs(remainingDays ?? 0) : '∞'}
+          unit={summary.expired_at ? (expired ? '天前到期' : '天') : undefined}
+          tone={expired ? 'danger' : undefined}
+          hint={summary.expired_at ? `到期 ${formatDate(summary.expired_at)}` : '不限时套餐，不会到期'}
+        />
+        <Stat
+          label="Devices · 设备"
+          value={summary.device_count}
+          unit={`/ ${summary.device_limit || '—'}`}
+          hint={
+            <span className="flex flex-wrap items-center gap-2">
+              {/* §3.2.3 第 3 条：达到上限**不显示红色报错**，这是升档转化位不是错误提示。 */}
+              {atDeviceLimit ? <Badge tone="info">已达上限，可升级套餐或踢掉一个</Badge> : null}
+              <Link to="/subscribe" className="text-accent hover:underline">
+                管理设备
+              </Link>
             </span>
-          </dt>
-          <dd className="mt-1.5">
-            {hasQuota ? (
-              <div
-                className="h-2 w-full overflow-hidden rounded-full bg-surface-alt"
-                role="progressbar"
-                aria-label="流量使用进度"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(usedPercent)}
-              >
-                <div
-                  className={cx('h-full rounded-full', usedPercent >= 90 ? 'bg-warn' : 'bg-accent')}
-                  style={{ width: `${usedPercent}%` }}
-                />
-              </div>
-            ) : (
-              // `total_bytes = 0` 到底是「不限流量」还是「还没配额度」，契约没写明。
-              // 猜错任何一边都会让用户按错误的预期用流量，所以只陈述事实。
-              <p className="text-xs text-fg-subtle">这个套餐没有给出流量上限。</p>
-            )}
-          </dd>
-        </div>
+          }
+        />
+      </div>
 
+      {/* 进度表紧跟大数字；`total_bytes = 0` 到底是「不限流量」还是「还没配额度」契约没写明，
+          猜错任何一边都会让用户按错误的预期用流量，所以那种情况只在上面的 hint 里陈述事实。 */}
+      {hasQuota ? (
+        <div className="mt-4 flex items-center gap-3">
+          <Meter percent={usedPercent} label="流量使用进度" className="flex-1" />
+          <Mono className="text-[11px] text-fg-subtle">{Math.round(usedPercent)}%</Mono>
+        </div>
+      ) : null}
+
+      <dl className="mt-4 space-y-3 text-sm">
         <ResetDayNote resetAt={summary.reset_at} />
-
-        <div>
-          <dt className="text-fg-muted">设备（相对竞品新增）</dt>
-          <dd className="mt-0.5 flex flex-wrap items-center gap-2 text-fg">
-            <span>
-              {summary.device_count} / {summary.device_limit || '—'}
-            </span>
-            {/* §3.2.3 第 3 条：达到上限**不显示红色报错**，这是升档转化位不是错误提示。 */}
-            {atDeviceLimit ? (
-              <Badge tone="info">已达上限，可升级套餐或踢掉一个</Badge>
-            ) : null}
-            <Link to="/subscribe" className="text-xs text-accent hover:underline">
-              管理设备
-            </Link>
-          </dd>
-        </div>
       </dl>
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-5 flex flex-wrap gap-2">
         <LinkButton tone={renewIsPrimary ? 'default' : 'primary'} href="/subscribe">
           <Icon.Link size={14} /> 订阅链接
         </LinkButton>
