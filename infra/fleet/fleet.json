@@ -222,7 +222,7 @@
     "worker_cron_utc": "37 0 * * *",
     "node_timer_utc": "*-*-* *:30:00",
     "_note": "节点每小时 :30 上报，23:30 UTC 那次为 daily；Worker 00:37 UTC（08:37 CST）发日报，避开整点/半点（飞书文档建议）",
-    "_recipient": "🔴 待定：胖猫当前在 16 个有其他人的群里，没有只有用户本人的会话；日报含节点 IP，收件会话确定前不发"
+    "_recipient": "用户本人私聊（open_id，2026-09-05 由 feishu-notify.sh --whoami 按手机号反查取得；值只在 .secrets.env 与 Worker secret）。首条真实日报 2026-09-05 15:53 CST 发送成功（code 0）"
   },
   "devices": [
     {

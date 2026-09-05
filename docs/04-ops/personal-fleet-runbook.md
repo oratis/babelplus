@@ -476,7 +476,7 @@ set -a; source infra/fleet/.secrets.env; set +a
 
 ## 5 · 这次没有解决的（2026-09-05）
 
-- [ ] 🔴 **飞书收件会话未定（D3，2026-09-05 改用应用「胖猫」）**：`FEISHU_APP_ID/SECRET` 已入 Worker secret；胖猫实测在 16 个有其他人的群里、没有只有用户本人的会话。需用户建一个只有本人 + 胖猫的群（`feishu-notify.sh --list-chats` 取 `chat_id`），或给飞书邮箱/手机号跑 `--whoami` 取 `open_id`；然后 `wrangler secret put FEISHU_RECEIVE_ID`（+ `FEISHU_RECEIVE_ID_TYPE`），`daily-report.py --send` 发第一条。**日报的发送路径一次都没跑。**
+- [x] ~~🔴 **飞书收件会话未定（D3）**~~ ✅ 2026-09-05 15:53 CST：用户给了手机号，`feishu-notify.sh --whoami` 反查到本人 `open_id`（按企业邮箱查不到 `user_id`），写进 Worker secret 后经 `POST /admin/report/send` 发出**首条真实日报，应用返回 code 0**。收件是私聊，不进任何群。
 - [ ] 🔴 **订阅域名未定（D5）**：独立 zone。定了以后：`worker/wrangler.jsonc` 加 `routes` → `wrangler deploy` → `fleet.json .subscription.hostname` → `publish-subscription.sh`（公告伪节点名里写域名）→ `.secrets.env` 的 `FLEET_INGEST_URL` → 三台 `healthcheck-install.sh` 重装 env。
 - [ ] 🔴 **真机客户端一次都没加载**：Clash Verge Rev 导入 `clash.yaml`（provider 热更新）、Shadowrocket 用 `base64.txt`。Shadowrocket 是否读 `profile-update-interval` 仍需实测。
 - [ ] **`vpn-us` 升 `e2-small` 后的 4 轮交叉测未做**（ADR 0017 §8 代价 2）；要在用户设备上跑。
@@ -499,3 +499,4 @@ set -a; source infra/fleet/.secrets.env; set +a
 6. `JP_HY2_*` 凭据不在 Proxy_Skill 的 `.secrets-*.env` 里，只在生成产物里；从 `clash-configs/mac.yaml` 回填进 `infra/fleet/.secrets.env`。
 7. workers.dev 子域名被交互脚本重复输入成 `oratisoratisoratisoratis`；可在后台改，D5 之后无关紧要。
 8. 三台 healthcheck 首次上报全部成功，互探全通；`GET /admin/report` 渲染绿卡；月度用量从首个样本起差分（首样本 mtd=0）。
+9. 15:53 CST 首条真实日报经应用「胖猫」私聊发到用户本人（`open_id` 由手机号反查；企业邮箱那条返回不带 `user_id`），code 0。

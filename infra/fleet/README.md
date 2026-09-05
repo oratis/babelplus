@@ -30,15 +30,15 @@
 | 文件 | 干什么 | 状态（2026-09-05） |
 |---|---|---|
 | `fleet.json` | 机队清单：非机密拓扑 + 隔离期望 + 订阅/日报参数。**入库**（D7），是 `verify-isolation.sh` / `gen-subscription.py` / Worker `/fleet` 的唯一事实源 | ✅ 3 台（`vpn-jp` / `vpn-us` / `vpn-sg`）全部 `running` |
-| `worker/` | Cloudflare Worker `fleet-sub`：订阅下发 `GET /p/<token>/<file>`、巡检 `POST /ingest/<token>`、`GET /fleet`、cron 日报（应用「胖猫」优先，webhook 备选）、`/admin/*` | ✅ 已部署 `https://fleet-sub.oratisoratisoratisoratis.workers.dev`（KV `df18867b…`）；订阅头实测正确；cron `37 0 * * *` 已挂；`FEISHU_APP_ID/SECRET` 已入 secret；**发送路径未跑**（收件会话待定） |
+| `worker/` | Cloudflare Worker `fleet-sub`：订阅下发 `GET /p/<token>/<file>`、巡检 `POST /ingest/<token>`、`GET /fleet`、cron 日报（应用「胖猫」优先，webhook 备选）、`/admin/*` | ✅ 已部署 `https://fleet-sub.oratisoratisoratisoratis.workers.dev`（KV `df18867b…`）；订阅头实测正确；cron `37 0 * * *` 已挂；**首条真实日报 2026-09-05 15:53 CST 经应用私聊发送成功（code 0）** |
 | `gen-subscription.py` | 从 `fleet.json` + `.secrets.env` 渲染四种产物（+ 自托管 CN CIDR） | ✅ 渲染 10 条（公告伪节点 + 9 通路，含 `vpn-sg` 的 SG-HY2 / SG-Reality）；**真机客户端未加载** |
 | `publish-subscription.sh` | 产物 / 设备 token / 节点 token / fleet 副本 → KV；`--revoke`、`--refresh-cn-cidr`、`--list` | ✅ 已发布；`curl` 实测 200 + `subscription-userinfo`；未知 token 404 |
 | `healthcheck.sh` | 节点侧五组巡检 → `/var/lib/fleet/latest.json` → `POST /ingest` | ✅ 三台都跑过并上报成功，互探全通 |
 | `healthcheck-install.sh` | 本机执行：IAP SSH + stdin 把上一项装成 systemd timer（每小时 :30 UTC，23:30 为 daily） | ✅ 三台已装 |
-| `daily-report.py` | 本机侧：`--preview` / `--send`（从 Worker 取卡片或 `--source nodes` 本地渲染兜底；发送走应用「胖猫」，复用 `feishu-notify.sh --card`） | 🔶 `--preview` 走 Worker 路径已验；`--send` 等收件会话 |
+| `daily-report.py` | 本机侧：`--preview` / `--send`（从 Worker 取卡片或 `--source nodes` 本地渲染兜底；发送走应用「胖猫」，复用 `feishu-notify.sh --card`） | 🔶 `--preview` 走 Worker 路径已验；`--send` 的本机路径未跑（首条是经 Worker `/admin/report/send` 发的） |
 | `create-vpn-node.sh` | 建自用队节点（`infra/node/create-node.sh` 的 `vpn-` 变体，显式层级） | ✅ 第一次真实执行建成 `vpn-sg`（[evidence](../../docs/evidence/fleet-node-provision-vpn-sg-20260905/)） |
 | `setup-vpn-node.sh` | 装机：xray REALITY + Hysteria2（salamander、自签、bing 伪装）、sysctl、unattended-upgrades、SSH 加固 | ✅ 在 `vpn-sg` 上跑过（结果见 as-built §2.1） |
-| `feishu-notify.sh` + `_py/` | 飞书**应用**出口（只读自检 / 列会话 / 反查 open_id / 发文本 / 发卡片） | ✅ 用应用「胖猫」实测 `--bot-info`（`activate_status=2`）与 `--list-chats`（16 个群）；**发送路径未跑**（收件会话待定） |
+| `feishu-notify.sh` + `_py/` | 飞书**应用**出口（只读自检 / 列会话 / 反查 open_id / 发文本 / 发卡片） | ✅ 用应用「胖猫」实测 `--bot-info`、`--list-chats`（16 个群）、`--whoami`（按手机号反查到用户 open_id；按企业邮箱查不到 user_id）；本机发送路径未跑 |
 | `fleet.example.json` | ~~模板~~ | ❌ 已删（D7 之后 `fleet.json` 本身入库，模板没有存在的理由） |
 
 ---
@@ -58,7 +58,7 @@ set -a; source infra/fleet/.secrets.env; set +a
 | `ADMIN_TOKEN` | `daily-report.py`、Worker `/admin/*` | 已 `wrangler secret put` |
 | `FLEET_INGEST_URL` | `healthcheck-install.sh`、`daily-report.py` | Worker 基址。D5 定了独立域名后改这里并**重装** healthcheck env |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Worker（`wrangler secret put`，已放）、`feishu-notify.sh`、`daily-report.py --send` | 应用「胖猫」，用户 2026-09-05 指定为主通道。⚠️ Secret 在对话中明文出现过，稳定后重置 |
-| `FEISHU_RECEIVE_ID` / `FEISHU_RECEIVE_ID_TYPE` | 同上 | 🔴 **待定**：只能是只有用户本人的会话（`--list-chats` 取 `chat_id` 或 `--whoami` 取 `open_id`） |
+| `FEISHU_RECEIVE_ID` / `FEISHU_RECEIVE_ID_TYPE` | Worker（已放）、`daily-report.py --send` | ✅ 用户本人 `open_id`（`--whoami` 按手机号反查）；私聊，不进任何群 |
 | `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET` | 备选通道 | 不配也行 |
 
 ---
@@ -107,7 +107,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" "$FLEET_INGEST_URL/admin/usage"   #
 
 ## 6 · 这次没有解决的
 
-- [ ] 🔴 **飞书收件会话未定（D3，用户 2026-09-05 改用应用「胖猫」）**：胖猫在 16 个有其他人的群里、没有只有用户本人的会话。用户建只有本人 + 胖猫的群（`feishu-notify.sh --list-chats` 取 `chat_id`）或给邮箱/手机号跑 `--whoami` → `wrangler secret put FEISHU_RECEIVE_ID` → `daily-report.py --send` 发第一条。
+- [x] ~~🔴 **飞书收件会话未定**~~ ✅ 2026-09-05 15:53 CST：用户本人 `open_id` 私聊，首条真实日报发送成功（Worker `/admin/report/send`，code 0）。cron 从明天 08:37 CST 起自动发。
 - [ ] 🔴 **订阅域名未定**（D5）：需要一个独立 zone；定了在 `worker/wrangler.jsonc` 加 `routes`、改 `fleet.json .subscription.hostname`、重新 publish（公告伪节点名里写域名）。
 - [ ] 🔴 **真机客户端一次都没加载**：Clash Verge Rev（provider 热更新）、Shadowrocket（`base64.txt` + `profile-update-interval` 行为）。
 - [ ] `vpn-us` 升 `e2-small` 后的 4 轮交叉测未做（ADR 0017 §8 代价 2 的复审判据）。
