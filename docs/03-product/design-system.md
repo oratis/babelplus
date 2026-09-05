@@ -120,7 +120,7 @@ pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm run lint:no-external
 ## 6 · 改版前后
 
 截图（2026-09-05，本机 headless Chrome，mock 数据）：用户面板仪表盘、后台看板、官网首页各留深浅两色与手机宽度；
-评审页 [artifact](https://claude.ai/code/artifact/) 里有并排对照。**mock 里的数字是编的，只用于看版式。**
+评审页 [ui-redesign-review](https://claude.ai/code/artifact/22679827-524c-4540-b1d3-b29153e51b08) 里有九组并排对照。**mock 里的数字是编的，只用于看版式。**
 
 ---
 
