@@ -203,7 +203,7 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
    —— 与 [ADR 0002 §4.1](0002-notification-channels.md) 的第 2 条恢复路径同源。
 3. **订阅托管必须独立于节点。** 托管在任何一台代理节点上，
    会在"节点挂了"和"节点换了地址"这两种最需要它的时刻同时失效。
-   落点：Cloudflare Worker `fleet-sub` + KV（✅ 2026-09-05 已部署）。~~自定义域走既有 `gptwiki.net` zone~~ → **2026-09-05 修订 D5：用独立 zone**——`cdn.gptwiki.net` / `jp.gptwiki.net` 两条抗封锁保险通路在同一个 zone，订阅与保险不能共用一个失效面；也不用 `babel.plus`。域名**待定**，定前只有 workers.dev（大陆不可达，只当发布验证）。`vpn-ops` 静态兜底随 D2 推迟。
+   落点：Cloudflare Worker `fleet-sub` + KV（✅ 2026-09-05 已部署）。~~自定义域走既有 `gptwiki.net` zone~~ → **2026-09-05 修订 D5：用独立 zone**——`cdn.gptwiki.net` / `jp.gptwiki.net` 两条抗封锁保险通路在同一个 zone，订阅与保险不能共用一个失效面；也不用 `babel.plus`。✅ 2026-09-05 定为 **`sub.telloria.com`**（用户指定），Worker 自定义域绑定并验通；workers.dev 只剩发布验证用途。`vpn-ops` 静态兜底随 D2 推迟。
 
 ---
 
@@ -335,7 +335,7 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
 | D2 | `vpn-ops` 推迟 | Worker 承担 ingest + cron 日报；节点互探；`fleet.json .deferred` 记录复审条件 |
 | D3 | ~~飞书改自定义机器人 Webhook~~ → **用户 2026-09-05 改为用应用「胖猫」**（`cli_a94eb8811578dcd4`，`activate_status=2` 实测） | Worker 走 tenant_access_token + `im/v1/messages`（webhook 留作备选）；✅ 收件：用户本人 `open_id` 私聊（`--whoami` 按手机号反查），**首条真实日报 2026-09-05 15:53 CST 发送成功（code 0）** |
 | D4 | `vpn-us` 先 `e2-small`、`vpn-jp` 不升、`vpn-sg` 从 `e2-small` 起步 | ✅ 09:42 `vpn-us` 升级；`vpn-sg` 15:33 建成 |
-| D5 | 订阅用独立 zone | **域名待定**；Worker 暂在 workers.dev |
+| D5 | 订阅用独立 zone | ✅ `sub.telloria.com`（用户 2026-09-05 指定），Worker 自定义域，订阅与三台上报地址均已切换；大陆可达性需真机 |
 | D6 | 换 SA 与升机型合并一次停机；SA = `vpn-node-sa` | ✅ 三台全部 `vpn-node-sa`（`vpn-jp` 序列失控 5.5 h，代价 10） |
 | D7 | `fleet.json` 入库 | ✅ 入库；`verify-isolation.sh` 读它；`fleet.example.json` 删除 |
 

@@ -30,7 +30,7 @@
 | 文件 | 干什么 | 状态（2026-09-05） |
 |---|---|---|
 | `fleet.json` | 机队清单：非机密拓扑 + 隔离期望 + 订阅/日报参数。**入库**（D7），是 `verify-isolation.sh` / `gen-subscription.py` / Worker `/fleet` 的唯一事实源 | ✅ 3 台（`vpn-jp` / `vpn-us` / `vpn-sg`）全部 `running` |
-| `worker/` | Cloudflare Worker `fleet-sub`：订阅下发 `GET /p/<token>/<file>`、巡检 `POST /ingest/<token>`、`GET /fleet`、cron 日报（应用「胖猫」优先，webhook 备选）、`/admin/*` | ✅ 已部署 `https://fleet-sub.oratisoratisoratisoratis.workers.dev`（KV `df18867b…`）；订阅头实测正确；cron `37 0 * * *` 已挂；**首条真实日报 2026-09-05 15:53 CST 经应用私聊发送成功（code 0）** |
+| `worker/` | Cloudflare Worker `fleet-sub`：订阅下发 `GET /p/<token>/<file>`、巡检 `POST /ingest/<token>`、`GET /fleet`、cron 日报（应用「胖猫」优先，webhook 备选）、`/admin/*` | ✅ 已部署，自定义域 **`https://sub.telloria.com`**（D5，2026-09-05；workers.dev 地址保留为发布验证）；订阅头实测正确；cron `37 0 * * *`；首条真实日报 15:53 CST 发送成功 |
 | `gen-subscription.py` | 从 `fleet.json` + `.secrets.env` 渲染四种产物（+ 自托管 CN CIDR） | ✅ 渲染 10 条（公告伪节点 + 9 通路，含 `vpn-sg` 的 SG-HY2 / SG-Reality）；**真机客户端未加载** |
 | `publish-subscription.sh` | 产物 / 设备 token / 节点 token / fleet 副本 → KV；`--revoke`、`--refresh-cn-cidr`、`--list` | ✅ 已发布；`curl` 实测 200 + `subscription-userinfo`；未知 token 404 |
 | `healthcheck.sh` | 节点侧五组巡检 → `/var/lib/fleet/latest.json` → `POST /ingest` | ✅ 三台都跑过并上报成功，互探全通 |
@@ -56,7 +56,7 @@ set -a; source infra/fleet/.secrets.env; set +a
 | `DEVICE_TOKEN_<ID>` ×6 | `publish-subscription.sh` | **每台设备一个** —— 为的是吊销（丢一台不影响其余五台），不是计费 |
 | `NODE_TOKEN_<HOST>` ×3 | `publish-subscription.sh` / `healthcheck-install.sh` | 只允许 `POST /ingest` 与 `GET /fleet`；经 `LoadCredential` 进节点，不进 unit |
 | `ADMIN_TOKEN` | `daily-report.py`、Worker `/admin/*` | 已 `wrangler secret put` |
-| `FLEET_INGEST_URL` | `healthcheck-install.sh`、`daily-report.py` | Worker 基址。D5 定了独立域名后改这里并**重装** healthcheck env |
+| `FLEET_INGEST_URL` | `healthcheck-install.sh`、`daily-report.py` | `https://sub.telloria.com`（D5）。三台节点的 `/etc/fleet/healthcheck.env` 已于 2026-09-05 重装到这个地址 |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | Worker（`wrangler secret put`，已放）、`feishu-notify.sh`、`daily-report.py --send` | 应用「胖猫」，用户 2026-09-05 指定为主通道。⚠️ Secret 在对话中明文出现过，稳定后重置 |
 | `FEISHU_RECEIVE_ID` / `FEISHU_RECEIVE_ID_TYPE` | Worker（已放）、`daily-report.py --send` | ✅ 用户本人 `open_id`（`--whoami` 按手机号反查）；私聊，不进任何群 |
 | `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET` | 备选通道 | 不配也行 |
@@ -85,7 +85,7 @@ set -a; source infra/fleet/.secrets.env; set +a
 curl -H "Authorization: Bearer $ADMIN_TOKEN" "$FLEET_INGEST_URL/admin/usage"   # 月度用量差分
 ```
 
-订阅地址：`$FLEET_INGEST_URL/p/<DEVICE_TOKEN>/{mihomo-provider.yaml | clash.yaml | singbox.json | base64.txt}`。
+订阅地址：`https://sub.telloria.com/p/<DEVICE_TOKEN>/{mihomo-provider.yaml | clash.yaml | singbox.json | base64.txt}`。
 `clash.yaml` 里的 provider URL 与 rule-provider URL 由 Worker 按请求替换成你的 token，四种产物 KV 里只存一份。
 
 ---
@@ -97,8 +97,8 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" "$FLEET_INGEST_URL/admin/usage"   #
 > 1. **本目录复制了一份 `infra/node/` 的守卫逻辑，而不是抽公共库。** 理由与 `infra/node/README.md` §8 代价第 2 条相同
 >    （`setup-*.sh` 从 stdin 灌进 `sudo bash -s`，必须自包含），代价是**改守卫逻辑要改两个目录，而它们会悄悄分叉**——
 >    2026-09-05 已经分叉了一处：本目录的 `fw_ensure` 改成 JSON 读取 + 读不到就 die，`infra/node/` 的没改。
-> 2. **workers.dev 子域名叫 `oratisoratisoratisoratis`。** 交互式注册脚本把名字重复输入了四次。它只是 D5 独立域名定下来之前的临时地址，
->    可在 Cloudflare 后台改；改了要同步 `.secrets.env` 的 `FLEET_INGEST_URL` 并重装 healthcheck env。
+> 2. **workers.dev 子域名叫 `oratisoratisoratisoratis`。** 交互式注册脚本把名字重复输入了四次。D5 之后正式地址是 `sub.telloria.com`，
+>    workers.dev 只剩发布验证用途；要改名在 Cloudflare 后台改，不再影响任何配置。
 > 3. **日报的正式渲染在 Worker（JS）里，`daily-report.py --source nodes` 另有一份精简版（Python）。** 两份会漂移；精简版没有月度差分。
 > 4. **月度用量靠节点 `tx_bytes` 差分，不是账单。** 重启会多算一个样本间隔；与计费字节不是同一口径。它是方向盘不是账本。
 > 5. **停机窗口没有看门狗。** 2026-09-05 `vpn-jp` 的 stop → 换 SA → start 序列在 stop 之后被 gcloud 连接中断打断，
@@ -108,7 +108,7 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" "$FLEET_INGEST_URL/admin/usage"   #
 ## 6 · 这次没有解决的
 
 - [x] ~~🔴 **飞书收件会话未定**~~ ✅ 2026-09-05 15:53 CST：用户本人 `open_id` 私聊，首条真实日报发送成功（Worker `/admin/report/send`，code 0）。cron 从明天 08:37 CST 起自动发。
-- [ ] 🔴 **订阅域名未定**（D5）：需要一个独立 zone；定了在 `worker/wrangler.jsonc` 加 `routes`、改 `fleet.json .subscription.hostname`、重新 publish（公告伪节点名里写域名）。
+- [x] ~~🔴 **订阅域名未定**~~ ✅ 2026-09-05：`sub.telloria.com`（用户指定）绑为 Worker 自定义域，`curl` 验头 200，公告伪节点名已写域名，三台节点上报地址已切换。⚠️ **大陆可达性需真机**：本机在代理后，测不出。
 - [ ] 🔴 **真机客户端一次都没加载**：Clash Verge Rev（provider 热更新）、Shadowrocket（`base64.txt` + `profile-update-interval` 行为）。
 - [ ] `vpn-us` 升 `e2-small` 后的 4 轮交叉测未做（ADR 0017 §8 代价 2 的复审判据）。
 - [ ] `vpn-sg` 的入向路由与 Standard/Premium 对照未做。

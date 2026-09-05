@@ -477,7 +477,7 @@ set -a; source infra/fleet/.secrets.env; set +a
 ## 5 · 这次没有解决的（2026-09-05）
 
 - [x] ~~🔴 **飞书收件会话未定（D3）**~~ ✅ 2026-09-05 15:53 CST：用户给了手机号，`feishu-notify.sh --whoami` 反查到本人 `open_id`（按企业邮箱查不到 `user_id`），写进 Worker secret 后经 `POST /admin/report/send` 发出**首条真实日报，应用返回 code 0**。收件是私聊，不进任何群。
-- [ ] 🔴 **订阅域名未定（D5）**：独立 zone。定了以后：`worker/wrangler.jsonc` 加 `routes` → `wrangler deploy` → `fleet.json .subscription.hostname` → `publish-subscription.sh`（公告伪节点名里写域名）→ `.secrets.env` 的 `FLEET_INGEST_URL` → 三台 `healthcheck-install.sh` 重装 env。
+- [x] ~~🔴 **订阅域名未定（D5）**~~ ✅ 2026-09-05：用户指定 `sub.telloria.com`（独立 zone）。Worker `custom_domain` 绑定 → `curl` 验头 200 → `fleet.json .subscription.hostname` → 重新 publish（公告伪节点 `📢 订阅 sub.telloria.com · 更新于 2026-09-05`）→ 三台 `healthcheck-install.sh` 重装上报地址。⚠️ **大陆可达性需真机**（本机在代理后测不出）。
 - [ ] 🔴 **真机客户端一次都没加载**：Clash Verge Rev 导入 `clash.yaml`（provider 热更新）、Shadowrocket 用 `base64.txt`。Shadowrocket 是否读 `profile-update-interval` 仍需实测。
 - [ ] **`vpn-us` 升 `e2-small` 后的 4 轮交叉测未做**（ADR 0017 §8 代价 2）；要在用户设备上跑。
 - [ ] **`vpn-sg` 的入向路由与 Standard/Premium 对照未做**；`verify-route.sh` 只认 `bp-*`。
@@ -500,3 +500,4 @@ set -a; source infra/fleet/.secrets.env; set +a
 7. workers.dev 子域名被交互脚本重复输入成 `oratisoratisoratisoratis`；可在后台改，D5 之后无关紧要。
 8. 三台 healthcheck 首次上报全部成功，互探全通；`GET /admin/report` 渲染绿卡；月度用量从首个样本起差分（首样本 mtd=0）。
 9. 15:53 CST 首条真实日报经应用「胖猫」私聊发到用户本人（`open_id` 由手机号反查；企业邮箱那条返回不带 `user_id`），code 0。
+10. 16:0x CST 订阅域名 `sub.telloria.com` 绑定成功（Cloudflare 自动建 DNS 与证书，首次 `curl` 即 200）；三台节点上报地址切换并各上报一次成功。

@@ -212,10 +212,10 @@
     "worker_name": "fleet-sub",
     "cloudflare_account_id": "905b414662eeded1a3a1ebb6fa1c4237",
     "kv_namespace_id": "df18867b8815457d868b91b9a8958922",
-    "hostname": null,
+    "hostname": "sub.telloria.com",
     "profile_update_interval_h": 24,
     "provider_interval_s": 900,
-    "_note": "hostname 待 D5 的独立 zone 定下来再填；填了以后在 worker/wrangler.jsonc 加 routes 重新 deploy。为空时订阅走 workers.dev（大陆不可达，只能当发布验证）"
+    "_note": "sub.telloria.com（用户 2026-09-05 指定，D5 独立 zone，不与 gptwiki.net 的 CDN 保险通路同失效面）。Worker custom_domain 由 Cloudflare 自动建 DNS 与证书。workers.dev 地址保留为发布验证用。"
   },
   "report": {
     "channel": "feishu-app（胖猫 cli_a94eb8811578dcd4，用户 2026-09-05 指定）；备选 feishu-custom-bot-webhook",

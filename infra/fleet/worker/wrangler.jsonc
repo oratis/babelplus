@@ -30,6 +30,7 @@
     "REPORT_TZ_OFFSET_H": "8",
     "ABSENT_AFTER_H": "26"
   },
-  "observability": { "enabled": true }
-  // "routes": [{ "pattern": "<订阅域名>", "custom_domain": true }]   ← D5 定了再开
+  "observability": { "enabled": true },
+  // D5：订阅域名 sub.telloria.com（用户 2026-09-05 指定）。custom_domain 由 Cloudflare 自动建 DNS 记录与证书。
+  "routes": [{ "pattern": "sub.telloria.com", "custom_domain": true }]
 }
