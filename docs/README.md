@@ -146,7 +146,7 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [monitoring.md](04-ops/monitoring.md) — 监控与告警 | 设计稿 v1 |
 | | [local-development.md](04-ops/local-development.md) — 本地开发（无需装 Go） | **As-Built** |
 | | [first-deploy-20260831.md](04-ops/first-deploy-20260831.md) — 首次上线记录（控制面） | **As-Built**，不回改 |
-| | [personal-fleet-runbook.md](04-ops/personal-fleet-runbook.md) — 自用机队的扩容 / 订阅热更新 / 每日巡检与飞书日报 | 设计稿 v1（2026-09-04）—— **三节全部未在真机上执行过** |
+| | [personal-fleet-runbook.md](04-ops/personal-fleet-runbook.md) — 自用机队的扩容 / 订阅热更新 / 每日巡检与飞书日报 | **v2，三节均已在真机执行**（2026-09-05；未做的见其 §5） |
 | **05-adr** | [0001](05-adr/0001-cloudflare-tos-risk.md) — CF 只承载控制面 | **已批准**（2026-08-17） |
 | | [0002](05-adr/0002-notification-channels.md) — 邮件是唯一失联恢复通道 | 设计稿 v1 |
 | | [0003](05-adr/0003-web-hosting-and-reachability.md) — 托管按实测可达性选型 | 设计稿 v1 |
@@ -163,8 +163,8 @@ slug 一律**小写英文连字符**，即使正文是中文。文件名要能�
 | | [0014](05-adr/0014-slo-and-oncall.md) — SLO、on-call 与告警分级 | **已批准**（2026-09-02，用户裁决） |
 | | [0015](05-adr/0015-client-strategy.md) — 客户端策略 | **提案，未批准**（2026-08-23） |
 | | [0016](05-adr/0016-domain-babelplus.md) — 域名统一 `babel.plus`（**推翻 0010**） | **已批准**（2026-08-31，用户裁决） |
-| | [0017](05-adr/0017-personal-fleet-in-repo.md) — 自用机队「同仓不同队」进本仓（**撤销 0007 §4/§8 的 `vpn-jp` 回滚落点**；给 0002 §4 补飞书那一格） | **提案，未批准**（2026-09-04） |
-| **evidence** | **16 个证据目录**（出口单价 · IPv6 审查 · v2node 契约 · healthz 拦截 · 网络层级落地 · 账单 SKU 拆分 · v2node 401 行为 · gcloud 实查 · 客户端配置校验 · 建机清点 · 路由方法证伪 · 路由采样 · 首节点接通 · ADR 0014 落地与 HY2 · **E0 计量判定（否定）** · **机队扩容目录价**）。2026-09-04 `ls docs/evidence/*/` 实数（末条为同日新增）；计数现由 `infra/scripts/check-evidence-index.sh` 守着，不再靠人数；此前写「9 个」漏了 2026-09-01/02 的五个，再往前写「6 个」也是漏计 —— 同一个洞掉了两次，见 [evidence/README.md](evidence/README.md) 的两条登记欠账 | 见 [evidence/README.md](evidence/README.md) |
+| | [0017](05-adr/0017-personal-fleet-in-repo.md) — 自用机队「同仓不同队」进本仓（**撤销 0007 §4/§8 的 `vpn-jp` 回滚落点**；给 0002 §4 补飞书那一格） | **已批准（修订版）**（2026-09-05，用户裁决 D1–D7） |
+| **evidence** | **18 个证据目录**（出口单价 · IPv6 审查 · v2node 契约 · healthz 拦截 · 网络层级落地 · 账单 SKU 拆分 · v2node 401 行为 · gcloud 实查 · 客户端配置校验 · 建机清点 · 路由方法证伪 · 路由采样 · 首节点接通 · ADR 0014 落地与 HY2 · **E0 计量判定（否定）** · **机队扩容目录价** · **机队出网归因** · **vpn-sg 建机清点**）。2026-09-05 `ls docs/evidence/*/` 实数（末两条为 09-05 新增）；计数现由 `infra/scripts/check-evidence-index.sh` 守着，不再靠人数；此前写「9 个」漏了 2026-09-01/02 的五个，再往前写「6 个」也是漏计 —— 同一个洞掉了两次，见 [evidence/README.md](evidence/README.md) 的两条登记欠账 | 见 [evidence/README.md](evidence/README.md) |
 
 ---
 

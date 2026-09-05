@@ -80,8 +80,12 @@ desktop/release/
 # 站点构建期变量由部署脚本写进构建上下文，不入库
 web/site/.env.production
 
-# 自用机队凭据（ADR 0017 §3 / §6）——绝不入库
+# 自用机队凭据与产物（ADR 0017 §3 / §6）——绝不入库。
+# fleet.json 按 D7（2026-09-05）入库：它是非机密拓扑，也是 verify-isolation.sh 的期望清单。
 infra/fleet/.secrets*.env
-infra/fleet/fleet.json
 infra/fleet/out/
 infra/fleet/_py/__pycache__/
+infra/fleet/worker/node_modules/
+infra/fleet/worker/.wrangler/
+infra/fleet/worker/.dev.vars
+infra/fleet/__pycache__/

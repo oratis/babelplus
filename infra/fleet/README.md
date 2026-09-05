@@ -1,10 +1,9 @@
 # `infra/fleet/` · 自用机队（`vpn-*`）的工具链
 
-> 日期：2026-09-04 · 性质：**执行手册**（脚本的使用说明）
-> 状态：**部分实现**（2026-09-04）—— 见 §2 的实现台账。
-> **除 `feishu-notify.sh` 的只读路径外，本目录没有任何东西在真机上跑过。**
+> 日期：2026-09-05 · 性质：**执行手册**（脚本的使用说明）
+> 状态：**已实现并在真机上跑过**（2026-09-05）—— 见 §2 的实现台账，每一行都写了「跑没跑过、在哪跑的」。
 > 事实源：[docs/04-ops/personal-fleet-runbook.md](../../docs/04-ops/personal-fleet-runbook.md)
-> 关联：[ADR 0017](../../docs/05-adr/0017-personal-fleet-in-repo.md)（本目录存在的裁决）、
+> 关联：[ADR 0017](../../docs/05-adr/0017-personal-fleet-in-repo.md)（本目录存在的裁决，用户 2026-09-05 按修订批准）、
 > [as-built-personal-fleet.md](../../docs/02-architecture/as-built-personal-fleet.md)（现状）、
 > [`infra/node/`](../node/)（商用队的同类目录；本目录**复用它的守卫逻辑，不复用它的前缀**）
 
@@ -16,81 +15,77 @@
 |---|---|---|
 | 资源前缀 | `bp-*` | `vpn-*` |
 | 网络标签 | `bp-node` | `vpn-node` |
-| 网络层级 | **硬编码 `STANDARD`**（ADR 0008 明令不给开关） | **可选**（要跑 A/B） |
-| 配置下发 | v2node ← 面板 | 本地生成器 → 边缘 |
+| 服务账号 | `bp-node-sa`（零角色） | `vpn-node-sa`（只有 `logging.logWriter` + `monitoring.metricWriter`） |
+| 网络层级 | **硬编码 `STANDARD`**（ADR 0008 明令不给开关） | **必须显式 `--network-tier`**（要跑 A/B） |
+| 配置下发 | v2node ← 面板 | 本地生成器 → Cloudflare Worker + KV |
 | 服务对象 | babel.plus 付费用户 | 用户本人 |
 
-[ADR 0017](../../docs/05-adr/0017-personal-fleet-in-repo.md) 的裁决是
-**「同仓不同队」：共享设计与工具，不共享任何一份 GCP 资源、订阅通路或计费。**
-
-⚠️ **隔离靠的是命名前缀、网络标签和一个只读脚本，没有任何一层是 GCP 强制的**
-（两支机队同在 `oratis-491316` 一个 project、同一个 VPC）。
-一条 `--target-tags` 打错的命令就能让付费用户的流量落到自用机器上。ADR 0017 §8 代价第 1 条。
+[ADR 0017](../../docs/05-adr/0017-personal-fleet-in-repo.md) 的裁决是**「同仓不同队」：共享设计与工具，不共享任何一份 GCP 资源、订阅通路或计费。**
+隔离由 `infra/scripts/verify-isolation.sh` 守（期望读 [`fleet.json`](fleet.json)），唯一一条 GCP 强制的隔离是 `vpn-deny-from-bp`。
 
 ---
 
 ## 2 · 实现台账（**看这一栏再动手**）
 
-| 文件 | 干什么 | 状态 |
+| 文件 | 干什么 | 状态（2026-09-05） |
 |---|---|---|
-| `feishu-notify.sh` + `_py/` | 飞书出口：自检 / 列会话 / 反查 open_id / 发文本 / 发卡片 | ✅ **只读路径已实测**（`--bot-info`、`--list-chats`、两条 fail-closed 分支）。**发送路径未测**：还没有收件人 |
-| `fleet.example.json` | 机队清单模板（非机密拓扑） | ✅ 结构已定，`vpn-sg` / `vpn-ops` 标 `planned` |
-| `healthcheck.sh` | 节点侧每日巡检（五组判据 + systemd timer） | 🔴 **未实现**。规格见 runbook §3.2 |
-| `daily-report.py` | 汇总 + 组卡片 + 发飞书（`--local` 与 Worker 两条路径共用渲染） | 🔴 **未实现**。卡片格式见 runbook §3.4 |
-| `gen-subscription.py` | 从 `fleet.json` + secrets 渲染四种订阅产物 | 🔴 **未实现**。约束见 runbook §2.2 |
-| `publish-subscription.sh` | 把产物 PUT 进 Cloudflare KV | 🔴 **未实现** |
-| `worker/` | Cloudflare Worker：订阅下发 + 巡检 ingest + 日报 cron | 🔴 **未实现**。接口见 runbook §2.3 |
-| `create-vpn-node.sh` | 建自用队节点（`infra/node/create-node.sh` 的 `vpn-` 变体） | 🔴 **未实现** |
+| `fleet.json` | 机队清单：非机密拓扑 + 隔离期望 + 订阅/日报参数。**入库**（D7），是 `verify-isolation.sh` / `gen-subscription.py` / Worker `/fleet` 的唯一事实源 | ✅ 3 台（`vpn-jp` / `vpn-us` / `vpn-sg`）全部 `running` |
+| `worker/` | Cloudflare Worker `fleet-sub`：订阅下发 `GET /p/<token>/<file>`、巡检 `POST /ingest/<token>`、`GET /fleet`、cron 日报、`/admin/*` | ✅ 已部署 `https://fleet-sub.oratisoratisoratisoratis.workers.dev`（KV `df18867b…`）；订阅头实测正确；cron `37 0 * * *` 已挂；**飞书发送路径未跑**（等 webhook） |
+| `gen-subscription.py` | 从 `fleet.json` + `.secrets.env` 渲染四种产物（+ 自托管 CN CIDR） | ✅ 渲染 8 条（公告伪节点 + 7 通路，`vpn-sg` 装机后为 9）；**真机客户端未加载** |
+| `publish-subscription.sh` | 产物 / 设备 token / 节点 token / fleet 副本 → KV；`--revoke`、`--refresh-cn-cidr`、`--list` | ✅ 已发布；`curl` 实测 200 + `subscription-userinfo`；未知 token 404 |
+| `healthcheck.sh` | 节点侧五组巡检 → `/var/lib/fleet/latest.json` → `POST /ingest` | ✅ 在 `vpn-us` / `vpn-jp` 上跑过并上报成功（`vpn-sg` 装机后装） |
+| `healthcheck-install.sh` | 本机执行：IAP SSH + stdin 把上一项装成 systemd timer（每小时 :30 UTC，23:30 为 daily） | ✅ 两台已装 |
+| `daily-report.py` | 本机侧：`--preview` / `--send`（从 Worker 取卡片或 `--source nodes` 本地渲染兜底） | 🔶 代码就绪，`--preview` 走 Worker 路径已验（见 Worker 行）；`--send` 等 webhook |
+| `create-vpn-node.sh` | 建自用队节点（`infra/node/create-node.sh` 的 `vpn-` 变体，显式层级） | ✅ 第一次真实执行建成 `vpn-sg`（[evidence](../../docs/evidence/fleet-node-provision-vpn-sg-20260905/)） |
+| `setup-vpn-node.sh` | 装机：xray REALITY + Hysteria2（salamander、自签、bing 伪装）、sysctl、unattended-upgrades、SSH 加固 | ✅ 在 `vpn-sg` 上跑过（结果见 as-built §2.1） |
+| `feishu-notify.sh` + `_py/` | 飞书**应用**「胖狗」出口（只读自检 / 发文本 / 发卡片） | 🔶 保留为备用通道。日报按 D3 改走**自定义机器人 Webhook**（Worker 直接 POST），应用路径不再是主路径 |
+| `fleet.example.json` | ~~模板~~ | ❌ 已删（D7 之后 `fleet.json` 本身入库，模板没有存在的理由） |
 
 ---
 
-## 3 · 凭据
+## 3 · 凭据（`.secrets.env`，gitignored，chmod 600）
 
 ```bash
-cp fleet.example.json fleet.json          # 两者都可编辑；fleet.json 已 gitignore
-$EDITOR .secrets.env && chmod 600 .secrets.env
 set -a; source infra/fleet/.secrets.env; set +a
 ```
-
-`.secrets*.env`、`fleet.json`、`out/` 全部在 `.gitignore` 里（仓库根，ADR 0017 §3）。
 
 | 变量 | 谁用 | 说明 |
 |---|---|---|
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | `feishu-notify.sh` | 应用「胖狗」。🔴 **不下发到任何代理节点** |
-| `FEISHU_RECEIVE_ID` / `FEISHU_RECEIVE_ID_TYPE` | 同上 | 私聊用 `open_id`；或"只有你和胖狗的群"的 `chat_id` |
-| `STATIC_IP` / `SS_*` / `REALITY_*` / `CDN_*` | `gen-subscription.py` | 美国侧，沿用 Proxy_Skill 的规范名 |
-| `JP_*` / `SG_*` | 同上 | 日本 / 新加坡侧（`secrets_prefix` 在 `fleet.json` 里声明） |
-| `CF_API_TOKEN` / `CF_ACCOUNT_ID` / `CF_KV_NAMESPACE_ID` | `publish-subscription.sh` | Cloudflare |
-| `DEVICE_TOKEN_<ID>` | 两者 | **每台设备一个** —— 为的是吊销（丢一台不影响其余五台），不是计费 |
-
-> ⚠️ Proxy_Skill 有过一次**变量名不一致**导致生成器长期无法运行的历史
-> （`CDN_ADDR` / `CDN_WSPATH` / `JP_IP` vs 脚本期望的规范名）。
-> 新增变量一律用 [as-built §5](../../docs/02-architecture/as-built-personal-fleet.md) 的规范名。
+| `STATIC_IP` / `SS_*` / `REALITY_*` / `CDN_*` | `gen-subscription.py` | 美国侧（无前缀），沿用 Proxy_Skill 的规范名 |
+| `JP_*` / `SG_*` | 同上 | 日本 / 新加坡侧（`secrets_prefix` 在 `fleet.json` 里声明）。`JP_HY2_*` 2026-09-05 从生成产物回填（Proxy_Skill 的 `.secrets-*.env` 里本来没有） |
+| `DEVICE_TOKEN_<ID>` ×6 | `publish-subscription.sh` | **每台设备一个** —— 为的是吊销（丢一台不影响其余五台），不是计费 |
+| `NODE_TOKEN_<HOST>` ×3 | `publish-subscription.sh` / `healthcheck-install.sh` | 只允许 `POST /ingest` 与 `GET /fleet`；经 `LoadCredential` 进节点，不进 unit |
+| `ADMIN_TOKEN` | `daily-report.py`、Worker `/admin/*` | 已 `wrangler secret put` |
+| `FLEET_INGEST_URL` | `healthcheck-install.sh`、`daily-report.py` | Worker 基址。D5 定了独立域名后改这里并**重装** healthcheck env |
+| `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET` | Worker（`wrangler secret put`）、`daily-report.py --send` | 🔴 **待用户建群取得**（D3） |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | `feishu-notify.sh`（备用） | 🔴 App Secret 在 2026-09-04 对话中明文出现过，**重置一次** |
 
 ---
 
-## 4 · 飞书：现在就能跑的三条
+## 4 · 日常操作
 
 ```bash
-set -a; source infra/fleet/.secrets.env; set +a
+# 换 IP / 加节点：改 fleet.json → 隔离脚本绿 → 发布
+./infra/scripts/verify-isolation.sh
+./infra/fleet/publish-subscription.sh            # 客户端在 ≤15 min 内拿到（provider interval 900 s）
 
-./feishu-notify.sh --bot-info      # 应打出 app_name=胖狗、activate_status=2
-./feishu-notify.sh --list-chats    # 拿 chat_id
-./feishu-notify.sh --text "机队工具链自检"
+# 吊销一台设备 / 看 KV
+./infra/fleet/publish-subscription.sh --revoke iphone
+./infra/fleet/publish-subscription.sh --list
+
+# 新节点装机 + 巡检
+./infra/fleet/create-vpn-node.sh --node vpn-xx --region … --zone … --machine-type e2-small --network-tier STANDARD --auto-pick --dry-run
+# …（真实执行去掉 --dry-run）… 然后 setup-vpn-node.sh（用法在文件头）
+./infra/fleet/healthcheck-install.sh vpn-xx
+
+# 日报
+./infra/fleet/daily-report.py --preview          # 看 Worker 渲染好的今日卡片
+./infra/fleet/daily-report.py --send             # 手动补发一次（需 FEISHU_WEBHOOK_URL）
+curl -H "Authorization: Bearer $ADMIN_TOKEN" "$FLEET_INGEST_URL/admin/usage"   # 月度用量差分
 ```
 
-**拿收件人的两条路**（🔴 目前两条都还没走通，日报没有收件人就发不出去）：
-
-- **路 A**：`./feishu-notify.sh --whoami <你的飞书邮箱或手机号>`
-  —— 需要应用有 `contact:user.id:readonly`。采集会话中这条被权限策略拦下，**未验证**。
-- **路 B（推荐，零额外权限）**：在飞书里建一个**只有你和胖狗**的群，
-  然后 `--list-chats` 取它的 `chat_id`。`im/v1/chats` 接口**已实测可用**。
-
-🔴 **不要发到现有的 6 个群**（`产品小队` / `组织建设讨论` / `HakkoAI专项` / `产品+UI` /
-`龙虾养殖场` / `Github权限和PR Review`）—— 里面有其他人，而日报含节点名、静态 IP、端口与流量。
-
-🔴 **App Secret 在 2026-09-04 的一次对话中以明文出现过。**
-建议在飞书后台重置一次，新值直接写进 `.secrets.env`，不要再经过任何对话。
+订阅地址：`$FLEET_INGEST_URL/p/<DEVICE_TOKEN>/{mihomo-provider.yaml | clash.yaml | singbox.json | base64.txt}`。
+`clash.yaml` 里的 provider URL 与 rule-provider URL 由 Worker 按请求替换成你的 token，四种产物 KV 里只存一份。
 
 ---
 
@@ -98,23 +93,23 @@ set -a; source infra/fleet/.secrets.env; set +a
 
 > ⚠️ 这一选择的代价，必须留在记录里而不是被措辞掩盖：
 >
-> 1. **本目录复制了一份 `infra/node/` 的守卫逻辑，而不是抽公共库。**
->    理由与 `infra/node/README.md` §8 代价第 2 条相同（`setup-*.sh` 从 stdin 灌进
->    `sudo bash -s`，没有兄弟文件可以 source，必须自包含），
->    代价是**改守卫逻辑要改两个目录，而它们会悄悄分叉**。
-> 2. **`feishu-notify.sh` 每次调用都重新取 `tenant_access_token`**（有效期 7200s）。
->    多花一次往返，换的是 token 不落盘。日报每天一次，这个取舍是划算的；
->    **如果将来有高频调用场景，这条要重新裁决**，而不是顺手加个缓存文件。
-> 3. **`_py/` 把 Python 片段拆成独立文件，而不是内联 `python3 -c`。**
->    内联版本在第一次编写时就因为**单引号 shell 串里的转义**而语法错误
->    —— 那类 bug 只在运行时暴露，且错误信息指向 `<string>`。
->    代价是目录里多了 6 个小文件，且 `feishu-notify.sh` **不再能单文件灌进 stdin**。
+> 1. **本目录复制了一份 `infra/node/` 的守卫逻辑，而不是抽公共库。** 理由与 `infra/node/README.md` §8 代价第 2 条相同
+>    （`setup-*.sh` 从 stdin 灌进 `sudo bash -s`，必须自包含），代价是**改守卫逻辑要改两个目录，而它们会悄悄分叉**——
+>    2026-09-05 已经分叉了一处：本目录的 `fw_ensure` 改成 JSON 读取 + 读不到就 die，`infra/node/` 的没改。
+> 2. **workers.dev 子域名叫 `oratisoratisoratisoratis`。** 交互式注册脚本把名字重复输入了四次。它只是 D5 独立域名定下来之前的临时地址，
+>    可在 Cloudflare 后台改；改了要同步 `.secrets.env` 的 `FLEET_INGEST_URL` 并重装 healthcheck env。
+> 3. **日报的正式渲染在 Worker（JS）里，`daily-report.py --source nodes` 另有一份精简版（Python）。** 两份会漂移；精简版没有月度差分。
+> 4. **月度用量靠节点 `tx_bytes` 差分，不是账单。** 重启会多算一个样本间隔；与计费字节不是同一口径。它是方向盘不是账本。
+> 5. **停机窗口没有看门狗。** 2026-09-05 `vpn-jp` 的 stop → 换 SA → start 序列在 stop 之后被 gcloud 连接中断打断，
+>    **09:44 到 15:17 无人重启，约 5.5 h 不可用**。教训：改现役节点的序列必须是一个带重试 / 回滚的脚本，不能是逐条手敲的 gcloud。
+> 6. **`create-vpn-node.sh` 第一次真实执行被自己的读规则误判拦住**（网络抖动 → `denied` 读成空串 → 判「不符」）。已改成读不到就 die。
 
 ## 6 · 这次没有解决的
 
-- [ ] 🔴 §2 台账里 6 个 🔴 全部未实现。
-- [ ] 🔴 **收件人未取得** —— §4 的两条路都没走通。
-- [ ] 🔴 **App Secret 未轮换**。
-- [ ] **`verify-isolation.sh` 还没有改成读 `fleet.json`**（ADR 0017 §3），
-      加第三、第四台自用节点会让它误报。**这是建 `vpn-sg` 的前置，不能并行。**
-- [ ] **`feishu-notify.sh` 的发送路径（`--text` / `--card`）未跑过真实调用。**
+- [ ] 🔴 **飞书 webhook 未取得**（D3）：用户建群 → 加自定义机器人 → 开签名 → `wrangler secret put FEISHU_WEBHOOK_URL / FEISHU_WEBHOOK_SECRET` → `daily-report.py --send` 发第一条。
+- [ ] 🔴 **订阅域名未定**（D5）：需要一个独立 zone；定了在 `worker/wrangler.jsonc` 加 `routes`、改 `fleet.json .subscription.hostname`、重新 publish（公告伪节点名里写域名）。
+- [ ] 🔴 **真机客户端一次都没加载**：Clash Verge Rev（provider 热更新）、Shadowrocket（`base64.txt` + `profile-update-interval` 行为）。
+- [ ] `vpn-us` 升 `e2-small` 后的 4 轮交叉测未做（ADR 0017 §8 代价 2 的复审判据）。
+- [ ] `vpn-sg` 的入向路由与 Standard/Premium 对照未做。
+- [ ] App Secret 未重置。
+- [ ] Flow Logs → BigQuery sink 未建；「$ 实收 MTD」没有落点。

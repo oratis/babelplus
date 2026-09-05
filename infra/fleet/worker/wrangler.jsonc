@@ -1,0 +1,34 @@
+// fleet-sub · 自用机队的订阅下发 + 巡检 ingest + 飞书日报 cron（Cloudflare Worker）
+// 事实源：docs/04-ops/personal-fleet-runbook.md §2.3 / §3.1；infra/fleet/fleet.json .subscription / .report
+//
+// 部署：cd infra/fleet/worker && wrangler deploy
+// 机密：wrangler secret put FEISHU_WEBHOOK_URL / FEISHU_WEBHOOK_SECRET / ADMIN_TOKEN（值在 ../.secrets.env）
+//
+// 🔴 D5（2026-09-05）：订阅域名要用独立 zone，不挂 gptwiki.net（与 CDN 保险通路同失效面），
+//    更不挂 babel.plus。zone 定了以后在下面加 routes 并重新 deploy；此前只有 workers.dev（大陆不可达，只当发布验证）。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fleet-sub",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "account_id": "905b414662eeded1a3a1ebb6fa1c4237",
+  "workers_dev": true,
+  "kv_namespaces": [
+    { "binding": "KV", "id": "df18867b8815457d868b91b9a8958922" }
+  ],
+  "triggers": {
+    // 00:37 UTC = 08:37 Asia/Shanghai。避开整点/半点（飞书自定义机器人文档建议），
+    // 且在节点 23:30 UTC 的 daily 上报之后（fleet.json .report）。
+    "crons": ["37 0 * * *"]
+  },
+  "vars": {
+    "FLEET_NAME": "vpn-fleet",
+    "PROFILE_UPDATE_INTERVAL_H": "24",
+    "SOFT_GIB": "3000",
+    "HARD_GIB": "3800",
+    "REPORT_TZ_OFFSET_H": "8",
+    "ABSENT_AFTER_H": "26"
+  },
+  "observability": { "enabled": true }
+  // "routes": [{ "pattern": "<订阅域名>", "custom_domain": true }]   ← D5 定了再开
+}

@@ -1,0 +1,151 @@
+窗口 12h  条目 88803  采样率 0.5 已折算
+
+== 出网 GiB 按节点 ==
+     20.41  vpn-jp
+     10.94  vpn-us
+
+== 出网 GiB 按北京时间小时 ==
+  00:00    7.49 #############################
+  01:00    0.90 ###
+  02:00    0.98 ###
+  03:00    5.82 #######################
+  04:00    0.93 ###
+  05:00    3.31 #############
+  06:00    3.60 ##############
+  07:00    0.44 #
+  08:00    1.61 ######
+  09:00    0.00 
+  10:00    0.00 
+  11:00    0.00 
+  12:00    0.00 
+  13:00    0.00 
+  14:00    0.00 
+  15:00    0.00 
+  16:00    0.00 
+  17:00    0.00 
+  18:00    0.00 
+  19:00    0.00 
+  20:00    0.00 
+  21:00    0.12 
+  22:00    5.71 ######################
+  23:00    0.42 #
+
+== 客户端（CN 来源，入站>50MiB）：下行=VM→客户端出网，上行=客户端→VM ==
+  111.199.185.207    下行    9.99 GiB  上行    6.86 GiB   4808 Beijing
+  117.129.39.124     下行    2.97 GiB  上行    0.20 GiB   56048 Beijing
+  114.246.101.19     下行    0.74 GiB  上行    0.06 GiB   4808 Beijing
+  111.197.232.77     下行    0.18 GiB  上行    0.06 GiB   4808 Beijing
+
+== VM 入站 GiB 按来源（非客户端 = 各节点从哪里下载）top 25 ==
+     1.85  vpn-jp 172.64.146.98      usa AS13335   
+     1.76  vpn-us 104.18.53.139      usa AS13335   
+     1.64  vpn-jp 35.190.46.17       usa AS        North Charleston
+     1.46  vpn-us 35.190.46.17       usa AS        North Charleston
+     0.91  vpn-us 104.18.19.12       usa AS13335   
+     0.87  vpn-jp 172.66.43.176      usa AS13335   Los Angeles
+     0.83  vpn-us 104.18.18.12       usa AS13335   
+     0.73  vpn-us 172.66.43.176      usa AS13335   Los Angeles
+     0.63  vpn-us 3.163.158.123      usa AS16509   
+     0.59  vpn-us 172.64.155.209     usa AS13335   
+     0.55  vpn-jp 104.18.19.12       usa AS13335   
+     0.47  vpn-us 104.18.32.47       usa AS13335   
+     0.43  vpn-jp 104.18.22.138      usa AS13335   
+     0.32  vpn-jp 172.66.40.80       usa AS13335   Los Angeles
+     0.29  vpn-us 198.41.200.13      usa AS13335   San Francisco
+     0.28  vpn-us 198.41.192.57      usa AS13335   San Francisco
+     0.26  vpn-jp 104.18.23.138      usa AS13335   
+     0.20  vpn-jp 142.250.23.95          AS        
+     0.19  vpn-jp 172.217.221.95         AS        
+     0.18  vpn-us 140.82.116.4       usa AS36459   Floris
+     0.17  vpn-us 23.219.78.80       usa AS20940   Seattle
+     0.16  vpn-jp 35.184.66.143      usa AS        Council Bluffs
+     0.15  vpn-jp 216.239.38.174         AS        
+     0.14  vpn-jp 216.239.36.174         AS        
+     0.14  vpn-jp 160.79.104.10      usa AS399358  
+
+== 客户端上行 GiB 按客户端源端口 top 8（看是否少数长连接扛全部）==
+
+== 出网 GiB 按目标（非客户端）top 40：country asn city ==
+     4.48  vpn-jp 160.79.104.10      usa AS399358  
+     4.44  vpn-us 198.41.200.63      usa AS13335   San Francisco
+     2.17  vpn-jp 104.154.124.27         AS        
+     1.79  vpn-jp 142.251.24.207         AS        
+     0.99  vpn-us 198.41.200.73      usa AS13335   San Francisco
+     0.77  vpn-us 198.41.200.13      usa AS13335   San Francisco
+     0.49  vpn-us 198.41.192.57      usa AS13335   San Francisco
+     0.44  vpn-jp 114.246.97.101     chn AS4808    Beijing
+     0.36  vpn-us 172.64.155.209     usa AS13335   
+     0.20  vpn-us 104.18.32.47       usa AS13335   
+     0.19  vpn-jp 104.154.125.27         AS        
+     0.19  vpn-us 198.41.200.33      usa AS13335   San Francisco
+     0.11  vpn-us 160.79.104.10      usa AS399358  
+     0.11  vpn-jp 142.251.169.207        AS        
+     0.06  vpn-jp 142.250.23.95          AS        
+     0.06  vpn-us 208.66.6.222       usa AS2914    Santa Clara
+     0.04  vpn-jp 142.250.21.207         AS        
+     0.03  vpn-jp 172.64.190.1       usa AS13335   
+     0.03  vpn-jp 104.17.110.184     usa AS13335   
+     0.03  vpn-jp 172.217.113.4          AS        
+     0.02  vpn-jp 192.178.230.207        AS        
+     0.02  vpn-jp 34.149.66.165      usa AS        North Charleston
+     0.02  vpn-jp 162.159.137.105    usa AS13335   
+     0.02  vpn-jp 198.41.192.107     usa AS13335   San Francisco
+     0.02  vpn-jp 104.17.111.184     usa AS13335   
+     0.01  vpn-jp 35.184.66.143      usa AS        Council Bluffs
+     0.01  vpn-jp 198.41.192.7       usa AS13335   San Francisco
+     0.01  vpn-jp 172.217.119.4          AS        
+     0.01  vpn-jp 172.217.114.4          AS        
+     0.01  vpn-jp 20.27.177.113      jpn AS8075    Koto City
+     0.01  vpn-jp 104.18.32.47       usa AS13335   
+     0.01  vpn-jp 172.217.221.95         AS        
+     0.01  vpn-us 198.41.192.7       usa AS13335   San Francisco
+     0.01  vpn-us 172.64.150.28      usa AS13335   
+     0.01  vpn-jp 222.129.50.90      chn AS4808    Beijing
+     0.01  vpn-jp 142.250.21.94          AS        
+     0.01  vpn-us 104.18.37.228      usa AS13335   
+     0.01  vpn-jp 34.158.78.8        nld AS        Groningen
+     0.01  vpn-us 155.102.54.131     usa AS24429   
+     0.01  vpn-us 198.41.192.27      usa AS13335   San Francisco
+
+== 出网 GiB 按目标国家（非客户端）==
+     12.43  usa
+      4.54  ?
+      0.46  chn
+      0.03  jpn
+      0.01  nld
+      0.00  hkg
+      0.00  sgp
+      0.00  gbr
+      0.00  can
+      0.00  irl
+      0.00  bel
+      0.00  deu
+
+== 出网 GiB 按目标 ASN（非客户端）top 15 ==
+      7.66  AS13335
+      4.59  AS?
+      4.59  AS399358
+      0.46  AS4808
+      0.06  AS2914
+      0.03  AS8075
+      0.02  AS714
+      0.02  AS24429
+      0.01  AS16509
+      0.01  AS36459
+      0.00  AS21859
+      0.00  AS14618
+      0.00  AS6185
+      0.00  AS139341
+      0.00  AS45102
+
+== 出网 GiB 按目标端口 top 10 ==
+      9.18  vpn-jp :443
+      6.90  vpn-us :7844
+      2.61  vpn-jp :18220
+      1.92  vpn-jp :19330
+      1.87  vpn-jp :18935
+      1.67  vpn-jp :18601
+      1.32  vpn-jp :18447
+      0.80  vpn-us :443
+      0.70  vpn-jp :62451
+      0.42  vpn-jp :59046

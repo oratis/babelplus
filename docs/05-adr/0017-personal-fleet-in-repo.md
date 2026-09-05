@@ -1,6 +1,6 @@
 # 0017 · 裁决：自用机队以「同仓不同队」形态进入本仓库；共享设计与工具，不共享任何一份 GCP 资源
 
-> 日期：2026-09-04 · 性质：**架构裁决** · 状态：**提案，未批准**（2026-09-04）
+> 日期：2026-09-04 · 性质：**架构裁决** · 状态：**已批准（修订版）**（2026-09-05，用户裁决 D1–D7 全按评审推荐；修订内容与执行记录见 §10）
 > 事实基线：`gcloud` 只读实查（`instances list` / `describe` / `addresses list` /
 > `firewall-rules list`，身份 `wangharp@gmail.com`，2026-09-04）；
 > 价目来自 [evidence/fleet-pricing-20260904](../evidence/fleet-pricing-20260904/)（Billing Catalog API）；
@@ -46,7 +46,8 @@
 （原文写的是 "Slack / Pub-Sub → 值班"）。
 **0002 关于用户面通知的裁决一个字都不改** —— 邮件仍是唯一的失联恢复通道。
 
-**四、机队目标形态：3 台付费速度节点（us / jp / sg）+ 1 台免费层运维节点，月度成本上限 $500（credit 计入成本）。**
+**四、机队目标形态：3 台付费速度节点（us / jp / sg），月度成本上限 $500（credit 计入成本）。** ~~+ 1 台免费层运维节点~~
+（2026-09-05 修订 D2：`vpn-ops` 推迟——Worker 承担聚合与日报，节点互探代替跨节点回打；复审条件见 runbook §4 代价 5。）
 拓扑与预算见 §4，逐条执行见 [personal-fleet-runbook](../04-ops/personal-fleet-runbook.md)。
 
 ---
@@ -101,12 +102,12 @@
 
 ### 4.1 拓扑
 
-| 节点 | 区域 | 机型 | 角色 | 免费层 |
+| 节点 | 区域 | 机型（2026-09-05 修订 D4） | 角色 | 免费层 |
 |---|---|---|---|---|
-| `vpn-us` | `us-west1`（俄勒冈） | `e2-medium` | 美国出口（AI 账号 IP 一致性） | 否（升级后不再是 `e2-micro`） |
-| `vpn-jp` | `asia-northeast1`（东京） | `e2-medium` | 默认高吞吐路径（Hysteria2） | 否 |
-| `vpn-sg` | `asia-southeast1`（新加坡） | `e2-medium` | **新增**；东南亚出口 + 第三份 200 GiB 免费出网 | 否 |
-| `vpn-ops` | `us-central1`（爱荷华） | **`e2-micro`** | **新增**；巡检聚合 + 日报发送 + 订阅兜底托管 | **是**（744 h + 30 GiB 盘） |
+| `vpn-us` | `us-west1`（俄勒冈） | **`e2-small`**（原案 `e2-medium`；先测再升，见 §8 代价 2） | 美国出口（AI 账号 IP 一致性） | 否（2026-09-05 起不再是 `e2-micro`） |
+| `vpn-jp` | `asia-northeast1`（东京） | **`e2-micro` 不升**（as-built §4.3：40.8 Mbps 时 CPU 65%，不是 CPU 瓶颈） | 默认高吞吐路径（Hysteria2） | 否 |
+| `vpn-sg` | `asia-southeast1`（新加坡） | **`e2-small`** 起步（原案 `e2-medium`） | **2026-09-05 已建**；东南亚出口 + **唯一一份** Standard 200 GiB 免费出网（us/jp 是 Premium，没有） | 否 |
+| ~~`vpn-ops`~~ | ~~`us-central1`~~ | ~~`e2-micro`~~ | **推迟（D2）**：Worker 承担聚合与日报；只剩「BigQuery 拉 $ 实收」「订阅静态兜底」两件事时再建 | （Always Free 那台 `e2-micro` 暂不占用） |
 
 **为什么运维节点单独一台、而且必须是那台免费的：**
 Always Free 的 `e2-micro` 全账户只有一台份，而它 0.25 vCPU 的计费规格**跑不动代理流量**
@@ -116,21 +117,25 @@ Always Free 的 `e2-micro` 全账户只有一台份，而它 0.25 vCPU 的计费
 
 ### 4.2 月度成本（目录价，730 h；credit 计入成本）
 
-| 项 | 明细 | $/月 |
+| 项 | 明细（2026-09-05 修订后的实际形态） | $/月 |
 |---|---|---|
-| 计算 | `e2-medium` × us-west1 / 东京 / 新加坡 = 24.46 + 31.38 + 30.17 | **86.01** |
-| | `e2-micro` × `us-central1`（Always Free 744 h） | 0.00 |
-| 盘 | 30 GiB × 4 台；美国 30 GiB 免费额度**账户级只有一份** | **4.08** |
-| 外网 IPv4 | 4 个常驻，扣 720 h 免费档（**口径未定，见价目 §4**） | **11.00** |
-| **固定小计** | | **$101.09** |
-| **出口预算余量** | $500 − $101 | **$398.91** |
+| 计算 | `e2-small` us-west1 12.23 + `e2-micro` 东京 7.84 + `e2-small` 新加坡 15.09 | **35.16** |
+| 盘 | 30 GiB × 3 台：美国 30 GiB 落免费档 $0；东京 30 × 0.052 = 1.56；新加坡 30 × 0.044 = 1.32 | **2.88** |
+| 外网 IPv4 | 3 个常驻 2,190 h − 720 h 免费 = 1,470 h × $0.005（口径已定，价目 §4.1） | **7.35** |
+| **固定小计** | | **$45.39** |
+| **出口预算余量** | $500 − $45 | **$454.61** |
+
+> 原案（e2-medium ×3 + vpn-ops）固定小计 $101.09；修订后少 $55.70/月，全部换成出口余量。
 
 出口余量换算成流量（两种口径都给，因为层级还没定）：
 
 | 口径 | 单价依据 | 可承载 | 折日均 |
 |---|---|---|---|
-| Premium（现状） | 实收混合 **$0.0979/GiB**（[egress-billing §2](../evidence/egress-billing-20260820/)） | 4,075 GiB/月 | **134 GiB/日** |
-| Standard | 3 个出流量区域各 200 GiB 免费，余量 US $0.085 / APAC $0.11 | 约 4,490 GiB/月 | **148 GiB/日** |
+| 全部按 Premium 实收（保守上界） | 实收混合 **$0.0979/GiB**（[egress-billing §2](../evidence/egress-billing-20260820/)） | 4,644 GiB/月 | **153 GiB/日** |
+| 实际混合（us/jp Premium + sg Standard） | sg 那一份**只有 200 GiB 免费**，之后 APAC $0.11；us/jp 按实收 $0.0979 | 约 4,700–4,800 GiB/月（取决于 sg 分到多少流量） | **≈ 155 GiB/日** |
+
+> ⚠️ 2026-09-05 修正：原表按「3 个区域各 200 GiB 免费」算 Standard 行，与 §4.3 裁决（us/jp 保持 Premium）自相矛盾——
+> 免费额度只有 `vpn-sg` 一份，原表多算了 400 GiB/月（≈ $44）。
 
 **当前实测用量：75 GiB/日**（2026-09-04，14 天窗口 1,055 GiB，`vpn-us` 624 + `vpn-jp` 431）。
 
@@ -156,7 +161,7 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
 按 §4.2 的规划量（3 个区域分摊 4 TiB ≈ 每区域 1.3 TiB），**Standard 更省**——
 但省下的钱换的是什么速度，**没有人测过**。
 
-**裁决：`vpn-sg` 以 Standard 建，`vpn-jp` 保持 Premium 不动，构成同期对照。**
+**裁决：`vpn-sg` 以 Standard 建，`vpn-jp` 保持 Premium 不动，构成同期对照。**（✅ 2026-09-05 `vpn-sg` 已按此建成：`34.2.143.75`，STANDARD；对照采样**未做**。）
 这既是新节点的选型，也顺手把挂了一个多月的 `nettier-ab-*` 变成有载体的实验。
 判据与采样窗口沿用 [`infra/node/verify-route.sh`](../../infra/node/verify-route.sh) 的 J1–J6，
 含一次晚高峰（19:00–24:00 CST）。
@@ -198,13 +203,13 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
    —— 与 [ADR 0002 §4.1](0002-notification-channels.md) 的第 2 条恢复路径同源。
 3. **订阅托管必须独立于节点。** 托管在任何一台代理节点上，
    会在"节点挂了"和"节点换了地址"这两种最需要它的时刻同时失效。
-   落点：Cloudflare Worker（自定义域，走既有 `gptwiki.net` zone）+ `vpn-ops` 上的静态兜底。
+   落点：Cloudflare Worker `fleet-sub` + KV（✅ 2026-09-05 已部署）。~~自定义域走既有 `gptwiki.net` zone~~ → **2026-09-05 修订 D5：用独立 zone**——`cdn.gptwiki.net` / `jp.gptwiki.net` 两条抗封锁保险通路在同一个 zone，订阅与保险不能共用一个失效面；也不用 `babel.plus`。域名**待定**，定前只有 workers.dev（大陆不可达，只当发布验证）。`vpn-ops` 静态兜底随 D2 推迟。
 
 ---
 
 ## 6 · 每日巡检与飞书日报：它同时是成本闸
 
-**裁决：巡检在每台节点上跑，汇总与发送在 `vpn-ops` 上跑，日报走飞书私聊。**
+**裁决：巡检在每台节点上跑，汇总与发送在 Cloudflare Worker 上跑（2026-09-05 修订 D2，原案 `vpn-ops`），日报走飞书自定义机器人 Webhook 发到「只有用户 + 机器人」的群（2026-09-05 修订 D3，原案应用「胖狗」私聊）。**
 
 不选"每台机器各发一条"的理由：4 台机器 = 每天 4 条卡片，
 而**最重要的那条信息恰恰是"某台没发"**——把"缺席"变成一条正向可读的行，
@@ -222,9 +227,10 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
 5. **待重启**：`/var/run/reboot-required`（`unattended-upgrades` 关了自动重启，
    [`infra/node/README.md` §9](../../infra/node/README.md) 自记这条巡检项"不存在"，本文补上）。
 
-**凭据处置（本裁决的一条硬红线）：**
-飞书 App Secret **只存在于 `vpn-ops` 的 Secret Manager 引用与本机的 gitignored `.env`**，
-**不下发到任何一台代理节点**。代理节点是暴露面最大的资产，
+**凭据处置（本裁决的一条硬红线，2026-09-05 按 D3 修订）：**
+日报通道改为自定义机器人 Webhook 之后，**运维链路上不再需要 App Secret**：Worker 只持有 webhook URL 与签名 secret
+（`wrangler secret`），本机 gitignored `.secrets.env` 留一份；**任何一台代理节点上都没有任何飞书凭据**。
+应用「胖狗」的 App Secret 只在本机 `.secrets.env`（备用通道），代理节点是暴露面最大的资产，
 而它们需要的只是"把 JSON 交出去"的能力，不需要"以胖狗身份发消息"的能力。
 
 > 🔴 **本次对话中 App Secret 以明文出现在聊天记录里。**
@@ -283,6 +289,9 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
 >    本文把投递限定为私聊，但**应用凭据本身仍是企业租户的资产**——
 >    租户管理员可以看到这个应用、可以停用它、审计日志里会有它的调用记录。
 >    **在私人 VPN 的节点 IP 与流量数据上，这不是一个中立的选择。**
+> 8. **（2026-09-05 追加）workers.dev 子域名叫 `oratisoratisoratisoratis`。** 交互式注册脚本把名字重复输入了四次；它只是 D5 定下独立域名前的临时地址，可在后台改。
+> 9. **（2026-09-05 追加）`vpn-us` 升到 `e2-small` 而不是 `e2-medium`，代价是如果 `e2-small` 也顶了要再停一次机。** 换来的是每月少 $12.23、且不用为一个未证明的收益先付双倍。
+> 10. **（2026-09-05 追加）改现役节点的停机序列没有看门狗。** `vpn-jp` 的 stop → 换 SA → start 在 stop 之后被 gcloud 连接中断打断，09:44–15:17 CST 无人重启，**约 5.5 h 不可用**。这是执行事故，不是设计代价，但它暴露的是设计缺口：序列应当是一个带重试/回滚的脚本。
 > 7. **飞书对失联恢复毫无价值。** 与 [ADR 0002 §3.1](0002-notification-channels.md) 对
 >    Telegram 的判定同构——飞书在中国大陆可达，所以它比 Telegram 好；
 >    但**当代理全线中断时，用户本人的飞书客户端仍然是可达的**，这一点是它成立的全部理由。
@@ -292,35 +301,44 @@ Proxy_Skill 则选了 Premium，理由是"跨太平洋延迟稳定性"，同样*
 
 ## 9 · 这次没有解决的
 
-- [ ] 🔴 **本文是提案，未批准。** 在批准之前，**一台机器都不许建，一分钱都不许花**。
-      `create-node.sh` 系列在本会话中被权限策略拦住，本次**零 GCP 变更**（只读实查）。
-- [ ] 🔴 **`verify-isolation.sh` 的两条扩展（§3）没有实现**，仍是硬编码两台机的旧版本。
-      **加第三、第四台自用节点会让它误报**，而误报的必然结局是有人把它改宽松。
-      **这一条必须在建 `vpn-sg` 之前做完，不能并行。**
-- [ ] 🔴 **外网 IPv4 的计费口径未定**（[价目 §4](../evidence/fleet-pricing-20260904/)）。
-      $11/月 与 $29–44/月 差 3–4 倍，预算表按前者记。查询语句已写好，**一条 BigQuery 就能定论**。
+- [x] ~~🔴 **本文是提案，未批准。**~~ ✅ 2026-09-05 用户按修订批准（D1）；同日建成 `vpn-sg`、升级 `vpn-us`、两台换 SA、Worker 上线（§10）。
+- [x] ~~🔴 **`verify-isolation.sh` 的两条扩展（§3）没有实现**~~ ✅ 2026-09-05 已做：期望读 `infra/fleet/fleet.json`（入库，D7），反向断言 + 守 `vpn-deny-from-bp` 的正向断言；本地 23/23 绿。⚠️ 它在 2026-09-04 21:15 就已经红了（用户加了 `vpn-deny-from-bp`），本次先修它再建机。
+- [x] ~~🔴 **外网 IPv4 的计费口径未定**~~ ✅ 2026-09-05 定论（[价目 §4.1](../evidence/fleet-pricing-20260904/)）：`External IP Charge on a Standard VM`，$11/月口径成立。
 - [ ] **Carrier Peering 对新加坡是否同价，是按一个观测样本外推的。**
       `vpn-sg` 第一份账单出来要回头核对 [价目 §2.3](../evidence/fleet-pricing-20260904/)。
-- [ ] **`e2-medium` 能不能解掉 29 Mbps 天花板，没测过。** 代价第 2 条已写死复审条件，
-      但**测量本身还没做**，而 Proxy_Skill §11.3 的既有结论（瓶颈是单流拥塞、不是带宽）
-      指向"升级 CPU 未必有用"。**先测再升，比先升再测便宜。**
+- [ ] **`e2-small` 能不能解掉 29 Mbps 天花板，没测过。**（2026-09-05 改为 e2-small 先行，D4）复审条件在代价第 2 条；4 轮交叉测**仍未做**，要在用户设备上跑。
 - [ ] **Shadowrocket 是否读 `profile-update-interval` 响应头：需实测。**
       同样未测的还有它对 `subscription-userinfo` 的显示行为。
 - [ ] **`proxy-providers` 的 `health-check` 在 Clash Verge Rev 当前版本里的确切键名：需实测。**
       与 [api-contract §4.5](../02-architecture/api-contract.md) 对 `smux` / `reality-opts`
       标「需实测」同理——**按文档实现，用真实客户端加载一次才算数**。
-- [ ] **飞书 App Secret 的轮换没做**（§6 末尾）。它在本次对话中以明文出现过。
-- [ ] **用户本人的飞书 `open_id` 未取得**：`contact/v3/users/batch_get_id` 在本会话被权限策略拦住。
-      `feishu-notify.sh --whoami` 已实现，**需用户本地跑一次**或改用"只有本人 + 胖狗的群"的 `chat_id`
-      （`im/v1/chats` 接口已实测可用）。
+- [ ] **飞书 App Secret 的轮换没做**（§6 末尾）。它在 2026-09-04 对话中以明文出现过。D3 之后它不在运维链路上，但泄漏就是泄漏，仍要重置。
+- [ ] ~~**用户本人的飞书 `open_id` 未取得**~~ → D3 之后不需要 `open_id`；**需要的是用户建「只有本人 + 自定义机器人」的群并取得 webhook URL / 签名 secret**（2026-09-05 仍未取得，日报发送路径未跑）。
 - [ ] **节点侧限速 / 自动停机没做**（代价第 5 条）。日报只有观测，没有执行。
 - [ ] **Oracle Cloud Always Free（4 OCPU / 24 GB Ampere A1 + 10 TB/月免费出网）未评估。**
       它是唯一能把出口成本结构整体改写的免费层，但会推翻 2026-08-25 的
       「全部用 GCP + Cloudflare」平台裁决，且 Oracle IP 段在代理场景下的封锁速度**待核实**。
       **要不要开这条口子是一次独立裁决，不在本文范围内。**
 - [ ] **两支机队仍在同一个 GCP project**（代价第 1 条）。拆项目未评估。
-- [ ] **`vpn-*` 两台仍挂默认 Compute SA，而该 SA 持有 `roles/editor`**
-      （2026-09-04 实查；`bp-node-hk1` 用的是零角色 SA）。
-      节点被拿下 = 整个 project 的 Editor，**这是一条双向污染通道，本文没有关掉它**。
-      改 SA 需要重建实例或停机，属用户本人的可用性权衡，**需用户点头**。
-- [ ] **`vpn-*` 两台 `deletionProtection: false`、零快照、零快照计划**（同上实查）。
+- [x] ~~**`vpn-*` 两台仍挂默认 Compute SA，而该 SA 持有 `roles/editor`**~~ ✅ 2026-09-05（D6）三台全部挂 `vpn-node-sa`（只有 `logging.logWriter` + `monitoring.metricWriter`）。⚠️ `vpn-us` 在 05:40 由用户的 `optimize-vpn.sh` p2 先摘成空 SA，09:42 与升机型合并一次停机换成 `vpn-node-sa`；`vpn-jp` 的停机序列失控 5.5 h（代价 10）。
+- [x] ~~**`vpn-*` 两台 `deletionProtection: false`、零快照、零快照计划**~~ ✅ 2026-09-04 21:14 用户跑 `optimize-vpn.sh` p0：删除保护 on、每周快照 `vpn-weekly-us/jp`、Flow Logs on、2 条告警。`vpn-sg` 建机即带删除保护；**它的快照计划未建**。
+
+---
+
+## 10 · 2026-09-05 修订与执行记录
+
+用户裁决（D1–D7 全按评审推荐）：
+
+| # | 裁决 | 落地 |
+|---|---|---|
+| D1 | 按修订批准本 ADR | 本节 |
+| D2 | `vpn-ops` 推迟 | Worker 承担 ingest + cron 日报；节点互探；`fleet.json .deferred` 记录复审条件 |
+| D3 | 飞书改自定义机器人 Webhook | Worker 直接 POST（签名）；**webhook 待用户建群取得** |
+| D4 | `vpn-us` 先 `e2-small`、`vpn-jp` 不升、`vpn-sg` 从 `e2-small` 起步 | ✅ 09:42 `vpn-us` 升级；`vpn-sg` 15:33 建成 |
+| D5 | 订阅用独立 zone | **域名待定**；Worker 暂在 workers.dev |
+| D6 | 换 SA 与升机型合并一次停机；SA = `vpn-node-sa` | ✅ 三台全部 `vpn-node-sa`（`vpn-jp` 序列失控 5.5 h，代价 10） |
+| D7 | `fleet.json` 入库 | ✅ 入库；`verify-isolation.sh` 读它；`fleet.example.json` 删除 |
+
+当日执行（全部有 gcloud 只读实查或脚本输出背书）：B70 两条规则、`vpn-node-sa`、B69 隔离脚本 23/23 绿、Worker `fleet-sub` + KV、
+订阅四产物 + 自托管 CN CIDR 发布并 `curl` 验头、healthcheck 三台装机并上报、`vpn-sg` 建机 + 装机、
+B71 定论、出网归因证据、`vpn-jp` 内核更新随重启生效。**未做**：飞书首条真实消息、独立域名、真机客户端加载、4 轮交叉测、`vpn-sg` 路由验收、App Secret 重置。

@@ -98,7 +98,8 @@ As-Built，不回改）。
 
 新建 GCP 资源一律 **`bp-` 前缀** + **`bp-node` 网络标签**。
 
-> 自用机队的工具在 [`infra/fleet/`](infra/fleet/)，一律 **`vpn-` 前缀** + **`vpn-node` 标签**。
+> 自用机队的工具在 [`infra/fleet/`](infra/fleet/)，一律 **`vpn-` 前缀** + **`vpn-node` 标签** + **`vpn-node-sa`**。
+> [`infra/fleet/fleet.json`](infra/fleet/fleet.json) 是 `verify-isolation.sh` 的 vpn 侧期望清单：**改现役自用节点（机型 / IP / SA / 规则）先改它，再跑脚本到绿；脚本红了改清单，不改脚本，不改宽松。**
 > 两个目录**不要混**：`infra/node/` 硬编码 `STANDARD` 层级（ADR 0008 明令不给开关），`infra/fleet/` 允许显式选层级（要跑 A/B）。
 
 ---

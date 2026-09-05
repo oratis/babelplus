@@ -1,8 +1,7 @@
 # 运维手册 · 自用机队的扩容、订阅热更新与每日巡检
 
-> 日期：2026-09-04 · 性质：**执行手册** · 状态：**设计稿 v1**（2026-09-04，
-> **三节全部未在真机上执行过**；`infra/fleet/` 下的脚本只做过 `shellcheck` / `bash -n` /
-> `python3 -m py_compile`，唯一跑过真实调用的是飞书鉴权与只读查询）
+> 日期：2026-09-04 · 性质：**执行手册** · 状态：**v2，三节均已在真机上执行**（2026-09-05；执行记录与偏差见 §6，
+> 仍未做的见 §5。原 v1 设计稿 2026-09-04 写成时三节全部未执行）
 > 事实基线：[as-built-personal-fleet.md](../02-architecture/as-built-personal-fleet.md)（现状）、
 > [evidence/fleet-pricing-20260904](../evidence/fleet-pricing-20260904/)（目录价）、
 > [evidence/egress-billing-20260820](../evidence/egress-billing-20260820/)（实收价）
@@ -30,8 +29,7 @@
 而在订阅通路建成之前，每加一台机器都意味着再手工分发一次 6 份配置。
 先把事实源收敛到一处，扩容才是加一行 JSON 的事。
 
-🔴 **§1 的任何一条改动都要求 [ADR 0017](../05-adr/0017-personal-fleet-in-repo.md) 先被批准。**
-它现在是「提案，未批准」。
+✅ [ADR 0017](../05-adr/0017-personal-fleet-in-repo.md) 已于 2026-09-05 按修订批准（D1–D7），§1 的改动同日执行。
 
 ---
 
@@ -39,12 +37,12 @@
 
 ### 1.1 目标拓扑
 
-| 节点 | 区域 | 机型 | 层级 | 角色 | 状态 |
+| 节点 | 区域 | 机型（D4 修订） | 层级 | 角色 | 状态（2026-09-05） |
 |---|---|---|---|---|---|
-| `vpn-us` | `us-west1-a` | `e2-micro` → **`e2-medium`** | Premium | 美国出口 | 已存在，**待升级** |
-| `vpn-jp` | `asia-northeast1-a` | `e2-micro` → **`e2-medium`** | Premium | 默认高吞吐 | 已存在，**待升级** |
-| `vpn-sg` | `asia-southeast1-a` | `e2-medium` | **Standard** | 东南亚出口 + A/B 对照 | **新建** |
-| `vpn-ops` | `us-central1-a` | **`e2-micro`** | Standard | 巡检聚合 + 日报 + 订阅兜底 | **新建，吃 Always Free** |
+| `vpn-us` | `us-west1-a` | `e2-micro` → **`e2-small`**（顶了再议 `e2-medium`） | Premium | 美国出口 | ✅ 09:42 已升级（停机 50 s） |
+| `vpn-jp` | `asia-northeast1-a` | **`e2-micro` 不升**（不是 CPU 瓶颈） | Premium | 默认高吞吐 | ✅ 只换 SA（序列失控 5.5 h，§6） |
+| `vpn-sg` | `asia-southeast1-a` | **`e2-small`** 起步 | **Standard** | 东南亚出口 + A/B 对照 | ✅ 15:33 建成 `34.2.143.75`，15:4x 装机 |
+| ~~`vpn-ops`~~ | ~~`us-central1-a`~~ | ~~`e2-micro`~~ | — | 巡检聚合 + 日报 → **Worker 承担** | **推迟（D2）** |
 
 选型理由与月度成本见 [ADR 0017 §4](../05-adr/0017-personal-fleet-in-repo.md)。三条要点：
 
@@ -205,8 +203,8 @@ gcloud compute instances start vpn-us --project=$P --zone=us-west1-a
 
 | 层 | 落点 | 免费额度 |
 |---|---|---|
-| 主 | **Cloudflare Worker + KV**，自定义域挂在既有 `gptwiki.net` zone 上 | Workers 100k 请求/日、KV 100k 读/日 |
-| 兜底 | `vpn-ops` 上的静态文件（nginx） | 该机在 Always Free 内 |
+| 主 | **Cloudflare Worker `fleet-sub` + KV**（✅ 2026-09-05 已部署）。自定义域按 D5 用**独立 zone**（不挂 `gptwiki.net`：与 CDN 保险通路同失效面；不挂 `babel.plus`）——**域名待定**，定前只有 workers.dev（大陆不可达，只当发布验证） | Workers 100k 请求/日、KV 100k 读/日 |
+| 兜底 | ~~`vpn-ops` 上的静态文件~~ 随 D2 推迟；目前**没有**第二份托管 | — |
 
 Worker 只做三件事，**不持有任何节点凭据的生成逻辑**：
 
@@ -257,35 +255,31 @@ proxy-providers:
       enable: true
       url: https://www.gstatic.com/generate_204
       interval: 300
-      lazy: true
+      lazy: false              # 2026-09-05 文档核实：分组级 url/interval 不测 provider 节点，fallback 的健康信息只来自这里
+      expected-status: 204
 
 proxy-groups:
   - name: "🚀 Proxy"
     type: select
     proxies: ["🇯🇵 Japan", "🇺🇸 United States", "🇸🇬 Singapore", "⚡ Auto", DIRECT]
+  # 分组级 url / interval 对 use: 导入的节点无效（wiki.metacubex.one proxy-groups，2026-09-05 抓取），故不写
   - name: "🇯🇵 Japan"
     type: fallback
     use: [fleet]
     filter: "^JP-"
-    url: https://www.gstatic.com/generate_204
-    interval: 180
   - name: "🇺🇸 United States"
     type: fallback
     use: [fleet]
     filter: "^US-"
-    url: https://www.gstatic.com/generate_204
-    interval: 180
   - name: "🇸🇬 Singapore"
     type: fallback
     use: [fleet]
     filter: "^SG-"
-    url: https://www.gstatic.com/generate_204
-    interval: 180
   - name: "⚡ Auto"
     type: url-test
     use: [fleet]
-    url: https://www.gstatic.com/generate_204
-    interval: 180
+    filter: "^(JP|US|SG)-"
+    tolerance: 80
 ```
 
 > **`🚀 Proxy` 默认指 `🇯🇵 Japan` 而不是 `⚡ Auto`**：`url-test` 只按延迟排序，
@@ -298,10 +292,9 @@ proxy-groups:
 **Shadowrocket**：设置里填订阅 URL（用 `base64.txt` 那条），
 打开「后台自动更新」。换 IP 时它会在后台拉取并替换 profile。
 
-**⚠️ 三个字段名标 需实测**（按文档实现，用真实客户端加载一次才算数，
-与 [api-contract §4.5](../02-architecture/api-contract.md) 对 `smux` / `reality-opts` 的处理同理）：
-`health-check.lazy`、`proxy-groups` 在 `use:` 下的 `filter` 语义、
-Shadowrocket 的 `#!PROFILE-UPDATE-INTERVAL`。
+**⚠️ 需实测的从三条减到一条**（2026-09-05 用 wiki.metacubex.one 官方文档核实了 `health-check.lazy`（存在，默认 true）与 `filter`（只作用于 `use:` 导入）；
+证据等级「官方文档 = 高」但**不替代真机加载一次**）：仍未核实的是 Shadowrocket 是否读 `profile-update-interval` 响应头。
+🔴 **真机客户端一次都没加载**（Clash Verge Rev / Shadowrocket），这是 §5 的第一条。
 
 ### 2.6 换 IP 的新流程
 
@@ -329,13 +322,13 @@ Shadowrocket 的 `#!PROFILE-UPDATE-INTERVAL`。
    vpn-jp ─┼─ healthcheck.sh (systemd timer, 每日 + 每小时轻量)
    vpn-sg ─┘        │ JSON
                     ▼  POST /ingest/<node-token>
-        Cloudflare Worker + KV ◀────────── vpn-ops（兜底：直接拉各节点 JSON）
+        Cloudflare Worker fleet-sub + KV ◀── daily-report.py --source nodes（兜底：IAP 逐台拉 latest.json）
                     │
-                    │ cron 每日 08:00 Asia/Shanghai
+                    │ cron 00:37 UTC（08:37 CST；避开整/半点；在节点 23:30 UTC daily 之后）
                     ▼
-        飞书 open-apis/im/v1/messages（应用「胖狗」）
+        飞书自定义机器人 Webhook（签名校验；D3，原案应用「胖狗」私聊）
                     │
-                    ▼  私聊
+                    ▼  只有用户 + 机器人的群
                   用户本人
 ```
 
@@ -343,8 +336,8 @@ Shadowrocket 的 `#!PROFILE-UPDATE-INTERVAL`。
 而最重要的那条信息恰恰是**"某台没发"** —— 把缺席变成一行正向可读的文字，
 比让人每天数卡片数量可靠得多。
 
-**降级路径**：Worker 不可用时，`vpn-ops` 上的 `daily-report.py --local` 直接拉各节点
-JSON、组卡片、发飞书。`daily-report.py` 的两条路径共用同一个渲染函数。
+**降级路径**：Worker 不可用时，本机 `daily-report.py --source nodes --send` 经 IAP 逐台拉 `/var/lib/fleet/latest.json`、本地渲染精简卡片、发 webhook。
+⚠️ 精简版与 Worker 的渲染是两份代码（JS / Python），没有月度差分（那份状态只在 KV 里）。
 
 ### 3.2 巡检项（五组）
 
@@ -440,9 +433,10 @@ set -a; source infra/fleet/.secrets.env; set +a
       --tunnel-through-iap --command="sudo bash -s -- --install"
 ```
 
-`--install` 落三个文件：`/usr/local/sbin/fleet-healthcheck`、
-`/etc/systemd/system/fleet-healthcheck.service` + `.timer`（`OnCalendar=*-*-* 00:05:00 UTC`
-+ 每小时轻量），凭据经 systemd `LoadCredential` 注入，**不写进 unit 文件**。
+实际实现（2026-09-05）：本机跑 `infra/fleet/healthcheck-install.sh <host>`，它把 `healthcheck.sh` base64 后连同非机密 env 与 token 经 stdin 送到节点，落
+`/usr/local/sbin/fleet-healthcheck`、`/etc/fleet/healthcheck.env`、`/etc/fleet/node-token`（600）、`fleet-healthcheck.service` + `.timer`
+（**`OnCalendar=*-*-* *:30:00 UTC`，每小时一次，23:30 那次自动升格为 daily**——原稿 00:05 UTC 会让 00:00 UTC 的日报读到 23 h 前的数据）。
+凭据经 `LoadCredential` 注入，**不写进 unit 文件**。B 组第 ④ 条改为**节点互探**（对端表从 Worker `GET /fleet` 取），C 组改为本机 `tx_bytes` 累计、Worker 差分成月度。
 
 `${!v:?}` 是 **fail-closed**：缺任何一个变量在连上机器之前就退出，不生成半成品配置。
 `printf %q` 保证含特殊字符的值不会被 shell 二次解释。**两条都照抄 `infra/node/README.md` §3。**
@@ -480,31 +474,28 @@ set -a; source infra/fleet/.secrets.env; set +a
 
 ---
 
-## 5 · 这次没有解决的
+## 5 · 这次没有解决的（2026-09-05）
 
-- [ ] 🔴 **本手册三节全部未在真机上执行过。** 本次会话对 GCP **零变更**
-      （建机脚本被权限策略拦下，只做了只读实查）。
-      第一次真机执行必须逐条记录偏差并回写本文。
-- [ ] 🔴 **`verify-isolation.sh` 的两条扩展（§1.3）没有实现。**
-      **它是 §1.4 建机的前置，不能并行。**
-- [ ] 🔴 **`infra/fleet/` 下的 Cloudflare Worker 与 `create-vpn-node.sh` 只有规格，没有实现。**
-      本轮交付的是 `feishu-notify.sh`（**唯一跑过真实调用的**）、
-      `healthcheck.sh`、`fleet.example.json` 与 `gen-subscription.py` 的骨架。
-- [ ] **用户本人的飞书 `open_id` 未取得**（§3.3）。日报没有收件人就发不出去。
-- [ ] **飞书 App Secret 未轮换**（§3.3）。
-- [ ] **三个客户端字段名需实测**（§2.5）：`health-check.lazy`、`use:` 下的 `filter` 语义、
-      Shadowrocket 的 `#!PROFILE-UPDATE-INTERVAL` 与 `profile-update-interval` 响应头。
-- [ ] **`vpn-sg` 的 Standard 层级好不好用，没测过。** §1.1 的 A/B 是个**不干净**的对照
-      （既差层级也差地理位置）。真正的 `nettier-ab-*` 要在同一区域开两个 IP 各挂一个层级。
-- [ ] **Carrier Peering 对新加坡是否同价，是按一个观测样本外推的**
-      （[价目 §2.3](../evidence/fleet-pricing-20260904/)）。第一份账单要回来核对。
-- [ ] **外网 IPv4 的计费口径未定**（[价目 §4](../evidence/fleet-pricing-20260904/)），
-      $11/月 与 $29–44/月 差 3–4 倍。查询语句已写好。
-- [ ] **入向路由从未测过。** §3 的巡检全部是出向与本地状态。
-      入向由中国运营商的 BGP 决策决定，而**用户体验由入向决定**
-      （[`infra/node/README.md` §5](../../infra/node/README.md)）。
-      数据源 B（国内多点测速站）自用队一次都没做过。
-- [ ] **节点退役 / 删除流程没写。** 本文只覆盖建机、升级与换 IP。
-- [ ] **两台旧节点的 `roles/editor` 服务账号、`deletionProtection: false`、零快照三条风险未处置**
-      （[as-built §2](../02-architecture/as-built-personal-fleet.md)）。**需用户点头**，
-      因为改 SA 要重建实例或停机。
+- [ ] 🔴 **飞书 webhook 未取得（D3）**：需用户建「只有本人 + 自定义机器人」的群、开签名校验；然后 `wrangler secret put FEISHU_WEBHOOK_URL / FEISHU_WEBHOOK_SECRET`，`daily-report.py --send` 发第一条。**日报的发送路径一次都没跑。**
+- [ ] 🔴 **订阅域名未定（D5）**：独立 zone。定了以后：`worker/wrangler.jsonc` 加 `routes` → `wrangler deploy` → `fleet.json .subscription.hostname` → `publish-subscription.sh`（公告伪节点名里写域名）→ `.secrets.env` 的 `FLEET_INGEST_URL` → 三台 `healthcheck-install.sh` 重装 env。
+- [ ] 🔴 **真机客户端一次都没加载**：Clash Verge Rev 导入 `clash.yaml`（provider 热更新）、Shadowrocket 用 `base64.txt`。Shadowrocket 是否读 `profile-update-interval` 仍需实测。
+- [ ] **`vpn-us` 升 `e2-small` 后的 4 轮交叉测未做**（ADR 0017 §8 代价 2）；要在用户设备上跑。
+- [ ] **`vpn-sg` 的入向路由与 Standard/Premium 对照未做**；`verify-route.sh` 只认 `bp-*`。
+- [ ] **`vpn-sg` 没有 SS-2022 与 CDN 通路**（fleet.json 只定义了 HY2 + REALITY），也没有快照计划。
+- [ ] **飞书 App Secret 未重置。**
+- [ ] **Flow Logs → BigQuery sink 未建；「$ 实收 MTD」没有落点**（Worker 无 GCP 身份，`vpn-ops` 推迟）。
+- [ ] **节点退役 / 删除流程没写。**
+- [ ] **停机序列没有看门狗脚本**（§6 第 2 条的教训）。
+
+---
+
+## 6 · 2026-09-05 执行记录（偏差逐条）
+
+1. **顺序偏差**：先修 `verify-isolation.sh`（它在 09-04 21:15 已红）→ B70 两条规则 → `vpn-node-sa` → Worker + 订阅 → healthcheck → 停机窗口 → `vpn-sg`。§0 原图的「§2 应当先做」在实际执行里成立。
+2. 🔴 **`vpn-jp` 停机序列失控**：09:44 CST `stop` 之后 gcloud 连接中断，`set-service-account` / `start` 没执行，**15:17 才重新启动，约 5.5 h 不可用**。教训：改现役节点的序列必须是一个带重试 / 回滚的脚本，不能逐条手敲 gcloud。
+3. `vpn-us` 在 05:40 已被用户的 `optimize-vpn.sh` p2 摘成空 SA（as-built 未记）；09:42 与升 `e2-small` 合并一次停机（50 s）换成 `vpn-node-sa`。
+4. `create-vpn-node.sh` 第一次真实执行被自己的读规则误判拦住（网络抖动 → `denied` 读成空串）；改成 JSON 读取 + 读不到就 die，第二次通过。
+5. `publish-subscription.sh` 在 macOS 自带 bash 3.2 下因空数组触发 `set -u`；已改 `${arr[@]+"${arr[@]}"}`。
+6. `JP_HY2_*` 凭据不在 Proxy_Skill 的 `.secrets-*.env` 里，只在生成产物里；从 `clash-configs/mac.yaml` 回填进 `infra/fleet/.secrets.env`。
+7. workers.dev 子域名被交互脚本重复输入成 `oratisoratisoratisoratis`；可在后台改，D5 之后无关紧要。
+8. 三台 healthcheck 首次上报全部成功，互探全通；`GET /admin/report` 渲染绿卡；月度用量从首个样本起差分（首样本 mtd=0）。

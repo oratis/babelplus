@@ -7,6 +7,7 @@
 > [admin-support-docs.md](../01-research/admin-support-docs.md)、
 > [competitor-conyss.md](../01-research/competitor-conyss.md) §2（竞品的防失联做法）、
 > [0011](0011-domain-blackout-detection.md)（承接本文 §7 的「域名被封自动检测」缺口，**提案，未批准**；落点见 §7）
+> ⚠️ **2026-09-05 追记：§4 图中 `M4[内部运维告警]` 那一格由 [ADR 0017 §6](0017-personal-fleet-in-repo.md) 补上——自用机队的日报走飞书自定义机器人 Webhook（D3）。用户面通知的裁决一个字都不改。**
 
 ---
 

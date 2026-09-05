@@ -1,6 +1,6 @@
 # 架构现状 · 自用机队（`vpn-*`）
 
-> 日期：2026-09-04 · 性质：**证据型核查** · 状态：**As-Built**（2026-09-04 实查快照，不回改）
+> 日期：2026-09-04 · 性质：**证据型核查** · 状态：**As-Built**（2026-09-04 实查快照，不回改；**2026-09-05 的变化以增补节 §2.1 / §3.3 / §8 记录**，快照本文不改）
 > 事实基线：`gcloud` 只读实查（身份 `wangharp@gmail.com`，project `oratis-491316`，2026-09-04）：
 > `instances list` / `instances describe` / `addresses list` / `firewall-rules list`；
 > 通路矩阵与实测数字来自 `oratis/Proxy_Skill` 的 `VPN方案设计.md` §九–§十一（2026-06-12 / 07-27 / 07-28 三轮）；
@@ -61,6 +61,32 @@ Hysteria2 的 4.6 倍提升、IP 级封锁的三条取证判据、TUN 劫持导�
 
 ---
 
+## 2.1 · 增补 · 2026-09-04 21:14 之后的变化（2026-09-05 实查，不回改上表）
+
+| 时间（CST） | 变化 | 来源 |
+|---|---|---|
+| 09-04 20:47 | `default` 子网 us-west1 / asia-northeast1 开 VPC Flow Logs（15 min / 采样 0.5） | 用户跑 `optimize-vpn.sh` p0 |
+| 09-04 21:14 | 两台 `deletionProtection: true`；快照计划 `vpn-weekly-us` / `vpn-weekly-jp`；2 条 `vpn-*` 告警策略 | 同上 |
+| 09-04 21:15 | +防火墙 `vpn-deny-from-bp`（prio 700，`bp-node` → `vpn-node` DENY all）；`default-allow-rdp` disabled | 用户跑 p1 |
+| 09-05 05:40 | `vpn-us` stop → 摘默认 SA（空 SA）→ start | 用户跑 p2（只做了 `vpn-us`） |
+| 09-05 08:5x | +`vpn-node-sa`（仅 `logging.logWriter` + `monitoring.metricWriter`）；+`vpn-allow-reality-443` / `vpn-allow-hy2-udp443`（B70） | 本仓 PR #46 后续 |
+| 09-05 09:42 | `vpn-us`：e2-micro → **e2-small**，SA → `vpn-node-sa`（停机 50 s） | D4 / D6 |
+| 09-05 09:44–15:17 | `vpn-jp`：stop → **序列中断，约 5.5 h 不可用** → SA → `vpn-node-sa` → start；内核更新随重启生效 | D6（事故记录见 runbook §6） |
+| 09-05 15:33 | +`vpn-sg`（`asia-southeast1-a` / e2-small / STANDARD / `34.2.143.75` / `vpn-node-sa` / 删除保护 on） | `create-vpn-node.sh`，[evidence](../evidence/fleet-node-provision-vpn-sg-20260905/) |
+
+三台的现状（2026-09-05 16:0x `gcloud` 实查 + IAP SSH 只读）：
+
+| 名称 | zone | 机型 | 层级 | 外网 IP | SA | 服务 | 内核 |
+|---|---|---|---|---|---|---|---|
+| `vpn-us` | `us-west1-a` | **e2-small** | PREMIUM | `8.231.52.43` | `vpn-node-sa` | xray / ssserver / cloudflared active | 6.1.0-52 |
+| `vpn-jp` | `asia-northeast1-a` | e2-micro | PREMIUM | `34.104.192.233` | `vpn-node-sa` | xray / ssserver / hysteria-server / cloudflared active | 6.1.0-52（本次重启后） |
+| `vpn-sg` | `asia-southeast1-a` | **e2-small** | **STANDARD** | **`34.2.143.75`** | `vpn-node-sa` | xray（REALITY :443）/ hysteria-server（udp :443）active；无 SS、无 CDN | 6.1.0-52 |
+
+`vpn-sg` 机内自检（`setup-vpn-node.sh` 尾部 + 只读复核）：Xray 26.3.27；`tcp_congestion_control=bbr` / `default_qdisc=fq`；
+Hysteria2 自签证书 `CN=www.bing.com`，到期 2036-09-02；无 `reboot-required`。**机内配置本次是脚本写入的，不再是转述**。
+
+⚠️ 上表 §2 里「服务账号 = 默认 Compute SA、删除保护 false、零快照」三条自 2026-09-04 21:14 起已不成立，保留原文是为了记录当时的实况。
+
 ## 3 · 🔴 防火墙：自用队的 443 入向挂在**没有 target tag** 的规则上
 
 `firewall-rules list` 实查（2026-09-04），按优先级排：
@@ -108,6 +134,13 @@ Hysteria2 的 4.6 倍提升、IP 级封锁的三条取证判据、TUN 劫持导�
 但它**不在本次范围内**——见 [runbook §1.2](../04-ops/personal-fleet-runbook.md)。
 
 ---
+
+### 3.3 · 增补 · 2026-09-05 的规则集（13 条非 bp-）
+
+在 §3 的 10 条之上：`vpn-deny-from-bp`（700，`bp-node` → `vpn-node` DENY all，2026-09-04 21:15）、
+`vpn-allow-reality-443` / `vpn-allow-hy2-udp443`（1000，target `vpn-node`，2026-09-05，roadmap B70）；`default-allow-rdp` 已 disabled。
+**§3.2 那条跨机队隐式耦合已由 B70 关掉**：自用队的 443 入向现在有自己的 tagged 路径。
+期望清单进了 [`infra/fleet/fleet.json`](../../infra/fleet/fleet.json)，由 `verify-isolation.sh` 守（2026-09-05 24/24 绿）。
 
 ## 4 · 实测数字（各自带日期与条件，不要跨条件引用）
 
@@ -242,7 +275,8 @@ Hysteria2 的 4.6 倍提升、IP 级封锁的三条取证判据、TUN 劫持导�
 
 ## 7 · 本文没有覆盖的
 
-- [ ] **机内实际配置未清点**：本次是纯 GCP 侧只读实查，**没有登录过任何一台机器**。
+- [x] ~~**机内实际配置未清点**~~ 2026-09-05 经 IAP SSH 只读实查三台（§2.1）：服务、监听端口、hysteria 配置结构（值打码）、证书到期、sysctl、`reboot-required`。`healthcheck.sh` 每小时把这些落进 KV。仍未清点：xray / ssserver 配置文件的完整内容、各服务版本号（除 `vpn-sg`）。
+- [ ] ~~**机内实际配置未清点**~~（原文保留）：本次是纯 GCP 侧只读实查，**没有登录过任何一台机器**。
       `/etc/xray`、`/etc/hysteria`、`/etc/shadowsocks` 的实际内容、
       各服务的版本号、sysctl 的当前生效值，全部来自 `VPN方案设计.md` 的**转述**，
       **不是本次实测**。第一次跑 `healthcheck.sh` 时应当把这些落进 evidence。
@@ -255,3 +289,10 @@ Hysteria2 的 4.6 倍提升、IP 级封锁的三条取证判据、TUN 劫持导�
       [`infra/node/README.md` §5](../../infra/node/README.md) 说得很清楚：
       **入向由中国运营商的 BGP 决策决定，而用户体验由入向决定。**
       自用队从来没做过数据源 B（国内多点测速站）。
+
+## 8 · 增补 · 2026-09-05 之后仍未覆盖的
+
+- [ ] `vpn-sg` 的入向路由与 Standard/Premium 对照未测（与 §7 末条同一个缺口，现在多了一台）。
+- [ ] `vpn-sg` 无快照计划、无 SS / CDN 通路。
+- [ ] `vpn-us` e2-small 的 4 轮交叉测未做（ADR 0017 §8 代价 2）。
+- [ ] Cloudflare 侧（两条隧道 + 新增的 Worker `fleet-sub` / KV）仍未进 as-built-gcp 的清点。
