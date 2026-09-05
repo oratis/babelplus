@@ -23,6 +23,7 @@ FROM nginx:1.29-alpine
 # 非 root：Cloud Run 不要求，但一个只发静态文件的容器没有理由用 root。
 RUN sed -i 's/^user  nginx;/user  nginx;/' /etc/nginx/nginx.conf
 COPY infra/site/nginx.conf /etc/nginx/conf.d/default.conf
+COPY infra/site/headers.conf /etc/nginx/bp-headers.conf
 COPY --from=build /src/web/site/dist/ /usr/share/nginx/html/
 # Cloud Run 注入 PORT，但 nginx 不读环境变量。8080 是 Cloud Run 的默认值，与部署脚本一致。
 EXPOSE 8080

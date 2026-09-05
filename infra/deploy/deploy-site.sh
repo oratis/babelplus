@@ -162,7 +162,7 @@ build_image() {
     mkdir -p "$ctx/web" "$ctx/infra/site"
     # rsync 排除 node_modules / dist：镜像里会重新装、重新构建。
     rsync -a --exclude node_modules --exclude dist --exclude 'vendor' web/ "$ctx/web/"
-    cp infra/site/Dockerfile infra/site/nginx.conf "$ctx/infra/site/"
+    cp infra/site/Dockerfile infra/site/nginx.conf infra/site/headers.conf "$ctx/infra/site/"
     # 🔴 `gcloud builds submit --tag` 要求上下文**根目录**有一个叫 Dockerfile 的文件
     #    （2026-09-04 实测：否则报 "Dockerfile required when specifying --tag"）。
     #    Dockerfile 里的 COPY 路径仍然是相对上下文根的，所以放一份同名副本即可。

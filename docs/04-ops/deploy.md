@@ -775,6 +775,13 @@ v2node 的 `push` 载荷是 `{uid: [upload, download]}`（system-design §5.1）
 
 ## 10 · `bp-web`：静态 SPA
 
+> 🔴 **2026-09-05 现行路径**（先读这条，下面 §10.1–§10.3 是 ADR 0003 的**目标形态**，至今没用上）：
+> `bp-web` 与 `bp-admin` 今天跑在 **Cloud Run + nginx** 上，经 GCLB `bp-admin-lb` 的 `web.` / `admin.` 主机规则
+> （[first-deploy §4](first-deploy-20260831.md) 与 §4.7）。发布命令是
+> `./infra/deploy/deploy-spa.sh --app=web|admin --apply`（Cloud Build 出镜像 → 换修订版；镜像定义在
+> `infra/web/Dockerfile`）。`/runtime-config.js` 由 backend bucket 接管，与镜像无关。
+> 回滚是 §12.1 同款的修订版流量切换，不是 §12.2 的重新发布。
+
 ### 10.1 构建产物只有一份，发布到 N 个镜像
 
 ```bash

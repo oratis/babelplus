@@ -440,6 +440,78 @@ https://www.babel.plus/  HTTP 200 · 8,046 B · TLS 校验通过
 
 ⚠️ 遗留：旧证书 `bp-public-le-20260901` 仍在 `ssl-certificates` 列表里（脚本刻意不自动删）。
 
+## 4.7 · 改版前端上线：三个静态服务换修订版（2026-09-05 追记）
+
+> 用户当日指示「merge 并上线」。合入的是 PR #47（「控制台」设计系统改版，
+> [design-system.md](../03-product/design-system.md)）与 PR #46（私人节点舰队，ADR 0017），
+> master 头 `a7a0bbe5046`。本节只记**已经存在**的东西；三个服务的 LB 接线一根没动。
+
+### 发了什么
+
+```
+镜像标签   a7a0bbe5046（三个镜像同一个 git sha）
+bp-site    bp-site-00007-rf7 → 00008-ll2（改版）→ 00009-gwc（安全头修正，见下）
+bp-web     bp-web-00001-5ql  → bp-web-00002-zgq     镜像 bp-web:a7a0bbe5046
+bp-admin   bp-admin-00001-j2h → bp-admin-00002-n9l  镜像 bp-admin:a7a0bbe5046
+脚本       bp-site  → infra/deploy/deploy-site.sh --apply（既有）
+           bp-web / bp-admin → infra/deploy/deploy-spa.sh --app=web|admin --apply（本次新增）
+镜像定义   infra/web/{Dockerfile,nginx.conf,headers.conf}（本次新增，ARG APP=user|admin）
+```
+
+**「`bp-web` / `bp-admin` 的 Dockerfile 与 nginx.conf 不在仓库里」这条欠账（本文《代价》第三条）从此关闭**：
+两个 SPA 的镜像定义、部署脚本都在仓库里，下一个人可以照着重发。
+🔴 形态仍是 §4 记的 **Cloud Run + nginx 过渡形态**，`deploy-web.sh` 的三个 CDN 目标依旧一个没用；
+把镜像定义进仓库是为了可复现，不是替 ADR 0003 做裁决。
+
+### 一个上线时才看见的缺陷：`/` 没有 CSP 与 HSTS
+
+改版发出去之后核对响应头，`https://babel.plus/` **没有** `Content-Security-Policy` 与
+`Strict-Transport-Security`，而 nginx.conf 明明在 server 级写了它们。根因是 nginx 的
+**`add_header` 不跨层继承**：`location = /` 里为了 `Cache-Control: no-cache` 写了一条 `add_header`，
+server 级的四条安全头在这个 location 里就全部失效 —— 恰好是 index.html 这一份最需要 CSP 的响应。
+这条缺陷从 §4.6（2026-09-04）上线起就存在，一天。
+
+修法：安全头挪进 `headers.conf`，server 级与每个自己加 `Cache-Control` 的 location 各 `include` 一次
+（`infra/site/` 与 `infra/web/` 同款）。`bp-site-00009-gwc` 之后实测 `/` 与 `www` 都带全四条头。
+新写的 `infra/web/nginx.conf` 从一开始就按这个写法，没有重蹈。
+
+### 实测（同日，经 LB，不带 `--resolve`）
+
+```
+https://babel.plus/        200 · 12,111 B · CSP + HSTS + nosniff · Cache-Control no-cache
+                           页面含 hero-wrap / readout / brand__mark（改版标记）
+https://web.babel.plus/    200 · CSP(script-src 'self') + HSTS · no-cache
+  /login                   200 text/html（SPA 回退生效，刷新二级页不再 404）
+  /assets/index-*.css      immutable · 含 --bp-accent ×35 / bp-led ×15 / bp-grid-bg（新令牌已到线上）
+  /runtime-config.js       仍由 backend bucket 接管（server: UploadServer，no-cache）—— 域名池文件未动
+https://admin.babel.plus/  302 → accounts.google.com（IAP 仍在）；run.app 直连 /dashboard 200 带 CSP
+三个服务 /-/healthz         200
+```
+
+隔离：部署前快照 24/24；部署后 `verify-isolation.sh --baseline=<部署前快照>` **26/26 通过**，非 bp- 资源与基线逐字节相同，`cloud-run-source-deploy` 镜像数 23 → 23。
+
+### 回滚
+
+```bash
+gcloud run services update-traffic bp-web   --project=oratis-491316 --region=us-central1 --to-revisions=bp-web-00001-5ql=100
+gcloud run services update-traffic bp-admin --project=oratis-491316 --region=us-central1 --to-revisions=bp-admin-00001-j2h=100
+gcloud run services update-traffic bp-site  --project=oratis-491316 --region=us-central1 --to-revisions=bp-site-00007-rf7=100
+```
+
+旧镜像 `bp-web:d7ee3223171` / `bp-admin:d7ee3223171` / `bp-site:82b9058a080` 都还在 `bp-images` 里，没删。
+
+### 代价（本节）
+
+- **服务账号没动**：`bp-web` / `bp-admin` 仍跑在默认 Compute SA 上（AGENTS.md §4 的红线，§4 已登记）。
+  本次只换镜像，改 SA 是另一次裁决 —— 一个静态 nginx 容器用不到任何 GCP 权限，改起来零风险，但不顺手改。
+- **仍然没有 CI 部署记录**（B47）：走的是本机脚本 + Cloud Build，`deploy.yml` 至今一次没跑。
+- `bp-site` 为一条响应头**多发了一个修订版**；代价是几分钟与一次冷启动，换来的是 §4.6 起就缺的 CSP。
+
+### 这次没有解决的（本节）
+
+- ADR 0003 的托管选型仍未裁决；两个 SPA 仍共享 `*.run.app` 主域名（本文《代价》第一条）。
+- 扩展与桌面端的配色换了、**没有在真机上看过**（改版 PR #47 的验收只有截图）。
+
 ## 代价
 
 - **两个 SPA 共享 `*.run.app` 这一个可注册主域名。** ADR 0003 §3.2 明确要求用户面板与后台
@@ -450,6 +522,7 @@ https://www.babel.plus/  HTTP 200 · 8,046 B · TLS 校验通过
 - **本次上线的可复现性是半边的**：`bp-api` / `bp-migrate` 走的是仓库里的脚本，
   `bp-web` / `bp-admin` 的 Dockerfile 与 nginx.conf **不在仓库里**（临时目录），
   ADR 0003 落定之前不把它们当成答案提交进来。**下一个人无法照着仓库重发这两个服务。**
+  **2026-09-05 追记：已关闭** —— `infra/web/` 与 `infra/deploy/deploy-spa.sh` 进仓库并用它们发了 `bp-web-00002` / `bp-admin-00002`（§4.7）。形态未变，仍是过渡。
 
 ## 这次没有解决的
 
