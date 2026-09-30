@@ -8,7 +8,7 @@
     "改机型 / 换 IP / 换服务账号 / 加节点：先改这里，再跑 verify-isolation.sh 到绿，再发布订阅。顺序反了脚本会红，这是设计如此（D7，2026-09-05）。",
     "vpn-ops 按 D2（2026-09-05）推迟：Worker 承担聚合与日报，节点互探代替跨节点回打；复审条件见 personal-fleet-runbook §4 代价 5。"
   ],
-  "updated": "2026-09-05",
+  "updated": "2026-09-30",
   "project": "oratis-491316",
   "fleet_name": "vpn-fleet",
   "budget": {
@@ -60,7 +60,8 @@
       "2026-09-05 05:40 CST：vpn-us 经 optimize-vpn.sh p2 摘掉默认 Compute SA（vpn-jp 未动）",
       "2026-09-05 09:42 CST：vpn-us stop → e2-small → vpn-node-sa → start（停机 50 s）",
       "2026-09-05 09:44–15:17 CST：vpn-jp stop → 网络中断 → 15:17 set vpn-node-sa + start（🔴 约 5.5 h 不可用）",
-      "2026-09-05 15:33 CST：+vpn-sg（asia-southeast1-a / e2-small / STANDARD / 34.2.143.75 / vpn-node-sa）"
+      "2026-09-05 15:33 CST：+vpn-sg（asia-southeast1-a / e2-small / STANDARD / 34.2.143.75 / vpn-node-sa）",
+      "2026-09-30 CST：内核 6.1.0-53 逐台重启生效（sg→us→jp）；三台开 unattended-upgrades 自动重启（nodes[].auto_reboot_utc，错峰 20 min）；vpn-jp 加 1 GiB swap；exim4 只听 127.0.0.1"
     ]
   },
   "services": {
@@ -85,6 +86,7 @@
       "role": "proxy",
       "status": "running",
       "deletion_protection": true,
+      "auto_reboot_utc": "19:05",
       "service_account": "vpn-node-sa@oratis-491316.iam.gserviceaccount.com",
       "secrets_prefix": "JP_",
       "cert": {
@@ -134,6 +136,7 @@
       "role": "proxy",
       "status": "running",
       "deletion_protection": true,
+      "auto_reboot_utc": "19:45",
       "service_account": "vpn-node-sa@oratis-491316.iam.gserviceaccount.com",
       "secrets_prefix": "",
       "cert": {},
@@ -175,6 +178,7 @@
       "role": "proxy",
       "status": "running",
       "deletion_protection": true,
+      "auto_reboot_utc": "19:25",
       "service_account": "vpn-node-sa@oratis-491316.iam.gserviceaccount.com",
       "secrets_prefix": "SG_",
       "cert": {

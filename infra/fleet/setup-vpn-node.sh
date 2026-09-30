@@ -19,6 +19,7 @@
 #     for v in SG_REALITY_UUID SG_REALITY_PRIVATE SG_REALITY_SHORTID SG_REALITY_SNI SG_HY2_PASSWORD SG_HY2_OBFS_PASSWORD SG_HY2_SNI; do
 #       printf 'export %s=%q\n' "${v#SG_}" "${!v:?缺少 $v}"
 #     done
+#     printf 'export AUTO_REBOOT_UTC=%q\n' "$(jq -r '.nodes[]|select(.host=="vpn-sg")|.auto_reboot_utc' infra/fleet/fleet.json)"
 #     cat infra/fleet/setup-vpn-node.sh
 #   } | gcloud compute ssh vpn-sg --project=oratis-491316 --zone=asia-southeast1-a --tunnel-through-iap --command='sudo bash -s'
 #
@@ -56,6 +57,18 @@ say "[2/7] 基础包"
 apt-get update -qq
 apt-get install -y -qq curl jq openssl unattended-upgrades ca-certificates >/dev/null
 dpkg-reconfigure -f noninteractive unattended-upgrades
+# 内核更新自动生效（2026-09-30：三台同时挂「待重启」近一个月）。按节点错峰，时刻见 fleet.json nodes[].auto_reboot_utc
+if [ -n "${AUTO_REBOOT_UTC:-}" ]; then
+  printf '%s\n' '// fleet: kernel updates take effect automatically, staggered per node (UTC)' \
+    'Unattended-Upgrade::Automatic-Reboot "true";' 'Unattended-Upgrade::Automatic-Reboot-WithUsers "true";' \
+    "Unattended-Upgrade::Automatic-Reboot-Time \"$AUTO_REBOOT_UTC\";" > /etc/apt/apt.conf.d/52fleet-auto-reboot
+fi
+# swap 兜底（2026-09-30：vpn-jp e2-micro 无 swap、可用内存 146 MiB）
+if ! swapon --show --noheadings | grep -q .; then
+  fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap -q /swapfile && swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+echo 'vm.swappiness=10' > /etc/sysctl.d/60-fleet-swap.conf && sysctl -q -p /etc/sysctl.d/60-fleet-swap.conf
 
 say "[3/7] xray（官方安装脚本）+ REALITY 配置"
 if ! command -v xray >/dev/null; then

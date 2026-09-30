@@ -114,3 +114,14 @@ curl -H "Authorization: Bearer $ADMIN_TOKEN" "$FLEET_INGEST_URL/admin/usage"   #
 - [ ] `vpn-sg` 的入向路由与 Standard/Premium 对照未做。
 - [ ] App Secret 未重置。
 - [ ] Flow Logs → BigQuery sink 未建；「$ 实收 MTD」没有落点。
+
+## 7 · 2026-09-30 维护记录
+
+日报待办「三台有内核更新待重启」（6.1.0-53 已装、跑 -52，积压约 3 周）。本次处理：
+
+- **逐台重启**：`vpn-sg`（用户手动）→ `vpn-us`（09:19 CST，45 s 回来）→ `vpn-jp`（09:21 CST，60 s 回来）。每台验收 boot_id 变、`reboot-required` 消失、unit 全 active、443 在听、互探全通，并手动触发一次 healthcheck；Worker `/admin/report` 已无待办。
+- **自动重启**：三台开 unattended-upgrades `Automatic-Reboot`，时刻取 `fleet.json nodes[].auto_reboot_utc`，错峰 20 min（jp 19:05 / sg 19:25 / us 19:45 UTC ≈ 03:05–03:45 CST），不再同时掉线。`setup-vpn-node.sh` 接收 `AUTO_REBOOT_UTC` 对新节点生效。
+- **vpn-jp swap**：e2-micro 4 服务 ~100 连接，内存 87%、可用 146 MiB、无 swap。已加 1 GiB `/swapfile` + `vm.swappiness=10`（与 vpn-us 一致）；`setup-vpn-node.sh` 同步加兜底。
+- **exim4**：绑 `::1` 失败写 paniclog，cron 每天 00:00 报 ALERT（vpn-us）。三台 `dc_local_interfaces` 改为只听 `127.0.0.1`，paniclog 清空。
+- **apt**：三台 google-guest-agent / osconfig / oslogin / cloud-cli 升到最新（unattended-upgrades 只管 Debian 源，这些会继续落后，靠例行维护补）。
+- **`daily-report.py`**：Worker 对 Python-urllib 默认 UA 回 403，`--preview` 本机路径坏了；已加显式 User-Agent，重验通过。

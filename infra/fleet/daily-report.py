@@ -27,7 +27,8 @@ def env(k, required=False):
 
 
 def http(url, method="GET", body=None, headers=None):
-    req = urllib.request.Request(url, method=method, data=body, headers=headers or {})
+    # Cloudflare 对默认的 Python-urllib UA 回 403（2026-09-30 实测；curl 同 token 200）
+    req = urllib.request.Request(url, method=method, data=body, headers={"User-Agent": "fleet-daily-report/1", **(headers or {})})
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.status, r.read().decode("utf-8", "replace")
 
