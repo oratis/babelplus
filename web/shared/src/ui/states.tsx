@@ -110,6 +110,49 @@ export function EmptyState({
   );
 }
 
+/* ────────────────────────── 尚未实现（501） ────────────────────────── */
+
+/**
+ * 「这个功能还没开放」。**不是错误态**，所以不用 `ErrorState`。
+ *
+ * 后端 128 个 operation 里有一大半仍是 501 stub（`api/internal/handler/unimplemented.gen.go`），
+ * 而 501 在 `errorKindFromStatus` 里会归成 `server` —— 直接套 `ErrorState` 的话，
+ * 用户会看到「我们这边出了问题」+ 一个重试按钮 + 一个状态页链接。三样都是错的：
+ * 服务器没出问题、重试永远不会成功、状态页上也不会有任何相关信息。
+ * 更糟的是它会制造工单 —— 用户以为自己撞上了故障。
+ *
+ * 所以这一态**没有重试按钮**：它要传达的是「不用你再做什么」。
+ */
+export function ComingSoonState({
+  title,
+  description,
+  detail,
+  action,
+}: {
+  title: string;
+  /** 说清楚**现在**能做什么、不能做什么。别只写「敬请期待」。 */
+  description: ReactNode;
+  /** 可选的技术说明（哪个 operation 还没实现），给自查与报障用。 */
+  detail?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <Card className="border-l-4 border-l-accent">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 shrink-0 text-accent">
+          <Icon.Package size={18} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-semibold text-fg">{title}</h3>
+          <p className="mt-1 text-sm leading-relaxed text-fg-muted">{description}</p>
+          {action ? <div className="mt-3 flex flex-wrap gap-2">{action}</div> : null}
+          {detail ? <p className="mt-3 text-xs leading-relaxed text-fg-subtle">{detail}</p> : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /* ────────────────────────────── 错误 ────────────────────────────── */
 
 export function ErrorState({

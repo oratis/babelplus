@@ -37,10 +37,24 @@ export function AuthCard({
 export function Field({
   label,
   hint,
+  error,
   className,
   ...rest
-}: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: ReactNode }) {
+}: InputHTMLAttributes<HTMLInputElement> & {
+  label: string;
+  hint?: ReactNode;
+  /**
+   * 字段级错误。有值时接管 `hint` 的位置 —— 两条同时显示会让用户先读到无关的提示。
+   *
+   * 单独做成 prop 而不是让页面自己在下面塞一个 `<p>`：`aria-invalid` 与
+   * `aria-describedby` 必须和这段文字一起出现，分开写迟早会漏，
+   * 而漏掉的表现是屏幕阅读器用户完全听不到错在哪里。
+   */
+  error?: ReactNode;
+}) {
   const id = `f-${rest.name ?? label}`;
+  const noteId = `${id}-note`;
+  const note = error ?? hint;
   return (
     <div>
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-fg">
@@ -48,18 +62,46 @@ export function Field({
       </label>
       <input
         id={id}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={note ? noteId : undefined}
         // 16px 起步：iOS Safari 在 <16px 的输入框获得焦点时会自动放大页面，
         // 放大后 375px 布局就出现横向滚动，直接违反 M1。
         className={cx(
-          'min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-base text-fg',
+          'min-h-11 w-full rounded-lg border bg-surface px-3 text-base text-fg',
+          error ? 'border-danger' : 'border-line',
           'placeholder:text-fg-subtle focus-visible:border-accent focus-visible:outline-2',
           'focus-visible:outline-offset-1 focus-visible:outline-accent',
           className,
         )}
         {...rest}
       />
-      {hint ? <p className="mt-1.5 text-xs leading-relaxed text-fg-muted">{hint}</p> : null}
+      {note ? (
+        <p
+          id={noteId}
+          className={cx(
+            'mt-1.5 text-xs leading-relaxed',
+            error ? 'font-medium text-danger' : 'text-fg-muted',
+          )}
+        >
+          {note}
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * 表单级**非错误**提示位。
+ *
+ * 存在的理由只有一条，但它很具体：注册时「这个邮箱已经注册过了」**不是错误**，
+ * 是「你走错门了，登录入口在这边」。用红色的 `FormError` 显示它，
+ * 用户会以为自己填错了什么，然后改邮箱重试 —— 而正确的动作是去登录。
+ */
+export function FormNotice({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-sm leading-relaxed text-accent">
+      {children}
+    </p>
   );
 }
 
