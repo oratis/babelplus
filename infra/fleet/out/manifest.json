@@ -1,0 +1,36 @@
+{
+  "generated": "2026-09-08T05:31:00+00:00",
+  "sub_domain": "sub.telloria.com",
+  "geoip": "ruleset",
+  "brutal": null,
+  "nodes": [
+    "📢 订阅 sub.telloria.com · 更新于 2026-09-08",
+    "JP-HY2",
+    "JP-Reality",
+    "JP-SS",
+    "JP-CDN",
+    "US-CDN",
+    "US-Reality",
+    "US-SS",
+    "SG-HY2",
+    "SG-Reality"
+  ],
+  "files": {
+    "mihomo-provider.yaml": {
+      "bytes": 2966,
+      "sha256": "3b8b99f4e27435f0"
+    },
+    "clash.yaml": {
+      "bytes": 9400,
+      "sha256": "813923997b14fd13"
+    },
+    "singbox.json": {
+      "bytes": 7153,
+      "sha256": "8f81183a4fe5ddab"
+    },
+    "base64.txt": {
+      "bytes": 2305,
+      "sha256": "cc553fcbc6cfa1e7"
+    }
+  }
+}

@@ -1,0 +1,273 @@
+# Clash Verge Rev / mihomo · 自用机队 · 由 gen-subscription.py 生成 · 2026-09-08
+# 节点集合来自 proxy-providers（fleet），换 IP / 加节点时本文件不需要重新导入。
+# __SUB_BASE__ / __TOKEN__ 由 Worker 在下发时替换成你的订阅地址与设备 token。
+
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false
+find-process-mode: strict
+unified-delay: true
+tcp-concurrent: true
+
+dns:
+  enable: true
+  listen: 127.0.0.1:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "*.local"
+    - "localhost.ptlogin2.qq.com"
+  nameserver:
+    - https://223.5.5.5/dns-query
+    - https://1.12.12.12/dns-query
+  fallback:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+  fallback-filter:
+    geoip: false   # ruleset 模式下不依赖 MMDB（B46）
+    geoip-code: CN
+    ipcidr:
+      - 169.254.0.0/16
+      - 240.0.0.0/4
+
+proxy-providers:
+  fleet:
+    type: http
+    url: "__SUB_BASE__/p/__TOKEN__/mihomo-provider.yaml"
+    path: ./providers/fleet.yaml
+    interval: 900
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      lazy: false   # fallback 组的健康信息只来自这里（分组级 url/interval 不测 provider 节点）
+      expected-status: 204
+
+rule-providers:
+  cn-cidr:
+    type: http
+    behavior: ipcidr
+    format: text
+    url: "__SUB_BASE__/p/__TOKEN__/cn-cidr.txt"
+    path: ./ruleset/cn-cidr.txt
+    interval: 86400
+
+proxy-groups:
+  # Japan 优先而不是 ⚡ Auto：本链路上健康节点的延迟都在同一噪声带（95–325 ms），吞吐却差 4–5 倍，
+  # url-test 按延迟排序会稳定挑中慢的那条（as-built-personal-fleet §4.1）。
+  - name: "🚀 Proxy"
+    type: select
+    proxies:
+      - "🇯🇵 Japan"
+      - "🇸🇬 Singapore"
+      - "🇺🇸 United States"
+      - "⚡ Auto"
+      - DIRECT
+
+  - name: "⚡ Auto"
+    type: url-test
+    use: [fleet]
+    filter: "^(JP|US|SG)-"
+    tolerance: 80
+
+  - name: "🇯🇵 Japan"
+    type: fallback
+    use: [fleet]
+    filter: "^JP-"
+
+  - name: "🇺🇸 United States"
+    type: fallback
+    use: [fleet]
+    filter: "^US-"
+
+  - name: "🇸🇬 Singapore"
+    type: fallback
+    use: [fleet]
+    filter: "^SG-"
+
+  - name: "🤖 AI"
+    type: select
+    proxies:
+      - "🇺🇸 United States"
+      - "⚡ Auto"
+      - "🇯🇵 Japan"
+      - "🇸🇬 Singapore"
+      - "🚀 Proxy"
+      - DIRECT
+
+  - name: "🌎 Global"
+    type: select
+    proxies:
+      - "🚀 Proxy"
+      - DIRECT
+
+  - name: "🇨🇳 Direct-CN"
+    type: select
+    proxies:
+      - DIRECT
+      - "🚀 Proxy"
+
+  - name: "🎯 Final"
+    type: select
+    proxies:
+      - "🚀 Proxy"
+      - DIRECT
+
+rules:
+  # --- Local / private networks: DIRECT ---
+  - DOMAIN-SUFFIX,lan,DIRECT
+  - DOMAIN-SUFFIX,local,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR,224.0.0.0/4,DIRECT,no-resolve
+  - IP-CIDR6,fc00::/7,DIRECT,no-resolve
+  - IP-CIDR6,fe80::/10,DIRECT,no-resolve
+
+  # ═══ 2026-09-05 依据 VPC Flow Logs / 节点串口日志 / 本机 Mihomo 采样补的分流（放在 AI 块之前）═══
+  # ① 元数据服务器：经代理能直达 vpn-* 的 GCE metadata（可拿到 VM 的 Editor 令牌），
+  #    本机 gcloud / cloud-sql-proxy / 任何 Google SDK 会因此自认运行在 GCE 上。必须早于下面的 DOMAIN-KEYWORD,google。
+  - DOMAIN-SUFFIX,metadata.google.internal,REJECT
+  - IP-CIDR,169.254.169.254/32,REJECT,no-resolve
+  # ② 需要代理的 Microsoft 子域先于整域直连
+  - DOMAIN-SUFFIX,copilot.microsoft.com,🤖 AI
+  # ③ Apple：iCloud 照片/备份、App Store、系统更新在国内有 CDN，直连更快也不花出网费
+  - DOMAIN-SUFFIX,apple.com,DIRECT
+  - DOMAIN-SUFFIX,icloud.com,DIRECT
+  - DOMAIN-SUFFIX,icloud-content.com,DIRECT
+  - DOMAIN-SUFFIX,apple-cloudkit.com,DIRECT
+  - DOMAIN-SUFFIX,mzstatic.com,DIRECT
+  - DOMAIN-SUFFIX,cdn-apple.com,DIRECT
+  - DOMAIN-SUFFIX,aaplimg.com,DIRECT
+  - DOMAIN-SUFFIX,apple-dns.net,DIRECT
+  # ④ Microsoft / Office 365 / Windows Update / VS Code 更新：国内可直连（串口日志里它们在走美国出口）
+  - DOMAIN-SUFFIX,microsoft.com,DIRECT
+  - DOMAIN-SUFFIX,office.com,DIRECT
+  - DOMAIN-SUFFIX,office365.com,DIRECT
+  - DOMAIN-SUFFIX,office.net,DIRECT
+  - DOMAIN-SUFFIX,live.com,DIRECT
+  - DOMAIN-SUFFIX,windowsupdate.com,DIRECT
+  - DOMAIN-SUFFIX,msftconnecttest.com,DIRECT
+  - DOMAIN-SUFFIX,visualstudio.com,DIRECT
+  # ⑤ Steam 下载 CDN 直连（商店 / 社区页仍走兜底代理）
+  - DOMAIN-SUFFIX,steamcontent.com,DIRECT
+  - DOMAIN-SUFFIX,steamserver.net,DIRECT
+  - DOMAIN-SUFFIX,steamstatic.com,DIRECT
+  # ⑥ 被 MATCH 兜底送去代理的国内服务
+  - DOMAIN-SUFFIX,deepseek.com,DIRECT
+  - DOMAIN-SUFFIX,weixinbridge.com,DIRECT
+  - DOMAIN-SUFFIX,feishu.cn,DIRECT
+  # ⑦ 遥测：Claude Code 的 Datadog 与各 App 的 Sentry ingest 国内可直连，量小但没必要过海
+  - DOMAIN-SUFFIX,datadoghq.com,DIRECT
+  - DOMAIN-SUFFIX,sentry.io,DIRECT
+  # ═══ 以下为原 gen-clash.py 规则，未改 ═══
+
+  # --- AI services (primary use case) ---
+  - DOMAIN-SUFFIX,openai.com,🤖 AI
+  - DOMAIN-SUFFIX,chatgpt.com,🤖 AI
+  - DOMAIN-SUFFIX,oaistatic.com,🤖 AI
+  - DOMAIN-SUFFIX,oaiusercontent.com,🤖 AI
+  - DOMAIN-KEYWORD,openai,🤖 AI
+  - DOMAIN-SUFFIX,anthropic.com,🤖 AI
+  - DOMAIN-SUFFIX,claude.ai,🤖 AI
+  - DOMAIN-SUFFIX,claudeusercontent.com,🤖 AI
+  - DOMAIN-SUFFIX,gemini.google.com,🤖 AI
+  - DOMAIN-SUFFIX,bard.google.com,🤖 AI
+  - DOMAIN-SUFFIX,makersuite.google.com,🤖 AI
+  - DOMAIN-SUFFIX,aistudio.google.com,🤖 AI
+  - DOMAIN-SUFFIX,generativelanguage.googleapis.com,🤖 AI
+  - DOMAIN-SUFFIX,perplexity.ai,🤖 AI
+  - DOMAIN-SUFFIX,pplx.ai,🤖 AI
+  - DOMAIN-SUFFIX,x.ai,🤖 AI
+  - DOMAIN-SUFFIX,grok.com,🤖 AI
+  - DOMAIN-SUFFIX,mistral.ai,🤖 AI
+  - DOMAIN-SUFFIX,huggingface.co,🤖 AI
+  - DOMAIN-SUFFIX,character.ai,🤖 AI
+  - DOMAIN-SUFFIX,poe.com,🤖 AI
+  - DOMAIN-SUFFIX,cohere.ai,🤖 AI
+  - DOMAIN-SUFFIX,cohere.com,🤖 AI
+  - DOMAIN-SUFFIX,stability.ai,🤖 AI
+  - DOMAIN-SUFFIX,replicate.com,🤖 AI
+  - DOMAIN-SUFFIX,runwayml.com,🤖 AI
+  - DOMAIN-SUFFIX,midjourney.com,🤖 AI
+
+  # --- Financial services that must not fall through to poisoned CN DNS ---
+  - DOMAIN-SUFFIX,okx.com,🌎 Global
+
+  # --- Japan services that geo-check the exit IP ---
+  # Named sites only. A blanket DOMAIN-SUFFIX,jp would also divert the many .jp
+  # sites that are reachable — and faster — straight from CN, and it would take
+  # precedence over GEOIP,CN,DIRECT below.
+  - DOMAIN-SUFFIX,abema.tv,🇯🇵 Japan
+  - DOMAIN-SUFFIX,tver.jp,🇯🇵 Japan
+  - DOMAIN-SUFFIX,unext.jp,🇯🇵 Japan
+  - DOMAIN-SUFFIX,radiko.jp,🇯🇵 Japan
+  - DOMAIN-SUFFIX,nicovideo.jp,🇯🇵 Japan
+  - DOMAIN-SUFFIX,niconico.jp,🇯🇵 Japan
+  - DOMAIN-SUFFIX,dmm.com,🇯🇵 Japan
+  - DOMAIN-SUFFIX,amazon.co.jp,🇯🇵 Japan
+  - DOMAIN-SUFFIX,yahoo.co.jp,🇯🇵 Japan
+  - DOMAIN-SUFFIX,rakuten.co.jp,🇯🇵 Japan
+
+  # --- Streaming (DIRECT — GCP IPs usually blocked) ---
+  - DOMAIN-SUFFIX,netflix.com,🇨🇳 Direct-CN
+  - DOMAIN-SUFFIX,nflxvideo.net,🇨🇳 Direct-CN
+  - DOMAIN-SUFFIX,hulu.com,🇨🇳 Direct-CN
+  - DOMAIN-SUFFIX,disneyplus.com,🇨🇳 Direct-CN
+  - DOMAIN-SUFFIX,hbomax.com,🇨🇳 Direct-CN
+  - DOMAIN-SUFFIX,max.com,🇨🇳 Direct-CN
+  - DOMAIN-SUFFIX,peacocktv.com,🇨🇳 Direct-CN
+
+  # --- Google / YouTube / common Western sites: Proxy ---
+  - DOMAIN-SUFFIX,google.com,🌎 Global
+  - DOMAIN-KEYWORD,google,🌎 Global
+  - DOMAIN-SUFFIX,googleapis.com,🌎 Global
+  - DOMAIN-SUFFIX,gstatic.com,🌎 Global
+  - DOMAIN-SUFFIX,ggpht.com,🌎 Global
+  - DOMAIN-SUFFIX,youtube.com,🌎 Global
+  - DOMAIN-SUFFIX,ytimg.com,🌎 Global
+  - DOMAIN-SUFFIX,googlevideo.com,🌎 Global
+  - DOMAIN-SUFFIX,github.com,🌎 Global
+  - DOMAIN-SUFFIX,githubusercontent.com,🌎 Global
+  - DOMAIN-SUFFIX,githubassets.com,🌎 Global
+  - DOMAIN-SUFFIX,twitter.com,🌎 Global
+  - DOMAIN-SUFFIX,x.com,🌎 Global
+  - DOMAIN-SUFFIX,twimg.com,🌎 Global
+  - DOMAIN-SUFFIX,reddit.com,🌎 Global
+  - DOMAIN-SUFFIX,redditstatic.com,🌎 Global
+  - DOMAIN-SUFFIX,redd.it,🌎 Global
+  - DOMAIN-SUFFIX,wikipedia.org,🌎 Global
+  - DOMAIN-SUFFIX,wikimedia.org,🌎 Global
+  - DOMAIN-SUFFIX,stackoverflow.com,🌎 Global
+  - DOMAIN-SUFFIX,medium.com,🌎 Global
+
+  # --- CN domains: DIRECT ---
+  - DOMAIN-SUFFIX,cn,DIRECT
+  - DOMAIN-KEYWORD,-cn,DIRECT
+  - DOMAIN-SUFFIX,baidu.com,DIRECT
+  - DOMAIN-SUFFIX,qq.com,DIRECT
+  - DOMAIN-SUFFIX,weixin.qq.com,DIRECT
+  - DOMAIN-SUFFIX,bilibili.com,DIRECT
+  - DOMAIN-SUFFIX,taobao.com,DIRECT
+  - DOMAIN-SUFFIX,tmall.com,DIRECT
+  - DOMAIN-SUFFIX,alipay.com,DIRECT
+  - DOMAIN-SUFFIX,zhihu.com,DIRECT
+  - DOMAIN-SUFFIX,douban.com,DIRECT
+  - DOMAIN-SUFFIX,sina.com.cn,DIRECT
+  - DOMAIN-SUFFIX,163.com,DIRECT
+  - DOMAIN-SUFFIX,126.com,DIRECT
+  - DOMAIN-SUFFIX,douyin.com,DIRECT
+  - DOMAIN-SUFFIX,xiaohongshu.com,DIRECT
+
+  # --- GeoIP fallback ---
+  # GEOIP,CN 按 roadmap B46 改为自托管 RULE-SET（gen-subscription.py）
+  - RULE-SET,cn-cidr,DIRECT
+  - GEOIP,PRIVATE,DIRECT,no-resolve
+
+  # --- Default ---
+  - MATCH,🎯 Final
