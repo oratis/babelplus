@@ -1,0 +1,90 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "site",
+      "cwd": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@babelplus/site",
+        "dev",
+        "--port",
+        "5175",
+        "--strictPort"
+      ],
+      "port": 5175
+    },
+    {
+      "name": "user",
+      "cwd": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@babelplus/user",
+        "dev",
+        "--port",
+        "5177",
+        "--strictPort"
+      ],
+      "port": 5177
+    },
+    {
+      "name": "admin",
+      "cwd": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@babelplus/admin",
+        "dev",
+        "--port",
+        "5174",
+        "--strictPort"
+      ],
+      "port": 5174
+    },
+    {
+      "name": "extension",
+      "cwd": "web/extension/dist",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5176",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 5176
+    },
+    {
+      "name": "user-mock",
+      "cwd": "web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/mock-api.mjs",
+        "--mode",
+        "user",
+        "--port",
+        "5178",
+        "--upstream",
+        "http://localhost:5177"
+      ],
+      "port": 5178
+    },
+    {
+      "name": "admin-mock",
+      "cwd": "web",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/mock-api.mjs",
+        "--mode",
+        "admin",
+        "--port",
+        "5179",
+        "--upstream",
+        "http://localhost:5174"
+      ],
+      "port": 5179
+    }
+  ]
+}

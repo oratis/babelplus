@@ -1,0 +1,31 @@
+# 每台设备的订阅地址（token 是吊销单位，别互换；本文件在 gitignored 的 out/ 里）
+
+## MAC
+Clash Verge Rev（导入一次，之后 provider 自动热更新）: https://sub.telloria.com/p/e7a3dd309ed1b3fbdf782e6f9d32a986/clash.yaml
+Shadowrocket（订阅 URL）:                         https://sub.telloria.com/p/e7a3dd309ed1b3fbdf782e6f9d32a986/base64.txt
+sing-box:                                          https://sub.telloria.com/p/e7a3dd309ed1b3fbdf782e6f9d32a986/singbox.json
+
+## IPHONE
+Clash Verge Rev（导入一次，之后 provider 自动热更新）: https://sub.telloria.com/p/c4baa6405f12f7acb97850de0d1cd8eb/clash.yaml
+Shadowrocket（订阅 URL）:                         https://sub.telloria.com/p/c4baa6405f12f7acb97850de0d1cd8eb/base64.txt
+sing-box:                                          https://sub.telloria.com/p/c4baa6405f12f7acb97850de0d1cd8eb/singbox.json
+
+## IPAD
+Clash Verge Rev（导入一次，之后 provider 自动热更新）: https://sub.telloria.com/p/9fb4f4ab76bc75fd4677f49a2cc63ff3/clash.yaml
+Shadowrocket（订阅 URL）:                         https://sub.telloria.com/p/9fb4f4ab76bc75fd4677f49a2cc63ff3/base64.txt
+sing-box:                                          https://sub.telloria.com/p/9fb4f4ab76bc75fd4677f49a2cc63ff3/singbox.json
+
+## LAPTOP
+Clash Verge Rev（导入一次，之后 provider 自动热更新）: https://sub.telloria.com/p/6337f2f0e6cd21598877b857ff4a4699/clash.yaml
+Shadowrocket（订阅 URL）:                         https://sub.telloria.com/p/6337f2f0e6cd21598877b857ff4a4699/base64.txt
+sing-box:                                          https://sub.telloria.com/p/6337f2f0e6cd21598877b857ff4a4699/singbox.json
+
+## WINDOWS
+Clash Verge Rev（导入一次，之后 provider 自动热更新）: https://sub.telloria.com/p/803595007782db356102c7d1fa960085/clash.yaml
+Shadowrocket（订阅 URL）:                         https://sub.telloria.com/p/803595007782db356102c7d1fa960085/base64.txt
+sing-box:                                          https://sub.telloria.com/p/803595007782db356102c7d1fa960085/singbox.json
+
+## SPARE
+Clash Verge Rev（导入一次，之后 provider 自动热更新）: https://sub.telloria.com/p/57b8519e480ead0bf38b9a51eb6d2629/clash.yaml
+Shadowrocket（订阅 URL）:                         https://sub.telloria.com/p/57b8519e480ead0bf38b9a51eb6d2629/base64.txt
+sing-box:                                          https://sub.telloria.com/p/57b8519e480ead0bf38b9a51eb6d2629/singbox.json
