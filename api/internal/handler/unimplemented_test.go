@@ -52,6 +52,13 @@ func TestDeliberatelyUnimplemented(t *testing.T) {
 	//     🔴 DisableUserTotp 尤其**不能**退化成 204：一个以为自己关掉了 2FA 的用户
 	//     会在下次登录时被挡在门外，而他手上可能已经把 authenticator 里的条目删了。
 	//     详见 account.go 那一节的开头。
+	//
+	//   getUserProxyConfig（浏览器扩展的代理配置）—— 契约先冻结、实现挂在两道门后面
+	//     （client-products-spec §6.1 的 E0 / E1）：① 节点侧还没有 HTTPS 代理入站；
+	//     ② HTTPS 入站的每用户字节能否进 UniProxy 上报路径**未核实** —— 不能计量就不能扣配额，
+	//     扩展流量会成为无界泄漏。🔴 尤其**不能**退化成「返回空 endpoints 的 200」：
+	//     扩展把空列表当「当前没有可用入站」显示，那是一个运营状态，不是一个未实现的功能；
+	//     两者在 popup 上长得一样，在决策上完全相反 —— 与本文件开头说的那类事故同形。
 	stillUnimplemented := map[string]func() (any, error){
 		"listAdminDomains":        func() (any, error) { return s.ListAdminDomains(ctx, gen.ListAdminDomainsRequestObject{}) },
 		"createAdminDomain":       func() (any, error) { return s.CreateAdminDomain(ctx, gen.CreateAdminDomainRequestObject{}) },
@@ -61,6 +68,7 @@ func TestDeliberatelyUnimplemented(t *testing.T) {
 		"enrollUserTotp":          func() (any, error) { return s.EnrollUserTotp(ctx, gen.EnrollUserTotpRequestObject{}) },
 		"verifyUserTotp":          func() (any, error) { return s.VerifyUserTotp(ctx, gen.VerifyUserTotpRequestObject{}) },
 		"disableUserTotp":         func() (any, error) { return s.DisableUserTotp(ctx, gen.DisableUserTotpRequestObject{}) },
+		"getUserProxyConfig":      func() (any, error) { return s.GetUserProxyConfig(ctx, gen.GetUserProxyConfigRequestObject{}) },
 	}
 
 	for name, call := range stillUnimplemented {

@@ -46,7 +46,7 @@ var nodeOperationScopes = map[string]string{
 // 免登录的那 11 个在 handler.PublicOperations 里（那份清单同时被 handler 包用到）。
 // 两张表分开维护而不是取补集：deny-by-default 的补集算法在「新增了一个
 // 管理面 operation」时会把它误算成用户面，而管理面凭据完全不同。
-// 共 41 个。
+// 共 42 个。
 var userSessionOperations = map[string]bool{
 	"CancelOrder":                 true, // POST /api/v1/orders/{trade_no}/cancel
 	"ChangePassword":              true, // PUT /api/v1/user/password
@@ -64,6 +64,7 @@ var userSessionOperations = map[string]bool{
 	"GetOrderPayment":             true, // GET /api/v1/orders/{trade_no}/payment
 	"GetTicket":                   true, // GET /api/v1/tickets/{public_id}
 	"GetUserDiagnose":             true, // GET /api/v1/user/diagnose
+	"GetUserProxyConfig":          true, // GET /api/v1/user/proxy-config（扩展用；handler 仍 501，见 unimplemented_test.go）
 	"GetUserSubscription":         true, // GET /api/v1/user/subscription
 	"GetUserUsage":                true, // GET /api/v1/user/usage
 	"GetWallet":                   true, // GET /api/v1/user/wallet
