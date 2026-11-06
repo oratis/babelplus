@@ -41,9 +41,11 @@ readonly EXPECT_VPN_JP="vpn-jp|asia-northeast1-a|e2-micro|34.104.192.233|RUNNING
 readonly EXPECT_ADDR_US="vpn-us-ip-v4|8.231.52.43|IN_USE"
 readonly EXPECT_ADDR_JP="vpn-jp-ip|34.104.192.233|IN_USE"
 
-# as-built §3 的 10 条防火墙规则，一条不增不减。
+# as-built §3 的 10 条防火墙规则 + 2026-09-04 自用 VPN 优化 p1 新增的 1 条，一条不增不减。
 # 其中 allow-xray-443 / allow-hysteria-udp443 / default-allow-ssh **没有 target tag**，
 # 对 default 网络里所有实例生效 —— 这是现存风险（非本项目引入），已记在 as-built §3。
+# vpn-deny-from-bp（prio 700，source-tag bp-node → target-tag vpn-node，DENY all）是自用 VPN
+# 隔离的一部分（ADR 0017 方向）；default-allow-rdp 同日被 --disabled，名字仍在，本集合只比名字。
 EXPECT_FIREWALL=(
   allow-hysteria-udp443
   allow-iap-ssh
@@ -53,6 +55,7 @@ EXPECT_FIREWALL=(
   default-allow-internal
   default-allow-rdp
   default-allow-ssh
+  vpn-deny-from-bp
   vpn-iap-ssh-allow
   vpn-public-ssh-deny
 )
