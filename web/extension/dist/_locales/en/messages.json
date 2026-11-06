@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "babel.plus — Private access for laptops in China",
+    "description": "Store / toolbar name"
+  },
+  "appDescription": {
+    "message": "A consumer privacy proxy for travellers and residents in China. Routes this browser's traffic through your babel.plus pass; nothing else on your computer is touched.",
+    "description": "Store short description"
+  }
+}

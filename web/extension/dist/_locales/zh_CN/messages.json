@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "babel.plus — 笔记本在华上网",
+    "description": "商店 / 工具栏名称"
+  },
+  "appDescription": {
+    "message": "面向在华旅行者与居民的隐私代理。只接管这个浏览器的流量，走你的 babel.plus 通行证；电脑上的其他程序一概不碰。",
+    "description": "商店简介"
+  }
+}
