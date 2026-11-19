@@ -29,7 +29,7 @@
 4. `infra/scripts/verify-isolation.sh`：`vpn-hk` 标 `planned` 时 27/0，改 `running` 后 **28/0**。
 
 **不证明**：
-1. **不证明晚高峰。** §2.2 是北京时间 11:19 与 13:33 的采样；晚高峰（20:00–24:00）复测在 Proxy_Skill `ops/README.md` 记录。
+1. **不证明晚高峰会更好 —— 晚高峰复测是反证（§2.3）。** 香港直交 4837 只在非高峰生效。
 2. **不证明电信 / 移动走香港更好。** 只采到了联通客户端；电信的 174 ms 来自 11-19 02:22 UTC 的临时探针，不是 `vpn-hk` 本机。
 3. **不证明吞吐。** 只有 ICMP RTT / 丢包与 traceroute；HY2 Brutal 下的单流吞吐要真机测。
 4. **不证明 IP 网段好坏。** 只预留了一个地址（`34.96.243.207`）；`rank_ip` 的 asia-east2 先验（35.220.x 移动直连 / 34.92.x 移动绕东京）说的是移动，本次没测移动。
@@ -45,7 +45,7 @@
 | 内网 IP | `10.170.0.6` |
 | 标签 / 标记 | `vpn-node` / `owner=personal,fleet=vpn,role=proxy` |
 | 服务账号 | `vpn-node-sa@oratis-491316.iam.gserviceaccount.com`（`logging.write` + `monitoring.write` scopes） |
-| 通路 | `HK-Reality`：xray 26.11.9 VLESS + REALITY + Vision，tcp:443，dest `www.cloudflare.com` · `HK-HY2`：Hysteria2，udp:443，salamander，自签证书 CN=www.bing.com，bing 伪装 |
+| 通路 | `HK-Reality`：xray 26.11.9（11-19 稍后降到全队统一的 26.3.27：26.11.9 的 REALITY 对 mihomo 1.19.34 认证失败，见 #53）VLESS + REALITY + Vision，tcp:443，dest `www.cloudflare.com` · `HK-HY2`：Hysteria2，udp:443，salamander，自签证书 CN=www.bing.com，bing 伪装 |
 | HY2 带宽 | 服务端**不写** `bandwidth`（runbook §2.2 约束 1）；客户端声明 up/down 即启用 Brutal |
 | 凭据 | **在节点上生成**（`xray x25519` / `xray uuid` / `openssl rand`），只落在 `/usr/local/etc/xray/config.json` 与 `/etc/hysteria/config.yaml`；不经本机、不进日志 |
 | sysctl | `99-proxy-network.conf`：bbr + fq（自检回读确认） |
@@ -61,9 +61,20 @@
 
 另一个联通出口 111.194.x.x 不回 ICMP：03:19 从香港 traceroute 第 9 跳到北京城域网 51 ms；从 vpn-jp 止于 Lumen 第 4 跳 191 ms。
 
+### 2.3 晚高峰复测（同法；高峰时 vpn-jp 上只有这一个活跃联通客户端）
+
+| 北京时间 | 香港侧 | 香港侧路径 | vpn-jp 同一分钟 |
+|---|---|---|---|
+| 21:09 | `vpn-hk` 219 ms，10% | 第 1 跳 Google 美西 142.251.54.146（140 ms）→ Lumen 4.26.x → 219.158.x | 202 ms，23% |
+| 22:01 | 临时探针（35.220.x，已删）212 ms，20% | 同上（第 1 跳 136 ms） | 202 ms，13% |
+| 22:09 | `vpn-hk` 218 ms，18% | 同上 | 202 ms，23% |
+
+**晚高峰香港也绕美国**，第一跳就是 vpn-jp 用的同一台美西路由器，比东京多一段香港 → 美国；两个网段（34.96.x、35.220.x）表现相同。
+所以 vpn-hk 改善的是非高峰（54 ms / 0% vs 200 ms / 20%），不解决晚高峰丢包。保留与复审判据记在 Proxy_Skill `ops/README.md`「晚高峰复测」。
+
 ## 3 · 这次没有解决的
 
-- [ ] 晚高峰复测（11-19 13:00 / 14:00 UTC 已排程，结果记在 Proxy_Skill `ops/README.md`）。
-- [ ] 订阅：`gen-subscription.py` 的区域元组仍硬编码 `(JP|US|SG)`；HK 进订阅由另一个会话随整份订阅一起发布（香港出口不得进 `🤖 AI` / `⚡ Auto`：Anthropic / OpenAI / Gemini 不对香港 IP 服务）。
+- [x] ~~晚高峰复测~~ 已做（§2.3）：高峰时香港同样绕美国。
+- [x] ~~订阅~~ #53 已做：`gen-subscription.py` 不再硬编码区域，HK-HY2 / HK-Reality 已发布（香港出口不得进 `🤖 AI` 及任何可能落到 HK 的组：Anthropic / OpenAI / Gemini 不对香港 IP 服务）。
 - [ ] `NODE_TOKEN_VPN_HK` 只在节点 `/etc/fleet/node-token` 与 KV `tok/node/*`；`.secrets.env` 不在本机，下次跑 `publish-subscription.sh` 前要把它补进去（脚本对缺失的节点 token 会直接退出）。
 - [ ] p0 对齐：asia-east2 子网 flow logs、失联 / CPU 告警扩到 `vpn-hk`。
