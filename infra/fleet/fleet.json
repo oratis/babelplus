@@ -8,7 +8,7 @@
     "改机型 / 换 IP / 换服务账号 / 加节点：先改这里，再跑 verify-isolation.sh 到绿，再发布订阅。顺序反了脚本会红，这是设计如此（D7，2026-09-05）。",
     "vpn-ops 按 D2（2026-09-05）推迟：Worker 承担聚合与日报，节点互探代替跨节点回打；复审条件见 personal-fleet-runbook §4 代价 5。"
   ],
-  "updated": "2026-09-05",
+  "updated": "2026-11-19",
   "project": "oratis-491316",
   "fleet_name": "vpn-fleet",
   "budget": {
@@ -34,6 +34,8 @@
       "vpn-allow-hy2-udp443",
       "vpn-allow-reality-443",
       "vpn-deny-from-bp",
+      "vpn-fengrongcheng-sg-iap",
+      "vpn-fengrongcheng-sg-reality",
       "vpn-iap-ssh-allow",
       "vpn-public-ssh-deny"
     ],
@@ -60,7 +62,9 @@
       "2026-09-05 05:40 CST：vpn-us 经 optimize-vpn.sh p2 摘掉默认 Compute SA（vpn-jp 未动）",
       "2026-09-05 09:42 CST：vpn-us stop → e2-small → vpn-node-sa → start（停机 50 s）",
       "2026-09-05 09:44–15:17 CST：vpn-jp stop → 网络中断 → 15:17 set vpn-node-sa + start（🔴 约 5.5 h 不可用）",
-      "2026-09-05 15:33 CST：+vpn-sg（asia-southeast1-a / e2-small / STANDARD / 34.2.143.75 / vpn-node-sa）"
+      "2026-09-05 15:33 CST：+vpn-sg（asia-southeast1-a / e2-small / STANDARD / 34.2.143.75 / vpn-node-sa）",
+      "2026-10-08 18:53 CST：+vpn-fengrongcheng-sg-iap / vpn-fengrongcheng-sg-reality（Proxy_Skill 建 vpn-fengrongcheng-sg 时一并建，独立 VPC vpn-fengrongcheng-sg，仅 IAP:22 + tcp:443）→ 15 条",
+      "2026-11-19 11:17 CST：删 vpn-us2-iap / vpn-us2-reality 与空 VPC vpn-us2（vpn-us2 于 10-24 归档为快照 vpn-us2-archive-20261024 后删机时遗留；快照保留）"
     ]
   },
   "services": {
@@ -77,8 +81,8 @@
       "region": "asia-northeast1",
       "machine_type": "e2-micro",
       "network_tier": "PREMIUM",
-      "ip": "34.104.192.233",
-      "address_name": "vpn-jp-ip",
+      "ip": "136.110.101.63",
+      "address_name": "vpn-jp-direct-20261117",
       "tags": [
         "vpn-node"
       ],
@@ -118,7 +122,7 @@
           "note": "Cloudflare Tunnel，抗封锁保险，非日常路径"
         }
       ],
-      "_note": "2026-09-05（D6）：默认 Compute SA → vpn-node-sa；机型不升（as-built §4.3：不是 CPU 瓶颈）。🔴 停机窗口失控：09:44 stop 后 gcloud 连接中断，15:17 才 start，约 5.5 h 不可用；内核更新随这次重启生效（6.1.0-52）。"
+      "_note": "2026-09-05（D6）：默认 Compute SA → vpn-node-sa；机型不升（as-built §4.3：不是 CPU 瓶颈）。🔴 停机窗口失控：09:44 stop 后 gcloud 连接中断，15:17 才 start，约 5.5 h 不可用；内核更新随这次重启生效（6.1.0-52）。 2026-11-14：原公网 IP 回包未到本机网卡；替换为直连 IP 34.84.178.150，原 vpn-jp-ip 保留用于回滚。 2026-11-17：同机 A/B/A/B 实测旧 IP Reality/SS 全失败、新 IP 连续成功，换用 136.110.101.63；旧 IP 保留回滚。HY2 同时段仍失败，单独续查。 2026-11-19 11:16 CST：两个旧 IP vpn-jp-ip（34.104.192.233）与 vpn-jp-direct-20261114（34.84.178.150）均已释放 —— 两者在 vpn-jp 上都已实测失效，留作回滚无意义（用户确认）。"
     },
     {
       "host": "vpn-us",
@@ -195,6 +199,39 @@
           "sort": 20
         }
       ]
+    },
+    {
+      "host": "vpn-fengrongcheng-sg",
+      "display_name": "fengrongcheng 新加坡办公专线",
+      "zone": "asia-southeast1-a",
+      "region": "asia-southeast1",
+      "machine_type": "e2-small",
+      "network_tier": "STANDARD",
+      "network": "vpn-fengrongcheng-sg",
+      "ip": "35.213.130.41",
+      "address_name": "vpn-fengrongcheng-sg-ip",
+      "tags": [
+        "vpn-fengrongcheng-sg"
+      ],
+      "role": "proxy",
+      "status": "running",
+      "deletion_protection": true,
+      "service_account": null,
+      "subscription_enabled": false,
+      "healthcheck": {
+        "check_egress_ipv4": true,
+        "idle_block_check": false
+      },
+      "cert": {},
+      "paths": [
+        {
+          "name": "FRC-SG-Reality",
+          "kind": "vless_reality",
+          "port": 443,
+          "sort": 10
+        }
+      ],
+      "_note": "2026-10-08 在 Proxy_Skill 为 fengrongcheng 新建的独享节点；2026-10-10 用户要求仅纳入 fleet 日报。独立 VPC/网络标签、无服务账号；保留现状。Xray 为 warning 日志，闲置/零日志不构成封锁证据。公网 IP 采样为服务器出口，不代表目标 Mac mini 全链路验证。"
     }
   ],
   "deferred": [
