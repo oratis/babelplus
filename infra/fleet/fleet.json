@@ -147,15 +147,15 @@
           "name": "US-CDN",
           "kind": "vless_ws_tls",
           "port": 443,
-          "sort": 10,
+          "sort": 20,
           "server": "cdn.gptwiki.net",
-          "note": "AI 站点首选：VM IP 被封不受影响"
+          "note": "IP 被封时的抗封锁备份（2026-11-19 起排在 US-Reality 之后：Reality 延迟更低，fallback 失效即切 CDN）"
         },
         {
           "name": "US-Reality",
           "kind": "vless_reality",
           "port": 443,
-          "sort": 20
+          "sort": 10
         },
         {
           "name": "US-SS",

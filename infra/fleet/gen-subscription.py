@@ -13,8 +13,9 @@
   base64.txt             分享链接逐行 base64（Shadowrocket / 兜底）
 
 三条从商用侧照抄的硬约束：
-  1. Hysteria2 默认不下发 up/down（声明带宽 = 启用 Brutal，有 100% 可分的特征；ADR 0004 裁决 1）。
-     自用队要速度可以加 --brutal 20,60，但要知道代价。
+  1. ~~Hysteria2 默认不下发 up/down~~（ADR 0004 裁决 1 是商用侧的）。2026-11-19 起自用队**默认下发 20/60**：
+     联通客户端回程丢包 ~50%，BBR 塌到与 TCP 同级，Brutal 是唯一实测能拉起单流的选项；
+     代价是 Brutal 的可识别特征与更多重传出网费。--brutal off 回到 BBR（Proxy_Skill ops/README 2026-11-18 一节）。
   2. 自用队默认关 mux（实测优先于 ADR 0004 裁决 2：as-built-personal-fleet §4.2 证明 mux 对本链路有害）。
   3. 不下发 GEOIP,CN（roadmap B46：拿不到 MMDB 时整份配置拒绝加载）。国内直连改用 RULE-SET cn-cidr，
      列表由同一个 Worker 自托管（publish-subscription.sh --refresh-cn-cidr），不指 GitHub。
@@ -23,10 +24,22 @@
    这样四种产物对所有设备**内容相同**，KV 里只存一份；吊销只删 token，不重发产物。
 🔴 本脚本只把凭据写进产物文件（chmod 600），终端只回显节点数与摘要，不回显任何凭据。
 """
+from __future__ import annotations  # macOS 自带 python3 3.9 也能跑（str | None 注解不求值）
 import argparse, base64, datetime, hashlib, json, os, pathlib, re, sys, urllib.parse
 
 HERE = pathlib.Path(__file__).resolve().parent
 DEFAULT_RULES_FROM = pathlib.Path("/Users/oratis/Documents/Codex/VPN/Proxy_Skill/clash-configs/mac.yaml")
+
+# 区域组：名字前缀（fleet.json paths[].name 的前缀）→ 组名。顺序即 🚀 Proxy 里的列出顺序。
+REGIONS = [("HK", "🇭🇰 Hong Kong"), ("JP", "🇯🇵 Japan"), ("SG", "🇸🇬 Singapore"), ("US", "🇺🇸 United States")]
+# AI 组可用的区域，第一个是默认。不含 HK：OpenAI / Anthropic / Gemini 不对香港提供服务（2026-11-19）。
+AI_REGIONS = ["🇺🇸 United States", "🇯🇵 Japan", "🇸🇬 Singapore"]
+# sing-box 没有 clash 的 rules 段，AI 分流在这里列（clash.yaml 的 AI 规则来自 --rules-from）。
+AI_DOMAINS = ["openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com", "sora.com", "anthropic.com",
+              "claude.ai", "claude.com", "claudeusercontent.com", "gemini.google.com", "aistudio.google.com",
+              "generativelanguage.googleapis.com", "notebooklm.google.com", "perplexity.ai", "x.ai", "grok.com",
+              "copilot.microsoft.com"]
+DEFAULT_BRUTAL = "20,60"   # 2026-11-19 用户决定：自用队 HY2 默认开 Brutal（联通线路 ~50% 丢包，BBR 塌）；--brutal off 关闭
 
 # ───────────────────────── 输入 ─────────────────────────
 
@@ -159,13 +172,8 @@ def extract_rules(path: pathlib.Path | None, geoip_mode: str) -> list[str]:
 
 
 def render_clash(fleet: dict, proxies: list[dict], rules: list[str], geoip_mode: str, provider_interval: int) -> str:
-    regions = []
-    for r, flag in (("JP", "🇯🇵 Japan"), ("US", "🇺🇸 United States"), ("SG", "🇸🇬 Singapore")):
-        if any(p["name"].startswith(r + "-") for p in proxies):
-            regions.append((r, flag))
+    regions = [(r, flag) for r, flag in REGIONS if any(p["name"].startswith(r + "-") for p in proxies)]
     region_names = [f for _, f in regions]
-    # 顺序：Japan 优先（as-built-personal-fleet §4.1：url-test 会稳定选中慢的那条）
-    ordered = [f for f in ["🇯🇵 Japan", "🇸🇬 Singapore", "🇺🇸 United States"] if f in region_names]
     fallback_geoip = "false" if geoip_mode == "ruleset" else "true"
     L = [
         f"# Clash Verge Rev / mihomo · 自用机队 · 由 gen-subscription.py 生成 · {datetime.date.today()}",
@@ -189,7 +197,8 @@ def render_clash(fleet: dict, proxies: list[dict], rules: list[str], geoip_mode:
         "    path: ./providers/fleet.yaml",
         f"    interval: {provider_interval}",
         "    health-check:", "      enable: true", "      url: https://www.gstatic.com/generate_204",
-        "      interval: 300", "      lazy: false   # fallback 组的健康信息只来自这里（分组级 url/interval 不测 provider 节点）",
+        "      interval: 60   # 2026-11-19：300 → 60，坏路径 1 分钟内被 fallback 跳过",
+        "      lazy: false   # fallback 组的健康信息只来自这里（分组级 url/interval 不测 provider 节点）",
         "      expected-status: 204",
         "",
     ]
@@ -197,15 +206,19 @@ def render_clash(fleet: dict, proxies: list[dict], rules: list[str], geoip_mode:
         L += ["rule-providers:", "  cn-cidr:", "    type: http", "    behavior: ipcidr", "    format: text",
               "    url: \"__SUB_BASE__/p/__TOKEN__/cn-cidr.txt\"", "    path: ./ruleset/cn-cidr.txt", "    interval: 86400", ""]
     L += ["proxy-groups:",
-          "  # Japan 优先而不是 ⚡ Auto：本链路上健康节点的延迟都在同一噪声带（95–325 ms），吞吐却差 4–5 倍，",
-          "  # url-test 按延迟排序会稳定挑中慢的那条（as-built-personal-fleet §4.1）。",
-          '  - name: "🚀 Proxy"', "    type: select", "    proxies:"]
-    L += [f"      - {ystr(f)}" for f in ordered] + ['      - "⚡ Auto"', "      - DIRECT", ""]
-    L += ['  - name: "⚡ Auto"', "    type: url-test", "    use: [fleet]", '    filter: "^(JP|US|SG)-"', "    tolerance: 80", ""]
+          "  # 2026-11-19：🚀 Proxy 默认 ⚡ Auto = 在「区域组」之间按延迟选（Proxy_Skill ops/README 2026-11-18 一节）。",
+          "  # 联通（AS4837）从 GCP 只有香港 Premium 是直交（50 ms），东京 / 美国都绕美国过境；电信 / 移动东京最快。",
+          "  # 按区域组而不是按单个节点比延迟：区域内仍由 fallback 先用 HY2（Brutal 吞吐），延迟只用来选区域。",
+          '  - name: "🚀 Proxy"', "    type: select", "    proxies:", '      - "⚡ Auto"']
+    L += [f"      - {ystr(f)}" for f in region_names] + ["      - DIRECT", ""]
+    L += ['  - name: "⚡ Auto"', "    type: url-test", "    proxies:"] + [f"      - {ystr(f)}" for f in region_names]
+    L += ["    url: https://www.gstatic.com/generate_204", "    interval: 120", "    tolerance: 60",
+          "    lazy: false", "    expected-status: 204", ""]
     for r, flag in regions:
         L += [f"  - name: {ystr(flag)}", "    type: fallback", "    use: [fleet]", f'    filter: "^{r}-"', ""]
-    ai = [f for f in ["🇺🇸 United States", "⚡ Auto", "🇯🇵 Japan", "🇸🇬 Singapore"] if f in region_names or f == "⚡ Auto"]
-    L += ['  - name: "🤖 AI"', "    type: select", "    proxies:"] + [f"      - {ystr(f)}" for f in ai] + ['      - "🚀 Proxy"', "      - DIRECT", ""]
+    # OpenAI / Anthropic / Gemini 不对香港提供服务：AI 组不含 HK，也不含可能落到 HK 的 ⚡ Auto / 🚀 Proxy。
+    ai = [f for f in AI_REGIONS if f in region_names]
+    L += ['  - name: "🤖 AI"', "    type: select", "    proxies:"] + [f"      - {ystr(f)}" for f in ai] + ["      - DIRECT", ""]
     L += ['  - name: "🌎 Global"', "    type: select", "    proxies:", '      - "🚀 Proxy"', "      - DIRECT", ""]
     L += ['  - name: "🇨🇳 Direct-CN"', "    type: select", "    proxies:", "      - DIRECT", '      - "🚀 Proxy"', ""]
     L += ['  - name: "🎯 Final"', "    type: select", "    proxies:", '      - "🚀 Proxy"', "      - DIRECT", ""]
@@ -242,17 +255,21 @@ def render_singbox(proxies: list[dict], geoip_mode: str) -> str:
                               "tls": {"enabled": True, "server_name": p["host"], "utls": {"enabled": True, "fingerprint": "chrome"}},
                               "transport": {"type": "ws", "path": p["path"], "headers": {"Host": p["host"]}}})
         names.append(p["name"])
-    real = [n for n in names if re.match(r"^(JP|US|SG)-", n)]
+    prefixes = "|".join(r for r, _ in REGIONS)
+    real = [n for n in names if re.match(rf"^({prefixes})-", n)]
     by = lambda r: [n for n in real if n.startswith(r + "-")]
-    groups = []
-    for r, tag in (("JP", "🇯🇵 Japan"), ("SG", "🇸🇬 Singapore"), ("US", "🇺🇸 United States")):
-        if by(r):
-            groups.append({"type": "urltest", "tag": tag, "outbounds": by(r), "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 80})
-    auto = {"type": "urltest", "tag": "⚡ Auto", "outbounds": real, "url": "https://www.gstatic.com/generate_204", "interval": "3m", "tolerance": 80}
-    proxy_sel = {"type": "selector", "tag": "🚀 Proxy", "outbounds": [g["tag"] for g in groups] + ["⚡ Auto", "direct"], "default": groups[0]["tag"] if groups else "⚡ Auto"}
+    test = {"url": "https://www.gstatic.com/generate_204", "interval": "2m"}
+    groups = [{"type": "urltest", "tag": tag, "outbounds": by(r), **test, "tolerance": 150} for r, tag in REGIONS if by(r)]
+    region_tags = [g["tag"] for g in groups]
+    # 与 clash.yaml 同一设计：⚡ Auto 在区域组之间按延迟选；AI 不进 HK（OpenAI / Anthropic / Gemini 不服务香港）
+    auto = {"type": "urltest", "tag": "⚡ Auto", "outbounds": region_tags, **test, "tolerance": 60}
+    ai_out = [t for t in AI_REGIONS if t in region_tags]
+    ai_sel = {"type": "selector", "tag": "🤖 AI", "outbounds": ai_out or ["direct"], "default": (ai_out or ["direct"])[0]}
+    proxy_sel = {"type": "selector", "tag": "🚀 Proxy", "outbounds": ["⚡ Auto"] + region_tags + ["direct"], "default": "⚡ Auto"}
     route_rules = [
         {"protocol": "dns", "action": "hijack-dns"},
         {"ip_is_private": True, "outbound": "direct"},
+        {"domain_suffix": AI_DOMAINS, "outbound": "🤖 AI"},
         {"domain_suffix": [".cn"], "outbound": "direct"},
     ]
     rule_set = []
@@ -267,7 +284,7 @@ def render_singbox(proxies: list[dict], geoip_mode: str) -> str:
                             {"tag": "remote", "address": "https://1.1.1.1/dns-query", "detour": "🚀 Proxy"}],
                 "rules": [{"domain_suffix": [".cn"], "server": "cn"}], "final": "remote", "strategy": "ipv4_only"},
         "inbounds": [{"type": "tun", "tag": "tun-in", "address": ["172.19.0.1/30"], "auto_route": True, "strict_route": False, "stack": "mixed"}],
-        "outbounds": [proxy_sel, auto] + groups + outbounds + [{"type": "direct", "tag": "direct"}],
+        "outbounds": [proxy_sel, auto, ai_sel] + groups + outbounds + [{"type": "direct", "tag": "direct"}],
         "route": {"rules": route_rules, "rule_set": rule_set, "final": "🚀 Proxy", "auto_detect_interface": True},
     }
     return json.dumps(cfg, ensure_ascii=False, indent=2) + "\n"
@@ -306,7 +323,8 @@ def main():
     ap.add_argument("--out", default=str(HERE / "out"))
     ap.add_argument("--sub-domain", default=None, help="写进公告伪节点名的订阅域名（默认取 fleet.json .subscription.hostname）")
     ap.add_argument("--geoip", choices=["ruleset", "geoip"], default="ruleset", help="国内直连用自托管 RULE-SET（默认，B46）还是 GEOIP,CN")
-    ap.add_argument("--brutal", default=None, metavar="UP,DOWN", help="给 Hysteria2 下发 up/down（启用 Brutal，有可分特征；默认不下发）")
+    ap.add_argument("--brutal", default=DEFAULT_BRUTAL, metavar="UP,DOWN|off",
+                    help=f"给 Hysteria2 下发 up/down（启用 Brutal，有可分特征）。默认 {DEFAULT_BRUTAL}；off = 不下发，回到 BBR")
     ap.add_argument("--rules-from", default=str(DEFAULT_RULES_FROM), help="从这份 clash 配置抽 rules: 段（用户的路由策略）")
     a = ap.parse_args()
 
@@ -314,19 +332,22 @@ def main():
     env = load_env(pathlib.Path(a.secrets))
     sub_domain = a.sub_domain or (fleet.get("subscription") or {}).get("hostname") or "（域名待定）"
     notice = fleet["notice"]["name_template"].format(sub_domain=sub_domain, date=datetime.date.today().isoformat())
-    proxies = build_proxies(fleet, env, notice, a.brutal)
+    brutal = None if str(a.brutal).lower() in ("off", "none", "0", "") else a.brutal
+    proxies = build_proxies(fleet, env, notice, brutal)
     rules = extract_rules(pathlib.Path(a.rules_from) if a.rules_from else None, a.geoip)
     interval = int((fleet.get("subscription") or {}).get("provider_interval_s", 900))
 
     out = pathlib.Path(a.out); out.mkdir(parents=True, exist_ok=True)
     products = {
         "mihomo-provider.yaml": render_provider(proxies),
+        # 线上 Worker（11-13 部署）对 iphone 设备的 base64.txt 请求下发这份；内容与 provider 相同（不再套 dialer-proxy）
+        "iphone-shadowrocket.yaml": render_provider(proxies),
         "clash.yaml": render_clash(fleet, proxies, rules, a.geoip, interval),
         "singbox.json": render_singbox(proxies, a.geoip),
         "base64.txt": base64.b64encode(("\n".join(share_links(proxies)) + "\n").encode()).decode() + "\n",
     }
     manifest = {"generated": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-                "sub_domain": sub_domain, "geoip": a.geoip, "brutal": a.brutal, "nodes": [], "files": {}}
+                "sub_domain": sub_domain, "geoip": a.geoip, "brutal": brutal, "nodes": [], "files": {}}
     for f, body in products.items():
         p = out / f
         p.write_text(body, encoding="utf-8"); p.chmod(0o600)
