@@ -64,7 +64,8 @@
       "2026-09-05 09:44–15:17 CST：vpn-jp stop → 网络中断 → 15:17 set vpn-node-sa + start（🔴 约 5.5 h 不可用）",
       "2026-09-05 15:33 CST：+vpn-sg（asia-southeast1-a / e2-small / STANDARD / 34.2.143.75 / vpn-node-sa）",
       "2026-10-08 18:53 CST：+vpn-fengrongcheng-sg-iap / vpn-fengrongcheng-sg-reality（Proxy_Skill 建 vpn-fengrongcheng-sg 时一并建，独立 VPC vpn-fengrongcheng-sg，仅 IAP:22 + tcp:443）→ 15 条",
-      "2026-11-19 11:17 CST：删 vpn-us2-iap / vpn-us2-reality 与空 VPC vpn-us2（vpn-us2 于 10-24 归档为快照 vpn-us2-archive-20261024 后删机时遗留；快照保留）"
+      "2026-11-19 11:17 CST：删 vpn-us2-iap / vpn-us2-reality 与空 VPC vpn-us2（vpn-us2 于 10-24 归档为快照 vpn-us2-archive-20261024 后删机时遗留；快照保留）",
+      "2026-11-19 13:2x CST：+vpn-hk（asia-east2-a / e2-small / PREMIUM / 34.96.243.207 / vpn-node-sa；保留地址 vpn-hk-ip）。不新增防火墙规则：443 入向走既有的 vpn-node 标签规则"
     ]
   },
   "services": {
@@ -194,6 +195,41 @@
         },
         {
           "name": "SG-Reality",
+          "kind": "vless_reality",
+          "port": 443,
+          "sort": 20
+        }
+      ]
+    },
+    {
+      "host": "vpn-hk",
+      "zone": "asia-east2-a",
+      "region": "asia-east2",
+      "machine_type": "e2-small",
+      "network_tier": "PREMIUM",
+      "ip": "34.96.243.207",
+      "address_name": "vpn-hk-ip",
+      "tags": [
+        "vpn-node"
+      ],
+      "role": "proxy",
+      "status": "running",
+      "deletion_protection": true,
+      "service_account": "vpn-node-sa@oratis-491316.iam.gserviceaccount.com",
+      "secrets_prefix": "HK_",
+      "cert": {
+        "hysteria": "/etc/hysteria/server.crt"
+      },
+      "_note": "2026-11-19 13:2x CST 由 create-vpn-node.sh 建成（evidence/fleet-node-provision-vpn-hk-20261119），随后 setup-vpn-node.sh 装 xray REALITY（dest www.cloudflare.com）+ Hysteria2（salamander，服务端不写 bandwidth，客户端声明 up/down 即 Brutal），凭据在节点上生成、只在 /usr/local/etc/xray/config.json 与 /etc/hysteria/config.yaml；快照策略 vpn-weekly-hk。给中国联通（AS4837）客户端的入口。联通回程从 vpn-jp / vpn-us / vpn-sg 出去都被 Google 拉到美国交 Lumen/Telia，晚高峰约 50% 丢包；asia-east2 Premium 在香港直交 219.158.x，同一分钟实测 50 ms / 0% vs vpn-jp 195–205 ms / 17–20%（Proxy_Skill ops/README.md 2026-11-18 节、ops/gcp/region-path-probe.sh）。PREMIUM 是必须的：Standard 在香港同样绕美国（346 ms）。电信从香港绕美国（174 ms），客户端按延迟选区。🔴 香港出口不得进 🤖 AI / ⚡ Auto（Anthropic / OpenAI / Gemini 不对香港 IP 服务）。",
+      "paths": [
+        {
+          "name": "HK-HY2",
+          "kind": "hysteria2",
+          "port": 443,
+          "sort": 10
+        },
+        {
+          "name": "HK-Reality",
           "kind": "vless_reality",
           "port": 443,
           "sort": 20
