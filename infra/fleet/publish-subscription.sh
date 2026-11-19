@@ -84,7 +84,7 @@ if [ "$GEN" = 1 ]; then
   # ${arr[@]+"${arr[@]}"}：空数组在 macOS 自带的 bash 3.2 下会触发 set -u 的 unbound variable
   python3 "$HERE/gen-subscription.py" --fleet "$FLEET_JSON" --secrets "$HERE/.secrets.env" --out "$OUT" ${GEN_ARGS[@]+"${GEN_ARGS[@]}"}
 fi
-for f in mihomo-provider.yaml clash.yaml singbox.json base64.txt; do
+for f in mihomo-provider.yaml iphone-shadowrocket.yaml clash.yaml singbox.json base64.txt; do
   [ -s "$OUT/$f" ] || die "缺产物 $OUT/$f（先跑 gen-subscription.py）"
 done
 
@@ -154,7 +154,7 @@ fi
 
 # ── 3 · 产物进 KV ──
 say "发布产物 → KV $NS"
-for f in mihomo-provider.yaml clash.yaml singbox.json base64.txt cn-cidr.txt cn-cidr.json; do
+for f in mihomo-provider.yaml iphone-shadowrocket.yaml clash.yaml singbox.json base64.txt cn-cidr.txt cn-cidr.json; do
   [ -s "$OUT/$f" ] || { printf '  跳过 %s（无文件）\n' "$f"; continue; }
   kv key put "sub/$f" --path "$OUT/$f"
   printf '  sub/%s\n' "$f"

@@ -32,7 +32,7 @@ export DEBIAN_FRONTEND=noninteractive
 : "${HY2_PASSWORD:?}" "${HY2_OBFS_PASSWORD:?}" "${HY2_SNI:=www.bing.com}"
 SS_PORT="${SS_PORT:-48882}"; SS_PASSWORD="${SS_PASSWORD:-}"
 CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"; CDN_UUID="${CDN_UUID:-}"; CDN_WS_PATH="${CDN_WS_PATH:-}"; CDN_WS_PORT="${CDN_WS_PORT:-8080}"
-XRAY_VER="${XRAY_VER:-}"   # 空 = 官方安装脚本的最新版；钉版本就写 v25.x.y
+XRAY_VER="${XRAY_VER:-v26.3.27}"   # 2026-11-19 钉版：v26.11.9 的 REALITY 与 mihomo 1.19.34 客户端认证不通过（vpn-hk 实测），全队统一 v26.3.27；换版本就传 XRAY_VER=vX.Y.Z
 
 say() { printf '\n=== %s\n' "$*"; }
 
