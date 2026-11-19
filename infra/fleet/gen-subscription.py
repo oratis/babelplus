@@ -52,6 +52,8 @@ def build_proxies(fleet: dict, env: dict, notice_name: str, brutal: str | None) 
     for node in fleet["nodes"]:
         if (node.get("status") or "running") == "planned" or not node.get("ip"):
             continue
+        if node.get("subscription_enabled") is False:
+            continue  # 只进巡检 / 日报、不进订阅的节点（如 vpn-fengrongcheng-sg 独享专线）
         p = node.get("secrets_prefix", "")
         def sec(key, required=True):
             v = env.get(p + key, "")
